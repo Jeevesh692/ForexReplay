@@ -26,7 +26,7 @@ def draw_chart():
     plt.clf()
 
     mpf.plot(
-        engine.current_data()[["open", "high", "low", "close"]],
+        engine.current_data(100)[["open", "high", "low", "close"]],
         type="candle",
         style="charles",
         ax=plt.gca(),
