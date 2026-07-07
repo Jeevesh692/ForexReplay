@@ -1,5 +1,6 @@
 from replay.loader import load_data
 from replay.replay_engine import ReplayEngine
+from matplotlib.animation import FuncAnimation
 
 import mplfinance as mpf
 import matplotlib.pyplot as plt
@@ -11,6 +12,15 @@ df.set_index("time", inplace=True)
 engine = ReplayEngine(df)
 
 fig = plt.figure()
+
+playing = False
+
+def update(frame):
+    global playing
+
+    if playing:
+        engine.next_candle()
+        draw_chart()
 
 def draw_chart():
     plt.clf()
@@ -28,6 +38,8 @@ def draw_chart():
 draw_chart()
 
 def on_key(event):
+    global playing
+
     if event.key == "right":
         engine.next_candle()
         draw_chart()
@@ -38,6 +50,11 @@ def on_key(event):
         draw_chart()
         plt.draw()
 
+    elif event.key == " ":
+        playing = not playing
+
 fig.canvas.mpl_connect("key_press_event", on_key)
+
+ani = FuncAnimation(fig, update, interval=200)
 
 plt.show()
