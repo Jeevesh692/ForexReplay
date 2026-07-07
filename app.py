@@ -10,7 +10,11 @@ df = load_data("data/EURUSD_M5.csv")
 df.set_index("time", inplace=True)
 
 engine = ReplayEngine(df)
+jump_date = "2025-06-01 09:00:00"
 
+nearest = df.index.get_indexer([jump_date], method="nearest")[0]
+
+engine.current = nearest
 fig = plt.figure()
 
 playing = False
