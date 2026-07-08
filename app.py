@@ -36,6 +36,7 @@ else:
 fig = plt.figure()
 
 playing = False
+buy_mode = False
 
 def update(frame):
     global playing
@@ -49,6 +50,25 @@ def update(frame):
         trade_manager.update_trades(candle)
 
     draw_chart()
+def on_click(event):
+
+    global buy_mode
+
+    if event.inaxes is None:
+        return
+
+    if not buy_mode:
+        return
+
+    price = round(event.ydata, 5)
+
+    candle = engine.current_data(100).iloc[-1]
+
+    trade_manager.buy(candle, price)
+
+    buy_mode = False
+
+
 def draw_chart():
     plt.clf()
 
@@ -102,9 +122,12 @@ def on_key(event):
 
     elif event.key == "b":
 
-        candle = engine.current_data(100).iloc[-1]
+        global buy_mode
 
-        trade_manager.buy(candle)
+        buy_mode = True
+
+        print("\nBUY mode activated.")
+        print("Click anywhere on the chart to enter.")
 
     elif event.key == "n":
 
@@ -125,6 +148,7 @@ def on_key(event):
         trade_manager.show_statistics()
 
 fig.canvas.mpl_connect("key_press_event", on_key)
+fig.canvas.mpl_connect("button_press_event", on_click)
 
 ani = FuncAnimation(fig, update, interval=200)
 

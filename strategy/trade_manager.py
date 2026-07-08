@@ -5,7 +5,7 @@ class TradeManager:
 
     def __init__(self):
         self.trades = []
-    def buy(self, candle):
+    def buy(self, candle, entry):
 
         entry = candle["close"]
 
@@ -31,9 +31,8 @@ class TradeManager:
         print(f"SL    : {sl:.5f}")
         print(f"TP    : {tp:.5f}")
 
-    def sell(self, candle):
+    def sell(self, candle, entry):
 
-        entry = candle["close"]
 
         print("\nEnter Stop Loss price:")
         sl = float(input())
