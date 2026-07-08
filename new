@@ -1,0 +1,1 @@
+df = load_data("data/EURUSD_M5.csv")

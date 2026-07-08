@@ -7,16 +7,32 @@ import mplfinance as mpf
 import matplotlib.pyplot as plt
 
 # Load data
+# Load data
 df = load_data("data/EURUSD_M5.csv")
+
+print(df.columns)
+
 df.set_index("time", inplace=True)
 
 engine = ReplayEngine(df)
 trade_manager = TradeManager()
-jump_date = "2025-06-01 09:00:00"
+print("\nJump to date? (Press Enter to start from beginning)")
+print("Format: YYYY-MM-DD HH:MM:SS")
 
-nearest = df.index.get_indexer([jump_date], method="nearest")[0]
+jump_date = input("> ").strip()
 
-engine.current = nearest
+if jump_date:
+
+    try:
+        nearest = df.index.get_indexer([jump_date], method="nearest")[0]
+        engine.current = nearest
+
+    except Exception:
+        print("Invalid date. Starting from beginning.")
+        engine.current = 100
+
+else:
+    engine.current = 100
 fig = plt.figure()
 
 playing = False
@@ -36,16 +52,30 @@ def update(frame):
 def draw_chart():
     plt.clf()
 
-    mpf.plot(
-        engine.current_data(100)[["open", "high", "low", "close"]],
-        type="candle",
-        style="charles",
-        ax=plt.gca(),
-        volume=False
+    fig = plt.gcf()
+
+    ax_price = fig.add_subplot(2, 1, 1)
+    ax_volume = fig.add_subplot(
+        2,
+        1,
+        2,
+        sharex=ax_price
     )
 
-    plt.title(f"EURUSD M5 | Candles: {engine.current}")
+    chart = engine.current_data(100)
+    chart = chart.rename(columns={"tick_volume": "volume"})
 
+    mpf.plot(
+        chart,
+        type="candle",
+        style="charles",
+        ax=ax_price,
+        volume=ax_volume
+    )
+
+    ax_price.set_title(
+        f"EURUSD M5 | Candles: {engine.current}"
+    )
 draw_chart()
 
 def on_key(event):
