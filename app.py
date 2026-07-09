@@ -57,17 +57,37 @@ def on_click(event):
     if event.inaxes is None:
         return
 
+    print("---------------------")
+    print("xdata:", event.xdata)
+    print("ydata:", event.ydata)
+
+    chart = engine.current_data(100)
+
+    print("First candle :", chart.index[0])
+    print("Last candle  :", chart.index[-1])
+
     if not buy_mode:
         return
 
     price = round(event.ydata, 5)
 
-    candle = engine.current_data(100).iloc[-1]
+    visible_index = int(round(event.xdata))
 
+    visible_index = max(0, min(visible_index, len(chart) - 1))
+
+    candle = chart.iloc[visible_index]
+
+    actual_index = engine.current - len(chart) + visible_index
+
+    print("Actual dataframe index:", actual_index)
+
+    engine.jump_to_index(actual_index)
+    draw_chart()
+    plt.draw()
+    print(f"Selected candle: {candle.name}")
     trade_manager.buy(candle, price)
 
     buy_mode = False
-
 
 def draw_chart():
     plt.clf()

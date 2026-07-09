@@ -7,8 +7,6 @@ class TradeManager:
         self.trades = []
     def buy(self, candle, entry):
 
-        entry = candle["close"]
-
         print("\nEnter Stop Loss price:")
         sl = float(input())
 

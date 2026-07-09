@@ -1,4 +1,6 @@
 class ReplayEngine:
+    def jump_to_index(self, index):
+        self.current = max(100, min(index, len(self.df) - 1))
     def __init__(self, dataframe, initial_candles=100):
         self.df = dataframe
         self.current = initial_candles
