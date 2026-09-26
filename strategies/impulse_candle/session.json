@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "run_id": "legacy-session",
+  "current": 19523,
+  "furthest": 19523,
+  "trades": [
+    {
+      "id": 1,
+      "side": "BUY",
+      "order_type": "MARKET",
+      "stop_loss": 1.13431,
+      "take_profit": 1.13552,
+      "placed_time": "2025-05-30T23:50:00",
+      "planned_entry": 1.13484,
+      "order_price": null,
+      "status": "CLOSED",
+      "entry_price": 1.13484,
+      "entry_time": "2025-05-30T23:50:00",
+      "exit_price": 1.13431,
+      "exit_time": "2025-06-02T00:05:00",
+      "exit_reason": "STOP_LOSS",
+      "best_price": null,
+      "worst_price": null,
+      "tags": {}
+    }
+  ],
+  "drawings": []
+}
