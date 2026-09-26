@@ -1,18 +1,15 @@
 from strategy.trade import Trade
+import csv
 
 
 class TradeManager:
 
-    def __init__(self):
+    def __init__(self, trade_logger=None):
         self.trades = []
-    def buy(self, candle, entry):
+        self.trade_logger = trade_logger
+    def buy(self, candle, entry, sl, tp):
 
-        print("\nEnter Stop Loss price:")
-        sl = float(input())
-
-        print("Enter Take Profit price:")
-        tp = float(input())
-
+        
         trade = Trade(
             "BUY",
             entry,
@@ -29,14 +26,8 @@ class TradeManager:
         print(f"SL    : {sl:.5f}")
         print(f"TP    : {tp:.5f}")
 
-    def sell(self, candle, entry):
+    def sell(self, candle, entry, sl, tp):
 
-
-        print("\nEnter Stop Loss price:")
-        sl = float(input())
-
-        print("Enter Take Profit price:")
-        tp = float(input())
 
         trade = Trade(
             "SELL",
@@ -122,7 +113,8 @@ class TradeManager:
 
                 trade.reward = trade.exit_price - trade.entry_price
                 trade.result_r = trade.reward / trade.risk
-                
+                if self.trade_logger:
+                   self.trade_logger.log_trade(trade)
 
                 print("\nBUY Stop Loss Hit")
                 print(f"Result: {trade.result_r:.2f}R")
@@ -135,6 +127,8 @@ class TradeManager:
 
                 trade.reward = trade.exit_price - trade.entry_price
                 trade.result_r = trade.reward / trade.risk
+                if self.trade_logger:
+                   self.trade_logger.log_trade(trade)
 
                 print("\nBUY Take Profit Hit")
                 print(f"Result: {trade.result_r:.2f}R")
@@ -149,6 +143,8 @@ class TradeManager:
 
                 trade.reward = trade.entry_price - trade.exit_price
                 trade.result_r = trade.reward / trade.risk
+                if self.trade_logger:
+                   self.trade_logger.log_trade(trade)
 
                 print("\nSELL Stop Loss Hit")
                 print(f"Result: {trade.result_r:.2f}R")
@@ -161,43 +157,45 @@ class TradeManager:
 
                 trade.reward = trade.entry_price - trade.exit_price
                 trade.result_r = trade.reward / trade.risk
+                if self.trade_logger:
+                   self.trade_logger.log_trade(trade)
 
                 print("\nSELL Take Profit Hit")
                 print(f"Result: {trade.result_r:.2f}R")
-    def show_statistics(self):
+    def show_statistics(self, filename):
 
-        closed = [t for t in self.trades if t.status == "CLOSED"]
+        closed = []
+
+        with open(filename, newline="") as f:
+
+            reader = csv.DictReader(f)
+
+            for row in reader:
+
+                closed.append(float(row["Result (R)"]))
 
         if len(closed) == 0:
             print("\nNo closed trades.\n")
             return
 
-        wins = [t for t in closed if t.result_r > 0]
-        losses = [t for t in closed if t.result_r <= 0]
+        wins = [r for r in closed if r > 0]
+        losses = [r for r in closed if r <= 0]
 
-        total_r = sum(t.result_r for t in closed)
+        total_r = sum(closed)
 
-        avg_win = (
-            sum(t.result_r for t in wins) / len(wins)
-            if wins else 0
-        )
-
-        avg_loss = (
-            sum(t.result_r for t in losses) / len(losses)
-            if losses else 0
-        )
+        avg_win = sum(wins) / len(wins) if wins else 0
+        avg_loss = sum(losses) / len(losses) if losses else 0
 
         win_rate = len(wins) / len(closed) * 100
 
         expectancy = total_r / len(closed)
 
-        gross_profit = sum(t.result_r for t in wins)
-
-        gross_loss = abs(sum(t.result_r for t in losses))
+        gross_profit = sum(wins)
+        gross_loss = abs(sum(losses))
 
         profit_factor = (
-            gross_profit / gross_loss
-            if gross_loss != 0 else float("inf")
+              gross_profit / gross_loss
+              if gross_loss != 0 else float("inf")
         )
 
         print("\n========== STATISTICS ==========")
