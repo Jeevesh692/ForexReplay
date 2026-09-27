@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ForexReplay</title>
+  <link rel="stylesheet" href="css/app.css">
+  <script src="vendor/lightweight-charts.standalone.production.js" defer onerror="window.__chartLibMissing = true"></script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Forex<span>Replay</span></div>
+    <div class="pill" id="symbol">EURUSD</div>
+    <div class="group" id="timeframes" title="Timeframes arrive on day 2">
+      <button disabled>M5</button><button disabled>M15</button><button disabled>M30</button>
+      <button disabled>H1</button><button disabled>H4</button><button disabled>D1</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group" title="Replay controls arrive on day 3">
+      <button disabled aria-label="Step back">&#9664;</button>
+      <button disabled aria-label="Play">&#9654;</button>
+      <button disabled aria-label="Step forward">&#9654;&#10072;</button>
+      <button disabled>1x</button>
+    </div>
+    <div class="clock" id="clock">Replay clock: not started</div>
+  </header>
+
+  <aside class="tools" aria-label="Drawing tools (day 6)">
+    <button disabled title="Crosshair">
+      <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg></button>
+    <button disabled title="Trendline (day 6)">
+      <svg viewBox="0 0 24 24"><path d="M4 19L20 5"/><circle cx="4" cy="19" r="1.6"/><circle cx="20" cy="5" r="1.6"/></svg></button>
+    <button disabled title="Horizontal line (day 6)">
+      <svg viewBox="0 0 24 24"><path d="M3 12h18"/></svg></button>
+    <button disabled title="Rectangle (day 6)">
+      <svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="10" rx="1"/></svg></button>
+    <button disabled title="Fibonacci retracement (day 6)">
+      <svg viewBox="0 0 24 24"><path d="M3 5h18M3 10h18M3 14h18M3 19h18"/></svg></button>
+    <button disabled title="Long / short position (day 6)">
+      <svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="7"/><rect x="5" y="13" width="14" height="7"/></svg></button>
+    <button disabled title="Text (day 9)">
+      <svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13"/></svg></button>
+  </aside>
+
+  <main class="stage">
+    <section class="view" id="data-view">
+      <div class="view-head">
+        <h1>Market data</h1>
+        <span class="badge">Day 1 build</span>
+      </div>
+      <p class="lead" id="lead">Loading EURUSD candles...</p>
+      <div class="error" id="error" hidden></div>
+
+      <div class="cards" id="cards"></div>
+
+      <div class="block">
+        <h2>EURUSD close, whole dataset</h2>
+        <canvas id="overview" height="220" aria-label="EURUSD close price over the whole dataset"></canvas>
+      </div>
+
+      <div class="block">
+        <h2>Latest candles <span class="muted" id="preview-note"></span></h2>
+        <div id="preview" class="preview"></div>
+      </div>
+
+      <div class="block">
+        <h2>Monthly files</h2>
+        <table class="grid" id="months">
+          <thead><tr><th>Month</th><th class="num">Candles</th><th>First candle (IST)</th><th>Last candle (IST)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <aside class="panel">
+    <h2>Trading</h2>
+    <p class="muted">Orders, positions and risk-based lot sizing arrive on days 4&ndash;5.</p>
+    <ul class="soon">
+      <li>Market, limit and stop orders</li>
+      <li>Drag stop loss and take profit</li>
+      <li>Lots from risk %</li>
+      <li>Partial close and breakeven</li>
+      <li>Prop-firm challenge rules (day 8)</li>
+    </ul>
+  </aside>
+
+  <footer class="statusbar">
+    <span id="status-data">No data loaded</span>
+    <span id="status-lib">Chart library: checking...</span>
+    <span>All times India (UTC+5:30)</span>
+    <span id="status-version"></span>
+  </footer>
+</body>
+</html>

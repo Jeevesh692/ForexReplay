@@ -1,0 +1,175 @@
+:root {
+  --bg: #131722;
+  --panel: #1e222d;
+  --panel-2: #2a2e39;
+  --border: #2a2e39;
+  --text: #d1d4dc;
+  --muted: #868993;
+  --blue: #2962ff;
+  --up: #26a69a;
+  --down: #ef5350;
+  --warn: #f5a623;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 -apple-system, "Segoe UI", Roboto, "Trebuchet MS", sans-serif;
+  display: grid;
+  grid-template-columns: 48px 1fr 280px;
+  grid-template-rows: 44px 1fr 28px;
+  grid-template-areas:
+    "top top top"
+    "tools stage panel"
+    "status status status";
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 700; font-size: 15px; letter-spacing: 0.2px; }
+.brand span { color: var(--blue); }
+.pill {
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  font-weight: 600;
+}
+.group { display: flex; gap: 2px; }
+.group button, .tools button {
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.group button:hover:not(:disabled), .tools button:hover:not(:disabled) { background: var(--panel-2); }
+button:disabled { color: #50535e; cursor: not-allowed; }
+.spacer { flex: 1; }
+.clock { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- left tools ---------- */
+.tools {
+  grid-area: tools;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+.tools button { width: 36px; height: 36px; padding: 6px; }
+.tools svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+
+/* ---------- main stage ---------- */
+.stage { grid-area: stage; overflow: auto; }
+.view { max-width: 1100px; margin: 0 auto; padding: 20px 24px 40px; }
+.view-head { display: flex; align-items: center; gap: 10px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 13px; margin: 0 0 10px; color: var(--text); font-weight: 600; }
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(41, 98, 255, 0.18);
+  color: #8fb0ff;
+}
+.lead { color: var(--muted); margin: 6px 0 16px; }
+.muted { color: var(--muted); font-weight: 400; }
+.error {
+  border: 1px solid var(--down);
+  background: rgba(239, 83, 80, 0.1);
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  white-space: pre-line;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.card .label { color: var(--muted); font-size: 11.5px; }
+.card .value { font-size: 16px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.card .note { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.card.ok .value { color: var(--up); }
+.card.warn .value { color: var(--warn); }
+
+.block {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+canvas#overview { width: 100%; height: 220px; display: block; }
+.preview { height: 320px; }
+.preview .message { color: var(--muted); padding: 16px 4px; }
+
+table.grid { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.grid th, table.grid td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+table.grid th { color: var(--muted); font-weight: 500; }
+table.grid .num { text-align: right; }
+
+/* ---------- right panel ---------- */
+.panel {
+  grid-area: panel;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 14px 16px;
+  overflow: auto;
+}
+.soon { padding-left: 18px; color: var(--muted); }
+.soon li { margin: 4px 0; }
+
+/* ---------- status bar ---------- */
+.statusbar {
+  grid-area: status;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.statusbar .ok { color: var(--up); }
+.statusbar .bad { color: var(--down); }
+
+/* ---------- narrow windows: the trading panel folds away until it has content ---------- */
+@media (max-width: 1000px) {
+  body {
+    grid-template-columns: 48px 1fr;
+    grid-template-areas:
+      "top top"
+      "tools stage"
+      "status status";
+  }
+  .panel { display: none; }
+}

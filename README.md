@@ -6,6 +6,11 @@ I built it to test discretionary, session-based trading ideas honestly, with no 
 
 ![Replay window](docs/screenshot.png)
 
+> **v2 in progress (Sep–Oct 2026):** a TradingView-style browser app built on TradingView's open-source
+> Lightweight Charts, developed with an AI coding agent (Claude) over a two-week plan.
+> Start it with a double-click on `start_app.bat`, or run `python -m forex_replay app`.
+> Progress is tracked in the [build log](docs/build-log.md), and design choices in [docs/decisions](docs/decisions/).
+
 ## Features
 
 **Replay (manual testing)**
@@ -93,7 +98,11 @@ forex_replay/
   sessions.py      market-session labels
   persistence.py   JSON sessions
   plotting.py      report charts
-tests/             unit tests for execution, stats, replay, GUI flow
+  datapipe.py      v2: MT5 exports -> UTC monthly binary files for the browser
+  server.py        v2: local web server (standard library only)
+web/               v2 browser app (plain JavaScript modules, tests in web/tests)
+docs/              build log and architecture decision records
+tests/             unit tests for execution, stats, replay, GUI flow, data pipeline, server
 notebooks/         trade analysis
 data/              EURUSD M5 candles (MT5 export)
 strategies/        journals from manual replay, one folder per idea

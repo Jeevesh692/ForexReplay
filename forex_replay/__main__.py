@@ -3,6 +3,8 @@
     python -m forex_replay replay   [--journal impulse_candle] [--start "2025-03-03 07:00"]
     python -m forex_replay backtest [--strategy asian_breakout] [--spread 0.2]
     python -m forex_replay report   strategies/impulse_candle/trades.csv [--plot equity.png]
+    python -m forex_replay app      (v2 browser app)
+    python -m forex_replay data     (rebuild the app's market data from MT5 exports)
 """
 
 from __future__ import annotations
@@ -77,6 +79,19 @@ def cmd_report(args) -> None:
         print(f"Saved {save(plot_equity(journal, 'Equity curve (R)'), args.plot)}")
 
 
+def cmd_app(args) -> None:
+    from .server import run
+
+    run(port=args.port, open_browser=not args.no_browser, rebuild=args.rebuild)
+
+
+def cmd_data(args) -> None:
+    from .datapipe import build, summary
+
+    manifest, report = build(start=args.start)
+    print(summary(manifest, report))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m forex_replay",
                                      description="Forex bar-replay simulator and backtester")
@@ -110,6 +125,16 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("journal_csv")
     report.add_argument("--plot", help="save an equity-curve PNG here")
     report.set_defaults(func=cmd_report)
+
+    app = sub.add_parser("app", help="v2: open the browser replay app")
+    app.add_argument("--port", type=int, default=8765)
+    app.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
+    app.add_argument("--rebuild", action="store_true", help="rebuild market data first")
+    app.set_defaults(func=cmd_app)
+
+    data = sub.add_parser("data", help="v2: rebuild market data from the MT5 exports in data/")
+    data.add_argument("--start", default="2025-08-01", help="first UTC date to keep")
+    data.set_defaults(func=cmd_data)
     return parser
 
 

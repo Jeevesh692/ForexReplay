@@ -16,3 +16,8 @@ Thumbs.db
 *.xlsx
 *.pkl
 *.tmp
+
+# v2 generated files (rebuilt automatically by the app)
+web/data/
+web/vendor/
+node_modules/

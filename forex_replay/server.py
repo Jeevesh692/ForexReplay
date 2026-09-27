@@ -1,0 +1,130 @@
+"""Local web server for the ForexReplay browser app (Python standard library only).
+
+    python -m forex_replay app
+
+On start it (1) rebuilds the market-data files if an MT5 export is newer,
+(2) downloads the TradingView Lightweight Charts file once if it is missing,
+(3) serves web/ on http://127.0.0.1:8765 and opens it in your browser.
+"""
+
+from __future__ import annotations
+
+import json
+import mimetypes
+import threading
+import urllib.request
+import webbrowser
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+from . import __version__
+from .config import PROJECT_ROOT
+
+WEB_ROOT = PROJECT_ROOT / "web"
+VENDOR_DIR = WEB_ROOT / "vendor"
+CHART_LIB = VENDOR_DIR / "lightweight-charts.standalone.production.js"
+CHART_LIB_URL = ("https://cdn.jsdelivr.net/npm/lightweight-charts@5/dist/"
+                 "lightweight-charts.standalone.production.js")
+DEFAULT_PORT = 8765
+
+# Windows can map .js to text/plain through the registry, which stops browsers
+# from running ES modules. Fix the types we serve explicitly.
+MIME_TYPES = {
+    ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
+    ".html": "text/html", ".json": "application/json", ".svg": "image/svg+xml",
+    ".bin": "application/octet-stream", ".png": "image/png", ".ico": "image/x-icon",
+}
+for ext, mime in MIME_TYPES.items():
+    mimetypes.add_type(mime, ext)
+
+
+def chart_library_version(path: Path = CHART_LIB) -> str | None:
+    """Read the version from the library's licence banner, e.g. 'v5.0.8'."""
+    if not path.exists():
+        return None
+    head = path.read_text(encoding="utf-8", errors="replace")[:400]
+    for word in head.split():
+        if word.startswith("v") and word[1:2].isdigit():
+            return word.rstrip(",")
+    return "unknown"
+
+
+def ensure_chart_library() -> str | None:
+    if CHART_LIB.exists():
+        return chart_library_version()
+    VENDOR_DIR.mkdir(parents=True, exist_ok=True)
+    print("Downloading TradingView Lightweight Charts (one time)...")
+    try:
+        with urllib.request.urlopen(CHART_LIB_URL, timeout=30) as response:
+            CHART_LIB.write_bytes(response.read())
+    except OSError as err:
+        print(f"  Could not download it ({err}).\n"
+              f"  Download {CHART_LIB_URL}\n  and save it as {CHART_LIB}")
+        return None
+    version = chart_library_version()
+    print(f"  Saved {CHART_LIB.name} ({version})")
+    return version
+
+
+class Handler(SimpleHTTPRequestHandler):
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, **MIME_TYPES}
+
+    def do_GET(self):  # noqa: N802 (http.server naming)
+        if self.path.split("?")[0] == "/api/health":
+            self._json({"ok": True, "version": __version__,
+                        "chart_library": chart_library_version()})
+            return
+        super().do_GET()
+
+    def end_headers(self):
+        # Always serve fresh files while developing: no stale JavaScript after an update.
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def _json(self, payload: dict, status: int = 200) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):  # keep the console quiet except for errors
+        if args and str(args[1]).startswith(("4", "5")):
+            super().log_message(fmt, *args)
+
+
+def make_server(port: int = DEFAULT_PORT, root: Path = WEB_ROOT) -> ThreadingHTTPServer:
+    """Bind to localhost only; if the port is busy, try the next few."""
+    handler = partial(Handler, directory=str(root))
+    last_error = None
+    for candidate in range(port, port + 10):
+        try:
+            return ThreadingHTTPServer(("127.0.0.1", candidate), handler)
+        except OSError as err:
+            last_error = err
+    raise OSError(f"No free port between {port} and {port + 9}: {last_error}")
+
+
+def run(port: int = DEFAULT_PORT, open_browser: bool = True, rebuild: bool = False) -> None:
+    from .datapipe import build, is_stale, summary
+
+    if rebuild or is_stale():
+        print("Building market data from your MT5 exports...")
+        manifest, report = build()
+        print("  " + summary(manifest, report).replace("\n", "\n  "))
+    ensure_chart_library()
+
+    server = make_server(port)
+    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    print(f"\nForexReplay v{__version__} running at {url}")
+    print("Keep this window open while you use the app. Press Ctrl+C to stop.\n")
+    if open_browser:
+        threading.Timer(0.8, webbrowser.open, args=(url,)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("Stopped.")
+    finally:
+        server.server_close()

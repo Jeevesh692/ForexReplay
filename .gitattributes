@@ -1,5 +1,7 @@
 * text=auto
 *.csv text eol=lf
+*.bat text eol=crlf
 *.png binary
 *.pkl binary
 *.xlsx binary
+*.bin binary
