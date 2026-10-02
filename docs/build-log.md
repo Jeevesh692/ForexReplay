@@ -54,3 +54,29 @@ Plan: two weeks, 28 Sep to 11 Oct 2026 (day 1 started early, on 27 Sep).
 - The library wrote "Sept" where the rest of the app writes "Sep", so axis labels now use the app's own month names.
 
 **How to check:** start the app. The chart opens on M15. Click M5 to D1 and the chart stays at the same place in history. Compare the last H4 candle with MetaTrader's H4 chart: open, high, low and close should be identical. Type a date into "Go to" and the chart centres on it.
+
+---
+
+## Day 3: Fri 2 Oct 2026 · replay and sessions
+
+**Asked for (Jeevesh):** start day 3.
+
+**Built (Claude):**
+- `web/js/replay.js` is the replay clock: one position (M5 candles revealed), play and pause, six speeds, step forward and back, and a `furthest` marker for honest look-backs. See [decision 0004](decisions/0004-one-replay-clock.md).
+- `TimeframeView` in `web/js/timeframes.js` gives each timeframe a display that contains only revealed candles plus one forming candle.
+- Replay controls in the top bar: click "Replay", then click the candle to start from. Space plays and pauses, the arrow keys step, Shift + Right moves one M5 candle, End returns to live, and ✕ exits.
+- The chart updates only the candles that changed while playing, and follows the newest candle when it is on screen.
+- `web/js/sessions.js` and a chart primitive shade the Asia, London and New York sessions on M5 to H1, with a toggle and a colour key.
+
+**Tests:** 13 new JavaScript tests (24 in total; Python stays at 43). The main one moves every timeframe view along 300 random replay moves and checks it against a fresh aggregate each time. In the headless browser, a scripted replay (pick a candle, step, switch timeframes, play, step back, return to live, exit) checked after every action that the chart held zero candles from after the replay clock.
+
+**Decisions:**
+- One clock for the whole app; every timeframe is derived from it ([0004](decisions/0004-one-replay-clock.md)).
+- Sessions are defined in Tokyo, London and New York time, not in fixed India-time hours.
+
+**Found along the way:**
+- At 30x the first timer design revealed 40 candles a second, because it rounded candles-per-tick. The tick length is now derived from the speed, so every speed is exact.
+- After switching timeframe mid-replay, the chart could land away from the replay edge and stop following it. Switching now stays at the newest candle if you were looking at it.
+- Session name labels inside the chart overlapped where London and New York overlap, so the names moved to a colour key in the status bar.
+
+**How to check:** go to a date, click "Replay", click a candle. Candles to its right disappear. Press Space: candles appear one by one. Switch to H1 while it plays: the last candle grows and the legend says "forming". Press Left: the clock turns amber and says "viewing history". Press End to return.

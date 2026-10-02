@@ -223,3 +223,58 @@ table.grid .num { text-align: right; }
   }
   .panel { display: none; }
 }
+
+/* ---------- the page itself never scrolls sideways; a crowded top bar drops its extras ---------- */
+body { overflow: hidden; }
+.topbar { min-width: 0; white-space: nowrap; }
+.goto, .brand, .pill, button.plain { flex-shrink: 0; }
+@media (max-width: 1100px) {
+  .topbar .clock { display: none; }
+}
+@media (max-width: 860px) {
+  .topbar { gap: 6px; padding: 0 8px; }
+  .topbar .divider { display: none; }
+  .goto { font-size: 0; gap: 0; }       /* hide the words "Go to", keep the date box */
+  .goto input { font-size: 13px; width: 150px; }
+  .brand span { display: none; }
+  .brand::after { content: "R"; color: var(--blue); }
+}
+
+/* ---------- replay ---------- */
+button.toggle.active { color: var(--blue); }
+button.replay-start { border: 1px solid var(--border); }
+button.replay-start.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+.group.replay { background: var(--panel-2); border-radius: 6px; padding: 2px; align-items: center; }
+.group.replay[hidden], button[hidden], .session-key[hidden] { display: none; }
+.group.replay button { min-width: 30px; }
+.group.replay select {
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  font: inherit;
+  padding: 4px 2px;
+  color-scheme: dark;
+}
+#replay-live { color: var(--warn); }
+#replay-exit:hover { color: var(--down); }
+.clock.history { color: var(--warn); }
+.hint {
+  position: absolute;
+  z-index: 6;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--blue);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 12.5px;
+  pointer-events: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+.hint[hidden] { display: none; }
+.chart-view.picking .chart { cursor: crosshair; }
+/* While replaying, the Data tab would show the whole price history, i.e. the future. */
+body.replaying [data-view="data"] { display: none; }
+.session-key { display: inline-flex; align-items: center; gap: 6px; }
+.session-key i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-left: 6px; }

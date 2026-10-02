@@ -25,13 +25,18 @@
     <label class="goto" title="Jump to a date and time (India time)">
       Go to <input type="datetime-local" id="goto">
     </label>
-    <button class="plain" id="latest" title="Jump to the newest candle">Latest &#8677;</button>
+    <button class="plain" id="latest" title="Jump to the newest candle on the chart">Latest &#8677;</button>
+    <button class="plain toggle" id="sessions-toggle" title="Shade the Asia, London and New York sessions (M5 to H1)">Sessions</button>
     <div class="spacer"></div>
-    <div class="group" title="Replay controls arrive on day 3">
-      <button disabled aria-label="Step back">&#9664;</button>
-      <button disabled aria-label="Play">&#9654;</button>
-      <button disabled aria-label="Step forward">&#9654;&#10072;</button>
-      <button disabled>1x</button>
+    <div class="clock" id="clock"></div>
+    <button class="plain replay-start" id="replay-toggle" title="Start a replay: click here, then click the candle to start from">&#9198; Replay</button>
+    <div class="group replay" id="replay-controls" hidden>
+      <button id="replay-back" title="Step back one candle (Left arrow)">&#9664;&#10072;</button>
+      <button id="replay-play" title="Play (Space)">&#9654;</button>
+      <button id="replay-forward" title="Step forward one candle (Right arrow). Shift + Right = one M5 candle">&#10072;&#9654;</button>
+      <select id="replay-speed" title="Speed: M5 candles per second"></select>
+      <button id="replay-live" title="Return to where the replay had got to (End)" hidden>Live &#8677;</button>
+      <button id="replay-exit" title="Exit replay and show all candles">&#10005;</button>
     </div>
     <div class="divider"></div>
     <div class="group tabs" aria-label="View">
@@ -62,6 +67,7 @@
 
     <section class="chart-view" id="chart-view">
       <div class="legend" id="legend">EURUSD</div>
+      <div class="hint" id="hint" hidden>Click the candle you want the replay to start from. Press Esc to cancel.</div>
       <div class="chart" id="chart"></div>
     </section>
 
@@ -101,6 +107,11 @@
     <span id="status-data">No data loaded</span>
     <span id="status-lib">Chart library: checking...</span>
     <span>All times India (UTC+5:30)</span>
+    <span id="session-key" class="session-key">
+      <i style="background: rgb(245, 166, 35)"></i>Asia
+      <i style="background: rgb(41, 98, 255)"></i>London
+      <i style="background: rgb(171, 71, 188)"></i>New York
+    </span>
     <span id="status-version"></span>
   </footer>
 </body>

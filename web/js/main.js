@@ -1,14 +1,16 @@
-// App start-up: load data, build the chart, wire the top bar.
+// App start-up: load data, build the chart, wire the top bar and the replay.
 
 import { ChartView } from "./chart.js";
 import { loadJSON, loadSymbol } from "./data.js";
 import { renderDataView } from "./dataview.js";
+import { ReplayClock, SPEEDS } from "./replay.js";
 import { formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
-import { aggregate, TIMEFRAMES } from "./timeframes.js";
+import { TIMEFRAMES, TimeframeView } from "./timeframes.js";
 
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
-const STORAGE_KEY = "forexreplay.timeframe";
+const KEY_TIMEFRAME = "forexreplay.timeframe";
+const KEY_SESSIONS = "forexreplay.sessions";
 
 function remember(key, value) {
   try { localStorage.setItem(key, value); } catch { /* private mode: ignore */ }
@@ -24,7 +26,7 @@ function showError(message) {
 }
 
 /** Legend in the chart's top-left corner, like TradingView's O H L C line. */
-function renderLegend(symbol, timeframeId, digits, info) {
+function renderLegend(symbol, timeframeId, digits, info, forming) {
   const el = $("legend");
   if (!info) {
     el.textContent = `${symbol} · ${timeframeId}`;
@@ -35,7 +37,7 @@ function renderLegend(symbol, timeframeId, digits, info) {
   const sign = info.change >= 0 ? "+" : "";
   el.innerHTML =
     `<span class="legend-title">${symbol} · ${timeframeId}</span>` +
-    `<span class="legend-time">${info.timeText}</span>` +
+    `<span class="legend-time">${info.timeText}${forming ? " · forming" : ""}</span>` +
     `<span class="${tone}">O <b>${p(info.open)}</b> H <b>${p(info.high)}</b> ` +
     `L <b>${p(info.low)}</b> C <b>${p(info.close)}</b> ` +
     `${sign}${p(info.change)} (${sign}${info.changePercent.toFixed(2)}%)</span>` +
@@ -79,48 +81,144 @@ async function boot() {
     `${manifest.symbol} · ${number(manifest.bars)} M5 candles · ` +
     `${formatDateTime(manifest.first)} → ${formatDateTime(manifest.last)} IST`;
 
-  // ---- data tab
   const redrawData = renderDataView($("data-view"), { manifest, quality, candles: m5 });
 
-  // ---- chart
   if (!lib) {
     showError("TradingView Lightweight Charts is not downloaded yet.\n" +
       "Restart the app with an internet connection, or attach the file in the chat.");
     return;
   }
 
-  // Higher timeframes are built once from M5 and cached.
-  const cache = new Map([["M5", m5]]);
-  const candlesFor = (tf) => {
-    if (!cache.has(tf)) cache.set(tf, aggregate(m5, tf).candles);
-    return cache.get(tf);
+  // ------------------------------------------------------------ timeframes
+  // One TimeframeView per timeframe, built on first use. Each shows only what
+  // the replay clock has revealed.
+  const clock = new ReplayClock(m5.length);
+  const views = new Map();
+  const viewFor = (tf) => {
+    if (!views.has(tf)) views.set(tf, new TimeframeView(m5, tf));
+    return views.get(tf);
   };
 
-  let current = recall(STORAGE_KEY, "M15");
+  let current = recall(KEY_TIMEFRAME, "M15");
   if (!TIMEFRAMES.some((t) => t.id === current)) current = "M15";
+  let view = viewFor(current);
+  let picking = false; // waiting for a click on the candle to start the replay from
 
   const chart = new ChartView($("chart"), {
     lib,
     symbol: manifest.symbol,
     digits: manifest.digits,
-    onHover: (info) => renderLegend(manifest.symbol, current, manifest.digits, info),
+    onHover: (info) => renderLegend(manifest.symbol, current, manifest.digits, info,
+      info && info.index === view.display.length - 1 && view.isForming()),
+    onClick: (index) => {
+      if (!picking) return;
+      setPicking(false);
+      clock.start(view.endOf(index)); // the clicked candle is the last one shown
+    },
   });
 
-  const buttons = [...$("timeframes").querySelectorAll("button")];
+  const tfButtons = [...$("timeframes").querySelectorAll("button")];
   function setTimeframe(tf, { keepPlace = true } = {}) {
-    const keepTime = keepPlace ? chart.rightEdgeTime() : null;
+    // Stay at the same place in history, unless you were at the newest candle: then stay at the newest.
+    const keepTime = keepPlace && !chart.latestVisible() ? chart.rightEdgeTime() : null;
     current = tf;
-    remember(STORAGE_KEY, tf);
-    buttons.forEach((b) => b.classList.toggle("active", b.dataset.tf === tf));
-    chart.setCandles(tf, candlesFor(tf), { keepTime });
+    view = viewFor(tf);
+    view.setPosition(clock.position);
+    remember(KEY_TIMEFRAME, tf);
+    tfButtons.forEach((b) => b.classList.toggle("active", b.dataset.tf === tf));
+    chart.setCandles(tf, view.display, { keepTime });
   }
-  buttons.forEach((b) => {
+  tfButtons.forEach((b) => {
     b.disabled = false;
     b.addEventListener("click", () => setTimeframe(b.dataset.tf));
   });
   setTimeframe(current, { keepPlace: false });
 
-  // ---- go to date / latest
+  // ------------------------------------------------------------ replay
+  const ui = {
+    toggle: $("replay-toggle"), controls: $("replay-controls"), back: $("replay-back"),
+    play: $("replay-play"), forward: $("replay-forward"), speed: $("replay-speed"),
+    live: $("replay-live"), exit: $("replay-exit"), clock: $("clock"), hint: $("hint"),
+  };
+  ui.speed.innerHTML = SPEEDS.map((s) => `<option value="${s}">${s}x</option>`).join("");
+
+  function setPicking(on) {
+    picking = on;
+    ui.hint.hidden = !on;
+    ui.toggle.classList.toggle("active", on);
+    $("chart-view").classList.toggle("picking", on);
+  }
+
+  function renderReplayUi() {
+    ui.toggle.hidden = clock.active;
+    ui.controls.hidden = !clock.active;
+    document.body.classList.toggle("replaying", clock.active);
+    if (!clock.active) {
+      ui.clock.textContent = "";
+      return;
+    }
+    ui.play.innerHTML = clock.playing ? "&#10074;&#10074;" : "&#9654;";
+    ui.play.title = clock.playing ? "Pause (Space)" : "Play (Space)";
+    ui.forward.disabled = clock.finished;
+    ui.live.hidden = clock.live;
+    const now = m5.time[clock.position - 1] + manifest.bar_seconds; // close of the last revealed candle
+    const behind = clock.furthest - clock.position;
+    ui.clock.textContent = `Replay · ${formatDateTime(now)} IST` +
+      (behind > 0 ? ` · viewing history (${number(behind)} M5 back)` : "");
+    ui.clock.classList.toggle("history", behind > 0);
+  }
+
+  clock.onChange((_, reason) => {
+    const follow = chart.latestVisible();
+    const change = view.setPosition(clock.position);
+    if (reason === "start") {
+      chart.setCandles(current, view.display, { bars: chart.visibleBarCount() }); // replay edge at the right
+    } else if (reason === "stop") {
+      chart.setCandles(current, view.display, { keepTime: chart.rightEdgeTime(), bars: chart.visibleBarCount() });
+    } else if (change.reset) {
+      chart.setCandles(current, view.display, { preserveView: true });
+      if (follow) chart.goToLatest();
+    } else if (change.to >= change.from) {
+      chart.updateBars(change.from, change.to);
+    }
+    renderReplayUi();
+  });
+
+  ui.toggle.addEventListener("click", () => setPicking(!picking));
+  ui.play.addEventListener("click", () => clock.toggle());
+  ui.forward.addEventListener("click", () => clock.stepForward(view));
+  ui.back.addEventListener("click", () => clock.stepBack(view));
+  ui.live.addEventListener("click", () => { clock.backToLive(); chart.goToLatest(); });
+  ui.exit.addEventListener("click", () => clock.stop());
+  ui.speed.addEventListener("change", () => clock.setSpeed(Number(ui.speed.value)));
+
+  window.addEventListener("keydown", (event) => {
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
+    if (event.key === "Escape" && picking) { setPicking(false); return; }
+    if (!clock.active) return;
+    if (event.key === " ") { event.preventDefault(); clock.toggle(); }
+    else if (event.key === "ArrowRight") { event.preventDefault(); event.shiftKey ? clock.advance(1) : clock.stepForward(view); }
+    else if (event.key === "ArrowLeft") { event.preventDefault(); clock.stepBack(view); }
+    else if (event.key === "End") { clock.backToLive(); chart.goToLatest(); }
+  });
+  renderReplayUi();
+
+  // ------------------------------------------------------------ sessions
+  const sessionsButton = $("sessions-toggle");
+  let sessionsOn = recall(KEY_SESSIONS, "on") === "on";
+  const applySessions = () => {
+    chart.setSessionsVisible(sessionsOn);
+    sessionsButton.classList.toggle("active", sessionsOn);
+    $("session-key").hidden = !sessionsOn;
+  };
+  sessionsButton.addEventListener("click", () => {
+    sessionsOn = !sessionsOn;
+    remember(KEY_SESSIONS, sessionsOn ? "on" : "off");
+    applySessions();
+  });
+  applySessions();
+
+  // ------------------------------------------------------------ go to date / latest
   const goto = $("goto");
   goto.min = toIndiaInput(manifest.first);
   goto.max = toIndiaInput(manifest.last);
@@ -130,19 +228,23 @@ async function boot() {
   });
   $("latest").addEventListener("click", () => chart.goToLatest());
 
-  // ---- tabs
-  const views = { chart: $("chart-view"), data: $("data-view") };
+  // ------------------------------------------------------------ tabs
+  const tabViews = { chart: $("chart-view"), data: $("data-view") };
   document.querySelectorAll("[data-view]").forEach((tab) => {
     tab.addEventListener("click", () => {
       const name = tab.dataset.view;
-      Object.entries(views).forEach(([key, el]) => { el.hidden = key !== name; });
+      Object.entries(tabViews).forEach(([key, el]) => { el.hidden = key !== name; });
       document.querySelectorAll("[data-view]").forEach((t) => t.classList.toggle("active", t === tab));
       if (name === "data") redrawData();
     });
   });
 
   // Handy in the browser console and for automated checks.
-  window.forexReplay = { manifest, quality, m5, chart, candlesFor, setTimeframe, get timeframe() { return current; } };
+  window.forexReplay = {
+    manifest, quality, m5, chart, clock, viewFor, setTimeframe,
+    get timeframe() { return current; },
+    get view() { return view; },
+  };
 }
 
 boot().catch((err) => {

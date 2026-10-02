@@ -83,6 +83,7 @@ export function aggregate(base, tfId, upTo = base.length) {
 
   const out = new Candles(count, base.digits);
   const firstIndex = new Int32Array(count);
+  const bucketOf = new Int32Array(n); // bucketOf[i] = which higher-timeframe candle M5 candle i belongs to
   let k = -1;
   previous = null;
   for (let i = 0; i < n; i++) {
@@ -98,13 +99,105 @@ export function aggregate(base, tfId, upTo = base.length) {
       out.volume[k] = 0;
       out.spread[k] = 0;
     }
+    bucketOf[i] = k;
     if (base.high[i] > out.high[k]) out.high[k] = base.high[i];
     if (base.low[i] < out.low[k]) out.low[k] = base.low[i];
     out.close[k] = base.close[i];
     out.volume[k] += base.volume[i];
     if (base.spread[i] > out.spread[k]) out.spread[k] = base.spread[i];
   }
-  return { candles: out, firstIndex };
+  return { candles: out, firstIndex, bucketOf };
+}
+
+/**
+ * One timeframe as seen during replay.
+ *
+ * `full` holds every candle of the timeframe (built once). `display` is what the
+ * chart is allowed to show: the candles that are complete at the replay position
+ * plus one forming candle built only from the M5 candles revealed so far.
+ * `display.length` shrinks and grows with the replay position, so nothing after
+ * the replay position can ever reach the chart.
+ */
+export class TimeframeView {
+  constructor(base, tfId) {
+    this.base = base;
+    this.id = tfId;
+    const { candles, firstIndex, bucketOf } = aggregate(base, tfId);
+    this.full = candles;
+    this.firstIndex = firstIndex;
+    this.bucketOf = bucketOf;
+    this.display = new Candles(candles.length, base.digits);
+    this.position = -1; // forces a full copy on first use
+    this.setPosition(base.length);
+  }
+
+  /** Number of timeframe candles visible when `position` M5 candles are revealed. */
+  countAt(position) {
+    return position <= 0 ? 0 : this.bucketOf[position - 1] + 1;
+  }
+
+  /** Index one past the last M5 candle of timeframe candle k. */
+  endOf(k) {
+    return k + 1 < this.full.length ? this.firstIndex[k + 1] : this.base.length;
+  }
+
+  copyFull(from, to) {
+    for (const f of ["time", "open", "high", "low", "close", "volume", "spread"]) {
+      this.display[f].set(this.full[f].subarray(from, to), from);
+    }
+  }
+
+  /** Rebuild candle k from the M5 candles revealed so far. */
+  buildForming(k, position) {
+    const b = this.base, d = this.display;
+    const start = this.firstIndex[k];
+    d.time[k] = this.full.time[k];
+    d.open[k] = b.open[start];
+    d.high[k] = b.high[start];
+    d.low[k] = b.low[start];
+    d.volume[k] = 0;
+    d.spread[k] = 0;
+    for (let i = start; i < position; i++) {
+      if (b.high[i] > d.high[k]) d.high[k] = b.high[i];
+      if (b.low[i] < d.low[k]) d.low[k] = b.low[i];
+      d.close[k] = b.close[i];
+      d.volume[k] += b.volume[i];
+      if (b.spread[i] > d.spread[k]) d.spread[k] = b.spread[i];
+    }
+  }
+
+  /**
+   * Move to a replay position (number of M5 candles revealed).
+   * Returns { reset: true } when the chart must redraw everything, or
+   * { reset: false, from, to } with the range of candles that changed (moving forward).
+   */
+  setPosition(position) {
+    const p = Math.max(0, Math.min(position, this.base.length));
+    const before = this.position;
+    const count = this.countAt(p);
+    const oldCount = before < 0 ? 0 : this.countAt(before);
+    this.position = p;
+    this.display.length = count;
+
+    if (before < 0 || p < before) {
+      this.copyFull(0, this.full.length); // jumping or moving back: start from clean candles
+      if (count > 0) this.buildForming(count - 1, p);
+      return { reset: true };
+    }
+    if (count === 0 || p === before) return { reset: false, from: count, to: count - 1 };
+
+    // Moving forward: candles passed along the way are now complete; the last one is forming.
+    const from = Math.max(0, oldCount - 1);
+    this.copyFull(from, count - 1);
+    this.buildForming(count - 1, p);
+    return { reset: false, from, to: count - 1 };
+  }
+
+  /** True when the last displayed candle still lacks some of its M5 candles. */
+  isForming() {
+    const k = this.display.length - 1;
+    return k >= 0 && this.position < this.endOf(k);
+  }
 }
 
 /** Index of the last candle whose time is <= t (binary search); -1 if none. */
