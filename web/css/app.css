@@ -176,8 +176,6 @@ h2 { font-size: 13px; margin: 0 0 10px; color: var(--text); font-weight: 600; }
   margin-bottom: 16px;
 }
 canvas#overview { width: 100%; height: 220px; display: block; }
-.preview { height: 320px; }
-.preview .message { color: var(--muted); padding: 16px 4px; }
 
 table.grid { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 table.grid th, table.grid td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
@@ -278,3 +276,108 @@ button.replay-start.active { background: var(--blue); color: #fff; border-color:
 body.replaying [data-view="data"] { display: none; }
 .session-key { display: inline-flex; align-items: center; gap: 6px; }
 .session-key i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-left: 6px; }
+
+/* ---------- top bar wraps onto a second row in narrow windows, so no control is ever cut off ---------- */
+body { grid-template-rows: auto 1fr 28px; }
+.topbar { flex-wrap: wrap; min-height: 44px; padding-top: 4px; padding-bottom: 4px; row-gap: 4px; }
+@media (max-width: 1100px) {
+  .topbar .clock { display: block; order: 10; flex-basis: 100%; font-size: 12px; }
+  .topbar .clock:empty { display: none; }
+}
+
+/* ---------- trading panel ---------- */
+.panel h3 { font-size: 12px; margin: 16px 0 6px; color: var(--muted); font-weight: 600; text-transform: none; }
+.order-status { color: var(--muted); font-size: 12px; margin: 0 0 10px; min-height: 18px; }
+.panel.blocked .ticket { opacity: 0.55; }
+.segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; margin-bottom: 8px; }
+.segmented button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.segmented button.active { border-color: var(--blue); color: #fff; }
+.segmented.sides button.buy.active { background: var(--up); border-color: var(--up); color: #fff; }
+.segmented.sides button.sell.active { background: var(--down); border-color: var(--down); color: #fff; }
+.field { display: block; margin-bottom: 8px; }
+.field[hidden] { display: none; }
+.field > span:first-child { display: block; color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+.field small { display: block; color: var(--muted); font-size: 11.5px; min-height: 15px; margin-top: 2px; }
+.field input, .dialog input[type="text"], .dialog input[type="time"], .dialog select {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color-scheme: dark;
+}
+.field input:focus, .dialog input:focus, .dialog select:focus { outline: 1px solid var(--blue); border-color: var(--blue); }
+.with-pick { display: flex; gap: 4px; }
+button.pick { border: 1px solid var(--border); font-size: 15px; line-height: 1; padding: 4px 8px; }
+button.pick.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+.field.inline { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 16px; }
+.field.inline > span:first-child { margin: 0; }
+.field.inline input { width: 70px; }
+.order-place {
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  padding: 9px;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+.order-place.buy { background: var(--up); }
+.order-place.sell { background: var(--down); }
+.order-place:disabled { background: var(--panel-2); color: #6a6d78; cursor: not-allowed; }
+.order-message { font-size: 12px; min-height: 16px; margin: 6px 0 0; color: var(--muted); }
+.order-message.ok { color: var(--up); }
+.order-message.bad { color: var(--down); }
+.trade-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.trade-list li { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.trade-list li.empty { color: var(--muted); border: 0; }
+.trade-list .row { display: flex; align-items: center; gap: 8px; }
+.trade-list .row > span:first-child { flex: 1; font-weight: 600; }
+.trade-list .sub { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+button.small { font-size: 11.5px; padding: 2px 8px; border: 1px solid var(--border); }
+.small { font-size: 11.5px; }
+
+/* ---------- dialogs ---------- */
+.dialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  width: min(760px, calc(100vw - 32px));
+}
+.dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+.dialog h2 { font-size: 16px; margin-bottom: 6px; }
+.presets { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--muted); }
+button.bordered { border: 1px solid var(--border); }
+button.primary {
+  background: var(--blue);
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 18px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.session-table td { padding: 4px 4px; vertical-align: middle; }
+.session-table input[type="text"] { min-width: 110px; }
+.session-table input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--border); background: none; }
+.session-table .india-hours { white-space: nowrap; color: var(--muted); }
+.session-table select { min-width: 112px; }
+.session-table input[type="time"] { min-width: 118px; }
+.dialog-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }

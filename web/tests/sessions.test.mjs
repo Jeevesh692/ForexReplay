@@ -45,3 +45,56 @@ test("overlap: London and New York are both open at 14:00 UTC in July", () => {
   assert.deepEqual(sessionsAt(utc("2026-07-15T02:00")), ["asia"]);
   assert.deepEqual(sessionsAt(utc("2026-07-15T22:00")), []);
 });
+
+// ---- user-defined sessions ----
+import { getSessions, PRESETS, rgb, sessionWindow, setSessions, validateSessions } from "../js/sessions.js";
+
+test("a session whose end is not after its start runs past midnight", () => {
+  const asiaKz = PRESETS.killzones.sessions.find((s) => s.id === "asia-kz"); // 20:00-00:00 New York
+  const w = sessionWindow(asiaKz, 2026, 7, 14);
+  assert.equal((w.end - w.start) / 3600, 4);
+  assert.equal(formatDateTime(w.start), "Wed 15 Jul 2026, 05:30"); // 20:00 New York (summer) = 05:30 IST next day
+  assert.equal(formatDateTime(w.end), "Wed 15 Jul 2026, 09:30");
+});
+
+test("the ICT killzone preset follows New York time through the year", () => {
+  setSessions(PRESETS.killzones.sessions);
+  try {
+    assert.deepEqual(sessionsAt(utc("2026-07-15T07:00")), ["london-kz"]);   // 03:00 New York (summer)
+    assert.deepEqual(sessionsAt(utc("2026-01-15T07:00")), ["london-kz"]);   // 02:00 New York (winter)
+    assert.deepEqual(sessionsAt(utc("2026-01-15T06:30")), []);              // 01:30 New York (winter)
+    assert.deepEqual(sessionsAt(utc("2026-07-15T02:00")), ["asia-kz"]);     // 22:00 New York the evening before
+    assert.deepEqual(sessionsAt(utc("2026-07-15T14:30")), ["london-close-kz"]);
+  } finally {
+    setSessions(PRESETS.standard.sessions);
+  }
+});
+
+test("custom sessions: minutes, switching off, and changes take effect at once", () => {
+  setSessions([
+    { label: "Frankfurt open", zone: "Europe/Berlin", start: "08:30", end: "09:15", colour: "#00AA88", enabled: true },
+    { label: "Off", zone: "UTC", start: "00:00", end: "23:59", colour: "#ffffff", enabled: false },
+  ]);
+  try {
+    assert.equal(getSessions().at(0).id, "session-1");
+    assert.equal(getSessions().at(0).colour, "#00aa88");
+    assert.deepEqual(sessionsAt(utc("2026-07-15T06:45")), ["session-1"]); // 08:45 Frankfurt (summer)
+    assert.deepEqual(sessionsAt(utc("2026-07-15T07:15")), []);            // 09:15 is the end, not included
+  } finally {
+    setSessions(PRESETS.standard.sessions);
+  }
+  assert.deepEqual(sessionsAt(utc("2026-07-15T02:00")), ["asia"]); // back to the standard list
+});
+
+test("bad session settings are rejected with a readable reason", () => {
+  const problems = validateSessions([
+    { label: "", zone: "Mars/Olympus", start: "25:00", end: "9:00", colour: "blue" },
+  ]);
+  assert.equal(problems.length, 5);
+  assert.throws(() => setSessions([{ label: "X", zone: "UTC", start: "08:00", end: "bad", colour: "#000000" }]), /end must be HH:MM/);
+  assert.equal(getSessions().length, 3); // a rejected list changes nothing
+});
+
+test("rgb converts a hex colour for use in rgba()", () => {
+  assert.equal(rgb("#2962ff"), "41, 98, 255");
+});

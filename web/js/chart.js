@@ -5,7 +5,7 @@
 // when the library gives one to us (fromChartTime). Nothing else in the app
 // ever sees shifted times.
 
-import { sessionsBetween } from "./sessions.js";
+import { rgb, sessionsBetween } from "./sessions.js";
 import { formatDate, formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
 import { indexAtOrBefore, timeframe as timeframeInfo } from "./timeframes.js";
 
@@ -79,7 +79,7 @@ class SessionBands {
       if (i0 > i1) continue; // weekend or holiday
       const x0 = scale.logicalToCoordinate(i0) - half;
       const x1 = scale.logicalToCoordinate(i1) + half;
-      ctx.fillStyle = `rgba(${session.colour}, 0.07)`; // the colour key is in the status bar
+      ctx.fillStyle = `rgba(${rgb(session.colour)}, 0.07)`; // the colour key is in the status bar
       ctx.fillRect(x0, 0, x1 - x0, size.height);
     }
   }
@@ -153,9 +153,46 @@ export class ChartView {
 
     this.chart.subscribeCrosshairMove((param) => this.handleCrosshair(param));
     this.chart.subscribeClick((param) => {
-      if (!this.candles || param.time === undefined) return;
-      this.onClick(indexAtOrBefore(this.candles, fromChartTime(param.time)));
+      if (!this.candles || !param.point) return;
+      const index = param.time === undefined ? null : indexAtOrBefore(this.candles, fromChartTime(param.time));
+      const price = this.series.coordinateToPrice(param.point.y); // price under the mouse
+      this.onClick(index, price === null ? null : Math.round(price * 10 ** this.digits));
     });
+
+    this.priceLines = [];
+    this.markers = lib.createSeriesMarkers(this.series, []);
+  }
+
+  /**
+   * Horizontal lines for active trades.
+   * lines = [{ price (points), colour, dashed, title }]
+   */
+  setTradeLines(lines) {
+    for (const line of this.priceLines) this.series.removePriceLine(line);
+    this.priceLines = lines.map((line) => this.series.createPriceLine({
+      price: line.price / 10 ** this.digits,
+      color: line.colour,
+      lineWidth: 1,
+      lineStyle: line.dashed ? this.lib.LineStyle.Dashed : this.lib.LineStyle.Solid,
+      axisLabelVisible: true,
+      title: line.title,
+    }));
+  }
+
+  /**
+   * Entry and exit markers. markers = [{ time (UTC s of a candle on screen), above, colour, shape, text }]
+   */
+  setTradeMarkers(markers) {
+    this.markers.setMarkers(markers
+      .slice()
+      .sort((a, b) => a.time - b.time)
+      .map((m) => ({
+        time: toChartTime(m.time),
+        position: m.above ? "aboveBar" : "belowBar",
+        color: m.colour,
+        shape: m.shape,
+        text: m.text,
+      })));
   }
 
   candlePoint(i) {
@@ -268,6 +305,11 @@ export class ChartView {
 
   setSessionsVisible(visible) {
     this.sessions.setEnabled(visible);
+  }
+
+  /** Redraw the session bands after the session settings changed. */
+  refreshSessions() {
+    this.sessions.setEnabled(this.sessions.enabled);
   }
 
   /** Put candle index `last` at the right edge with `bars` candles on screen. */

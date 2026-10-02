@@ -80,3 +80,31 @@ Plan: two weeks, 28 Sep to 11 Oct 2026 (day 1 started early, on 27 Sep).
 - Session name labels inside the chart overlapped where London and New York overlap, so the names moved to a colour key in the status bar.
 
 **How to check:** go to a date, click "Replay", click a candle. Candles to its right disappear. Press Space: candles appear one by one. Switch to H1 while it plays: the last candle grows and the legend says "forming". Press Left: the clock turns amber and says "viewing history". Press End to return.
+
+---
+
+## Day 4: Fri 2 Oct 2026 · orders on the replay, and session settings
+
+**Asked for (Jeevesh):** "Give me the control for those settings" (session hours and timezones), then start day 4.
+
+**Built (Claude):**
+- **Session settings.** A dialog (⚙ next to "Sessions") edits each session's name, timezone, start, end and colour, switches sessions on or off, and adds or removes them. Presets: standard sessions and ICT killzones. Each row previews its hours in India time. Settings are saved in the browser.
+- `web/js/broker.js` is the trading engine, ported from `broker.py` and working in whole points. See [decision 0005](decisions/0005-trading-engine-in-the-browser.md).
+- `forex_replay/golden.py` records 100 random scenarios (2,535 trades) from the Python engine for the JavaScript engine to match.
+- `web/js/trading.js` feeds every newly revealed M5 candle to the engine exactly once, and accepts orders only while the replay is live.
+- **Order ticket** in the right-hand panel: buy or sell, at market or at a price (limit or stop is worked out for you), stop loss and take profit typed in or picked by clicking the chart, with pips and R shown before you place the order.
+- **On the chart:** entry, stop-loss and take-profit lines for active trades, and entry and exit markers with the R result for closed ones.
+- **Lists** of open and pending trades (with floating R, Close and Cancel) and closed trades (reason, times, best R reached), with a running total.
+
+**Tests:** 19 new JavaScript tests (43 in total) and 2 new Python tests (45 in total). The parity test compares all 2,535 recorded trades field by field. In the headless browser, a scripted session saved killzones and reloaded, placed a market buy and a limit sell, picked a stop loss from the chart, tried an invalid order, tried to trade while viewing history, played until both trades closed, and exited with a trade open.
+
+**Decisions:**
+- The engine runs in the browser and is held to the Python engine by recorded scenarios ([0005](decisions/0005-trading-engine-in-the-browser.md)).
+- Fills are always resolved on M5 candles, even when stepping through H1 or H4.
+- Sessions are user settings with presets, not constants in code.
+
+**Found along the way:**
+- The session table rows were 320 pixels tall because a cell reused a CSS class name (`preview`) left over from day 1. The class was renamed and the dead rule removed.
+- The engine's rejection messages were written for programmers ("stop loss < entry < take profit"). They now read as plain sentences.
+
+**How to check:** click ⚙, load "ICT killzones", save, and the shading and colour key change. Start a replay, press Buy, then "Buy at market", then Shift + Right: the trade opens at the next candle's open and three lines appear. Press Space and watch it hit the stop or the target.

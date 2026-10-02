@@ -3,9 +3,13 @@
 import { ChartView } from "./chart.js";
 import { loadJSON, loadSymbol } from "./data.js";
 import { renderDataView } from "./dataview.js";
+import { OrderType } from "./broker.js";
 import { ReplayClock, SPEEDS } from "./replay.js";
+import { loadSavedSessions, renderSessionKey, setupSessionSettings } from "./sessionsettings.js";
 import { formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
 import { TIMEFRAMES, TimeframeView } from "./timeframes.js";
+import { Side, Status, Trading } from "./trading.js";
+import { TradingPanel } from "./tradingpanel.js";
 
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
@@ -103,6 +107,14 @@ async function boot() {
   if (!TIMEFRAMES.some((t) => t.id === current)) current = "M15";
   let view = viewFor(current);
   let picking = false; // waiting for a click on the candle to start the replay from
+  let panel = null; // trading panel (created below, once the chart exists)
+  loadSavedSessions();
+
+  const hint = $("hint");
+  const setHint = (text) => {
+    hint.hidden = !text;
+    hint.textContent = text || "";
+  };
 
   const chart = new ChartView($("chart"), {
     lib,
@@ -110,12 +122,62 @@ async function boot() {
     digits: manifest.digits,
     onHover: (info) => renderLegend(manifest.symbol, current, manifest.digits, info,
       info && info.index === view.display.length - 1 && view.isForming()),
-    onClick: (index) => {
-      if (!picking) return;
-      setPicking(false);
-      clock.start(view.endOf(index)); // the clicked candle is the last one shown
+    onClick: (index, price) => {
+      if (picking) {
+        if (index === null) return;
+        setPicking(false);
+        clock.start(view.endOf(index)); // the clicked candle is the last one shown
+      } else if (panel && price !== null) {
+        panel.receivePrice(price); // filling in a price field from the chart
+      }
     },
   });
+
+  // ------------------------------------------------------------ trading
+  const UP = "#26a69a", DOWN = "#ef5350", PENDING = "#ffb74d", ENTRY = "#d1d4dc";
+  const trading = new Trading({ m5, clock, pipPoints: manifest.pip_points, onChange: () => refreshTrading() });
+  const formatR = (r) => `${r >= 0 ? "+" : ""}${r.toFixed(2)}R`;
+
+  /** Lines for active trades and entry/exit markers for the timeframe on screen. */
+  function drawTrades() {
+    const lines = [];
+    const markers = [];
+    const shown = view.display.length;
+    for (const t of trading.broker.trades) {
+      if (t.status === Status.CANCELLED) continue;
+      const buy = t.side === Side.BUY;
+      if (t.isActive) {
+        const pending = t.status === Status.PENDING;
+        if (!(pending && t.orderType === OrderType.MARKET)) {
+          lines.push({
+            price: pending ? t.orderPrice : t.entryPrice, colour: pending ? PENDING : ENTRY, dashed: pending,
+            title: `#${t.id} ${t.side}${pending ? ` ${t.orderType}` : ""}`,
+          });
+        }
+        lines.push({ price: t.stopLoss, colour: DOWN, dashed: true, title: `SL #${t.id}` });
+        lines.push({ price: t.takeProfit, colour: UP, dashed: true, title: `TP #${t.id}` });
+      }
+      if (t.entryTime !== null && view.bucketOf[t.entryTime] < shown) {
+        markers.push({
+          time: view.full.time[view.bucketOf[t.entryTime]], above: !buy, colour: buy ? UP : DOWN,
+          shape: buy ? "arrowUp" : "arrowDown", text: `#${t.id}`,
+        });
+      }
+      if (t.exitTime !== null && view.bucketOf[t.exitTime] < shown) {
+        markers.push({
+          time: view.full.time[view.bucketOf[t.exitTime]], above: buy, colour: t.resultR >= 0 ? UP : DOWN,
+          shape: "circle", text: formatR(t.resultR),
+        });
+      }
+    }
+    chart.setTradeLines(lines);
+    chart.setTradeMarkers(markers);
+  }
+
+  function refreshTrading() {
+    if (panel) panel.render();
+    drawTrades();
+  }
 
   const tfButtons = [...$("timeframes").querySelectorAll("button")];
   function setTimeframe(tf, { keepPlace = true } = {}) {
@@ -127,6 +189,7 @@ async function boot() {
     remember(KEY_TIMEFRAME, tf);
     tfButtons.forEach((b) => b.classList.toggle("active", b.dataset.tf === tf));
     chart.setCandles(tf, view.display, { keepTime });
+    drawTrades();
   }
   tfButtons.forEach((b) => {
     b.disabled = false;
@@ -138,13 +201,14 @@ async function boot() {
   const ui = {
     toggle: $("replay-toggle"), controls: $("replay-controls"), back: $("replay-back"),
     play: $("replay-play"), forward: $("replay-forward"), speed: $("replay-speed"),
-    live: $("replay-live"), exit: $("replay-exit"), clock: $("clock"), hint: $("hint"),
+    live: $("replay-live"), exit: $("replay-exit"), clock: $("clock"),
   };
+  let exitArmed = false; // ✕ was clicked once while trades were open
   ui.speed.innerHTML = SPEEDS.map((s) => `<option value="${s}">${s}x</option>`).join("");
 
   function setPicking(on) {
     picking = on;
-    ui.hint.hidden = !on;
+    setHint(on ? "Click the candle you want the replay to start from. Press Esc to cancel." : null);
     ui.toggle.classList.toggle("active", on);
     $("chart-view").classList.toggle("picking", on);
   }
@@ -169,6 +233,8 @@ async function boot() {
   }
 
   clock.onChange((_, reason) => {
+    if (reason === "start") trading.reset(); // a new replay is a new run: no trades carried over
+    if (exitArmed && reason !== "stop") { exitArmed = false; setHint(null); }
     const follow = chart.latestVisible();
     const change = view.setPosition(clock.position);
     if (reason === "start") {
@@ -182,6 +248,7 @@ async function boot() {
       chart.updateBars(change.from, change.to);
     }
     renderReplayUi();
+    refreshTrading();
   });
 
   ui.toggle.addEventListener("click", () => setPicking(!picking));
@@ -189,19 +256,41 @@ async function boot() {
   ui.forward.addEventListener("click", () => clock.stepForward(view));
   ui.back.addEventListener("click", () => clock.stepBack(view));
   ui.live.addEventListener("click", () => { clock.backToLive(); chart.goToLatest(); });
-  ui.exit.addEventListener("click", () => clock.stop());
+  ui.exit.addEventListener("click", () => {
+    const { open, pending } = trading.summary();
+    if (open + pending > 0 && !exitArmed) {
+      exitArmed = true;
+      setHint(`Exiting closes ${open} open trade(s) at the current price and cancels ${pending} order(s). Click ✕ again to confirm.`);
+      return;
+    }
+    exitArmed = false;
+    setHint(null);
+    if (open + pending > 0) {
+      clock.pause();
+      clock.backToLive();
+      trading.flatten();
+    }
+    clock.stop();
+  });
   ui.speed.addEventListener("change", () => clock.setSpeed(Number(ui.speed.value)));
 
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
+    if (document.querySelector("dialog[open]")) return;
     if (event.key === "Escape" && picking) { setPicking(false); return; }
+    if (event.key === "Escape" && panel.pickTarget) { panel.setPick(null); return; }
     if (!clock.active) return;
     if (event.key === " ") { event.preventDefault(); clock.toggle(); }
     else if (event.key === "ArrowRight") { event.preventDefault(); event.shiftKey ? clock.advance(1) : clock.stepForward(view); }
     else if (event.key === "ArrowLeft") { event.preventDefault(); clock.stepBack(view); }
     else if (event.key === "End") { clock.backToLive(); chart.goToLatest(); }
   });
+  panel = new TradingPanel($("trading-panel"), {
+    trading, m5, digits: manifest.digits,
+    onPickChange: (label) => setHint(label ? `Click the chart at the price for your ${label}. Press Esc to cancel.` : null),
+  });
   renderReplayUi();
+  refreshTrading();
 
   // ------------------------------------------------------------ sessions
   const sessionsButton = $("sessions-toggle");
@@ -217,6 +306,16 @@ async function boot() {
     applySessions();
   });
   applySessions();
+  renderSessionKey($("session-key"));
+  const openSessionSettings = setupSessionSettings($("sessions-dialog"), {
+    // India-time preview for the date you are looking at: the replay time, or the newest candle.
+    referenceTime: () => m5.time[clock.position - 1],
+    onSaved: () => {
+      chart.refreshSessions();
+      renderSessionKey($("session-key"));
+    },
+  });
+  $("sessions-settings").addEventListener("click", openSessionSettings);
 
   // ------------------------------------------------------------ go to date / latest
   const goto = $("goto");
@@ -241,7 +340,7 @@ async function boot() {
 
   // Handy in the browser console and for automated checks.
   window.forexReplay = {
-    manifest, quality, m5, chart, clock, viewFor, setTimeframe,
+    manifest, quality, m5, chart, clock, trading, panel, viewFor, setTimeframe,
     get timeframe() { return current; },
     get view() { return view; },
   };

@@ -25,7 +25,18 @@ export class ReplayClock {
     this.playing = false;
     this.speed = SPEEDS[0];
     this.listeners = new Set();
+    this.revealListeners = new Set();
     this.timer = null;
+  }
+
+  /**
+   * Called with (from, to) whenever M5 candles from..to-1 are revealed for the
+   * FIRST time. The trading engine listens here, so every candle is processed
+   * exactly once, in order, however the clock moves (step, play, look back).
+   */
+  onReveal(listener) {
+    this.revealListeners.add(listener);
+    return () => this.revealListeners.delete(listener);
   }
 
   onChange(listener) {
@@ -65,7 +76,11 @@ export class ReplayClock {
     const next = Math.max(1, Math.min(position, this.total));
     if (next === this.position) return false;
     this.position = next;
-    if (next > this.furthest) this.furthest = next;
+    if (next > this.furthest) {
+      const from = this.furthest;
+      this.furthest = next;
+      for (const listener of this.revealListeners) listener(from, next);
+    }
     this.emit(reason);
     return true;
   }

@@ -26,7 +26,8 @@
       Go to <input type="datetime-local" id="goto">
     </label>
     <button class="plain" id="latest" title="Jump to the newest candle on the chart">Latest &#8677;</button>
-    <button class="plain toggle" id="sessions-toggle" title="Shade the Asia, London and New York sessions (M5 to H1)">Sessions</button>
+    <button class="plain toggle" id="sessions-toggle" title="Show or hide session shading (M5 to H1)">Sessions</button>
+    <button class="plain" id="sessions-settings" title="Session settings: names, timezones, hours, colours" aria-label="Session settings">&#9881;</button>
     <div class="spacer"></div>
     <div class="clock" id="clock"></div>
     <button class="plain replay-start" id="replay-toggle" title="Start a replay: click here, then click the candle to start from">&#9198; Replay</button>
@@ -67,7 +68,7 @@
 
     <section class="chart-view" id="chart-view">
       <div class="legend" id="legend">EURUSD</div>
-      <div class="hint" id="hint" hidden>Click the candle you want the replay to start from. Press Esc to cancel.</div>
+      <div class="hint" id="hint" hidden></div>
       <div class="chart" id="chart"></div>
     </section>
 
@@ -91,27 +92,83 @@
     </section>
   </main>
 
-  <aside class="panel">
+  <aside class="panel" id="trading-panel">
     <h2>Trading</h2>
-    <p class="muted">Orders, positions and risk-based lot sizing arrive on days 4&ndash;5.</p>
-    <ul class="soon">
-      <li>Market, limit and stop orders</li>
-      <li>Drag stop loss and take profit</li>
-      <li>Lots from risk %</li>
-      <li>Partial close and breakeven</li>
-      <li>Prop-firm challenge rules (day 8)</li>
-    </ul>
+    <p class="order-status" id="order-status">Start a replay to trade.</p>
+
+    <div class="ticket">
+      <div class="segmented sides">
+        <button data-side="BUY" class="buy">Buy</button>
+        <button data-side="SELL" class="sell">Sell</button>
+      </div>
+      <div class="segmented">
+        <button data-type="market" title="Fills at the next candle's open">Market</button>
+        <button data-type="pending" title="Limit or stop order: fills when price reaches it">At price</button>
+      </div>
+
+      <label class="field" id="order-price-row" hidden>
+        <span>Entry price</span>
+        <span class="with-pick"><input id="order-price" inputmode="decimal" autocomplete="off">
+          <button class="plain pick" data-pick="price" title="Click, then click the chart at the price you want">&#8982;</button></span>
+        <small>Below the market for a buy = limit; above = stop.</small>
+      </label>
+      <label class="field">
+        <span>Stop loss</span>
+        <span class="with-pick"><input id="order-sl" inputmode="decimal" autocomplete="off">
+          <button class="plain pick" data-pick="stopLoss" title="Click, then click the chart at the price you want">&#8982;</button></span>
+        <small id="order-sl-note"></small>
+      </label>
+      <label class="field">
+        <span>Take profit</span>
+        <span class="with-pick"><input id="order-tp" inputmode="decimal" autocomplete="off">
+          <button class="plain pick" data-pick="takeProfit" title="Click, then click the chart at the price you want">&#8982;</button></span>
+        <small id="order-tp-note"></small>
+      </label>
+
+      <button id="order-place" class="order-place buy" disabled>Buy at market</button>
+      <p class="order-message" id="order-message"></p>
+    </div>
+
+    <h3 id="active-title">Open and pending (0)</h3>
+    <ul class="trade-list" id="active-list"></ul>
+    <h3 id="closed-title">Closed (0)</h3>
+    <ul class="trade-list" id="closed-list"></ul>
+
+    <label class="field inline">
+      <span title="The broker's recorded spread for each candle is used when it is wider than this">Minimum spread (pips)</span>
+      <input id="order-spread" type="number" min="0" step="0.1" value="0">
+    </label>
+    <p class="muted small">Lot sizing, partial close and breakeven arrive on day 5.</p>
   </aside>
+
+  <dialog id="sessions-dialog" class="dialog">
+    <h2>Session settings</h2>
+    <p class="muted">Each session is defined in its own city's clock, so it stays correct when that city changes its clocks.
+      If the end is not after the start, the session runs past midnight.</p>
+    <div class="presets">
+      Load a preset:
+      <button type="button" class="plain bordered" data-preset="standard">Standard sessions</button>
+      <button type="button" class="plain bordered" data-preset="killzones">ICT killzones</button>
+    </div>
+    <table class="grid session-table">
+      <thead><tr><th>On</th><th>Name</th><th>Clock</th><th>Start</th><th>End</th><th>India time</th><th>Colour</th><th></th></tr></thead>
+      <tbody id="session-rows"></tbody>
+    </table>
+    <p class="muted small" id="session-preview-note"></p>
+    <p class="order-message bad" id="session-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="plain bordered" id="session-add">+ Add session</button>
+      <span class="spacer"></span>
+      <button type="button" class="plain bordered" id="session-cancel">Cancel</button>
+      <button type="button" class="primary" id="session-save">Save</button>
+    </div>
+  </dialog>
 
   <footer class="statusbar">
     <span id="status-data">No data loaded</span>
     <span id="status-lib">Chart library: checking...</span>
     <span>All times India (UTC+5:30)</span>
-    <span id="session-key" class="session-key">
-      <i style="background: rgb(245, 166, 35)"></i>Asia
-      <i style="background: rgb(41, 98, 255)"></i>London
-      <i style="background: rgb(171, 71, 188)"></i>New York
-    </span>
+    <span id="session-key" class="session-key"></span>
     <span id="status-version"></span>
   </footer>
 </body>
