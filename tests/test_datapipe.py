@@ -81,3 +81,38 @@ def test_build_rejects_impossible_candles():
         src = write_export(tmp, "EURUSD_M5_bad.csv", [bar("2025.08.04", "10:00:00", 1.1, 1.05, 1.0, 1.1)])
         with pytest.raises(ValueError):
             build(start="2025-08-01", files=[src], out_root=tmp / "web")
+
+
+def test_reference_candles_bucket_on_the_server_clock_and_stale_check_uses_the_version():
+    from forex_replay.datapipe import PIPELINE_VERSION, is_stale
+
+    # Five-minute candles from 23:50 to 00:10 server time: they straddle the server midnight,
+    # so they must land in two different H4 (and D1) candles.
+    rows = [
+        bar("2025.08.04", "23:50:00", 1.10000, 1.10050, 1.09990, 1.10040, vol=10),
+        bar("2025.08.04", "23:55:00", 1.10040, 1.10100, 1.10030, 1.10090, vol=20),
+        bar("2025.08.05", "00:05:00", 1.10090, 1.10095, 1.10000, 1.10010, vol=30),
+        bar("2025.08.05", "00:10:00", 1.10010, 1.10020, 1.09950, 1.09960, vol=40),
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        data_dir = tmp / "data"
+        data_dir.mkdir()
+        write_export(data_dir, "EURUSD_M5_test.csv", rows)
+        build(start="2025-08-01", data_dir=data_dir, out_root=tmp / "web")
+        reference = json.loads((tmp / "web" / "EURUSD" / "reference.json").read_text())
+        assert is_stale(data_dir=data_dir, out_root=tmp / "web") is False
+
+        manifest_path = tmp / "web" / "EURUSD" / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["version"] == PIPELINE_VERSION
+        manifest["version"] = PIPELINE_VERSION - 1
+        manifest_path.write_text(json.dumps(manifest))
+        assert is_stale(data_dir=data_dir, out_root=tmp / "web") is True  # older format -> rebuild
+
+    for tf in ("H4", "D1"):
+        first, second = reference[tf]
+        assert first[1:] == [110000, 110100, 109990, 110090, 30]   # open, high, low, close, volume
+        assert second[1:] == [110090, 110095, 109950, 109960, 70]
+    # Server midnight on 5 Aug 2025 is 21:00 UTC on 4 Aug (summer: UTC+3)
+    assert reference["H4"][1][0] == int(pd.Timestamp("2025-08-04 21:00", tz="UTC").timestamp())

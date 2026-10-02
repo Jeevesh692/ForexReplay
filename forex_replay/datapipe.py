@@ -32,6 +32,7 @@ from .config import PROJECT_ROOT
 SERVER_OFFSET_FROM_NEW_YORK = pd.Timedelta(hours=7)
 FIELDS = ["time", "open", "high", "low", "close", "volume", "spread"]
 BYTES_PER_BAR = 4 * len(FIELDS)
+PIPELINE_VERSION = 2  # bump when the output files change, so existing installs rebuild
 WEB_DATA_DIR = PROJECT_ROOT / "web" / "data"
 DATA_DIR = PROJECT_ROOT / "data"
 
@@ -180,7 +181,7 @@ def write_dataset(df: pd.DataFrame, spec: SymbolSpec, out_root: Path, report: di
         })
 
     manifest = {
-        "version": 1,
+        "version": PIPELINE_VERSION,
         "symbol": spec.symbol,
         "timeframe": spec.timeframe,
         "bar_seconds": spec.bar_seconds,
@@ -197,7 +198,40 @@ def write_dataset(df: pd.DataFrame, spec: SymbolSpec, out_root: Path, report: di
     }
     (out_root / spec.symbol / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (out_root / spec.symbol / "quality.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    reference = {"fields": ["time", "open", "high", "low", "close", "volume"], **reference_candles(df, spec)}
+    (out_root / spec.symbol / "reference.json").write_text(json.dumps(reference), encoding="utf-8")
     return manifest
+
+
+# ----------------------------------------------------------------- reference candles
+REFERENCE_TIMEFRAMES = {"H4": "4h", "D1": "1D"}
+
+
+def utc_to_server(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """UTC -> naive broker server time (New York + 7h)."""
+    return index.tz_convert("America/New_York").tz_localize(None) + SERVER_OFFSET_FROM_NEW_YORK
+
+
+def reference_candles(df: pd.DataFrame, spec: SymbolSpec) -> dict:
+    """H4 and D1 candles computed with pandas, bucketed on the broker server clock.
+    The browser builds the same candles in JavaScript; a test compares the two,
+    so the two implementations cannot silently disagree."""
+    scale = 10 ** spec.digits
+    server = utc_to_server(df.index)
+    out = {}
+    for name, freq in REFERENCE_TIMEFRAMES.items():
+        bucket = server.floor(freq)
+        grouped = df.groupby(bucket)
+        table = pd.DataFrame({
+            "open": grouped["open"].first(), "high": grouped["high"].max(),
+            "low": grouped["low"].min(), "close": grouped["close"].last(),
+            "volume": grouped["volume"].sum(),
+        })
+        starts = server_to_utc(pd.DatetimeIndex(table.index)).as_unit("s").asi8
+        prices = np.rint(table[["open", "high", "low", "close"]].to_numpy() * scale).astype(int)
+        out[name] = [[int(t), *map(int, row), int(v)]
+                     for t, row, v in zip(starts, prices, table["volume"].to_numpy())]
+    return out
 
 
 # ----------------------------------------------------------------- entry point
@@ -231,6 +265,8 @@ def is_stale(spec: SymbolSpec = EURUSD, data_dir: Path = DATA_DIR, out_root: Pat
     manifest = out_root / spec.symbol / "manifest.json"
     exports = find_exports(data_dir, spec.symbol, spec.timeframe)
     if not manifest.exists():
+        return True
+    if json.loads(manifest.read_text(encoding="utf-8")).get("version") != PIPELINE_VERSION:
         return True
     return any(f.stat().st_mtime > manifest.stat().st_mtime for f in exports)
 

@@ -28,3 +28,29 @@ Plan: two weeks, 28 Sep to 11 Oct 2026 (day 1 started early, on 27 Sep).
 - Browsers disagree on "Sep" vs "Sept" in dates, so month names now come from the app's own list.
 
 **How to check:** double-click `start_app.bat`. The browser should show "82,569 five-minute EURUSD candles", 0 bad candles, a price line from Aug 2025 to Sep 2026, the latest 200 candles drawn by TradingView's library, and "Chart library … ready" in the bottom bar.
+
+---
+
+## Day 2: Fri 2 Oct 2026 · the chart and timeframes
+
+**Asked for (Jeevesh):** start day 2.
+
+**Built (Claude):**
+- `web/js/timeframes.js` builds M15, M30, H1, H4 and D1 candles from M5, with candle boundaries on the broker server clock so they match MetaTrader. It supports forming candles for replay. See [decision 0003](decisions/0003-timeframes-and-chart-time.md).
+- `web/js/chart.js` is the real chart on TradingView Lightweight Charts: candles and volume, zoom and pan, a free crosshair, and India time on the axis.
+- A legend in the chart's top-left corner shows the time, open, high, low, close, change and volume of the candle under the crosshair.
+- Timeframe buttons keep your place in history when you switch. A "Go to" box jumps to a date and time in India time, and "Latest" returns to the newest candle. The last timeframe is remembered between visits.
+- The day-1 data check moved to a "Data" tab. The browser tab now has an icon.
+- The pipeline now writes `reference.json` (every H4 and D1 candle computed with pandas), and it rebuilds automatically when its output format changes.
+
+**Tests:** 6 new JavaScript tests and 1 new Python test. One of them compares all 1,734 H4 and 289 D1 candles built in JavaScript with the pandas reference. Totals: 43 Python, 11 JavaScript. The interface was also driven in a headless browser: every timeframe, go-to-date, the crosshair legend and the Data tab, with no console errors.
+
+**Decisions:**
+- Higher-timeframe candles start on the broker server clock, not UTC or India time, so they match MetaTrader ([0003](decisions/0003-timeframes-and-chart-time.md)).
+- India time on the axis is done by shifting timestamps at the chart boundary only.
+
+**Found along the way:**
+- The chart library read the computer's language setting and crashed on an unusual one in the test browser, so the chart's locale is now fixed to `en-IN`.
+- The library wrote "Sept" where the rest of the app writes "Sep", so axis labels now use the app's own month names.
+
+**How to check:** start the app. The chart opens on M15. Click M5 to D1 and the chart stays at the same place in history. Compare the last H4 candle with MetaTrader's H4 chart: open, high, low and close should be identical. Type a date into "Go to" and the chart centres on it.

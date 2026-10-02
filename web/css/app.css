@@ -59,6 +59,29 @@ body {
 }
 .group button:hover:not(:disabled), .tools button:hover:not(:disabled) { background: var(--panel-2); }
 button:disabled { color: #50535e; cursor: not-allowed; }
+.group button.active { background: var(--panel-2); color: #fff; }
+#timeframes button.active { color: var(--blue); }
+.divider { width: 1px; height: 22px; background: var(--border); }
+.goto { color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.goto input {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font: inherit;
+  color-scheme: dark;
+}
+button.plain {
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+button.plain:hover { background: var(--panel-2); }
 .spacer { flex: 1; }
 .clock { color: var(--muted); font-variant-numeric: tabular-nums; }
 
@@ -77,7 +100,31 @@ button:disabled { color: #50535e; cursor: not-allowed; }
 .tools svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 
 /* ---------- main stage ---------- */
-.stage { grid-area: stage; overflow: auto; }
+.stage { grid-area: stage; overflow: auto; position: relative; min-width: 0; min-height: 0; }
+
+/* ---------- chart view ---------- */
+.chart-view { position: absolute; inset: 0; }
+.chart-view[hidden], .view[hidden] { display: none; }
+.chart { position: absolute; inset: 0; }
+.legend {
+  position: absolute;
+  z-index: 5;
+  top: 8px;
+  left: 12px;
+  right: 80px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none; /* the mouse goes through to the chart */
+}
+.legend-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.legend-time, .legend-volume { color: var(--muted); }
+.legend .up { color: var(--up); }
+.legend .down { color: var(--down); }
+.legend b { font-weight: 500; }
 .view { max-width: 1100px; margin: 0 auto; padding: 20px 24px 40px; }
 .view-head { display: flex; align-items: center; gap: 10px; }
 h1 { font-size: 20px; margin: 0; }
@@ -92,6 +139,9 @@ h2 { font-size: 13px; margin: 0 0 10px; color: var(--text); font-weight: 600; }
 .lead { color: var(--muted); margin: 6px 0 16px; }
 .muted { color: var(--muted); font-weight: 400; }
 .error {
+  position: relative;
+  z-index: 10;
+  margin: 16px;
   border: 1px solid var(--down);
   background: rgba(239, 83, 80, 0.1);
   padding: 10px 12px;

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ForexReplay</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23131722'/%3E%3Cpath d='M9 6v20M23 6v20' stroke='%23787b86' stroke-width='2'/%3E%3Crect x='6' y='10' width='6' height='10' fill='%2326a69a'/%3E%3Crect x='20' y='12' width='6' height='10' fill='%23ef5350'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/app.css">
   <script src="vendor/lightweight-charts.standalone.production.js" defer onerror="window.__chartLibMissing = true"></script>
   <script type="module" src="js/main.js"></script>
@@ -12,10 +13,19 @@
   <header class="topbar">
     <div class="brand">Forex<span>Replay</span></div>
     <div class="pill" id="symbol">EURUSD</div>
-    <div class="group" id="timeframes" title="Timeframes arrive on day 2">
-      <button disabled>M5</button><button disabled>M15</button><button disabled>M30</button>
-      <button disabled>H1</button><button disabled>H4</button><button disabled>D1</button>
+    <div class="group" id="timeframes" aria-label="Timeframe">
+      <button disabled data-tf="M5" title="5 minutes">M5</button>
+      <button disabled data-tf="M15" title="15 minutes">M15</button>
+      <button disabled data-tf="M30" title="30 minutes">M30</button>
+      <button disabled data-tf="H1" title="1 hour">H1</button>
+      <button disabled data-tf="H4" title="4 hours">H4</button>
+      <button disabled data-tf="D1" title="1 day">D1</button>
     </div>
+    <div class="divider"></div>
+    <label class="goto" title="Jump to a date and time (India time)">
+      Go to <input type="datetime-local" id="goto">
+    </label>
+    <button class="plain" id="latest" title="Jump to the newest candle">Latest &#8677;</button>
     <div class="spacer"></div>
     <div class="group" title="Replay controls arrive on day 3">
       <button disabled aria-label="Step back">&#9664;</button>
@@ -23,7 +33,11 @@
       <button disabled aria-label="Step forward">&#9654;&#10072;</button>
       <button disabled>1x</button>
     </div>
-    <div class="clock" id="clock">Replay clock: not started</div>
+    <div class="divider"></div>
+    <div class="group tabs" aria-label="View">
+      <button class="active" data-view="chart">Chart</button>
+      <button data-view="data">Data</button>
+    </div>
   </header>
 
   <aside class="tools" aria-label="Drawing tools (day 6)">
@@ -44,26 +58,23 @@
   </aside>
 
   <main class="stage">
-    <section class="view" id="data-view">
+    <div class="error" id="error" hidden></div>
+
+    <section class="chart-view" id="chart-view">
+      <div class="legend" id="legend">EURUSD</div>
+      <div class="chart" id="chart"></div>
+    </section>
+
+    <section class="view" id="data-view" hidden>
       <div class="view-head">
         <h1>Market data</h1>
-        <span class="badge">Day 1 build</span>
       </div>
       <p class="lead" id="lead">Loading EURUSD candles...</p>
-      <div class="error" id="error" hidden></div>
-
       <div class="cards" id="cards"></div>
-
       <div class="block">
         <h2>EURUSD close, whole dataset</h2>
         <canvas id="overview" height="220" aria-label="EURUSD close price over the whole dataset"></canvas>
       </div>
-
-      <div class="block">
-        <h2>Latest candles <span class="muted" id="preview-note"></span></h2>
-        <div id="preview" class="preview"></div>
-      </div>
-
       <div class="block">
         <h2>Monthly files</h2>
         <table class="grid" id="months">
