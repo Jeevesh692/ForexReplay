@@ -219,7 +219,7 @@ export class Backtests {
       <td>${escapeHtml(b.journal)}</td>
       <td class="nowrap">${formatDateTime(b.furthestTime)}</td>
       <td class="num">${trades}</td>
-      <td class="num ${tone}">${(r.totalR || 0) >= 0 ? "+" : ""}${(r.totalR || 0).toFixed(2)}R · ${formatSignedMoney(r.money || 0)}</td>
+      <td class="num ${tone}">${r.challenge ? `<span class="tag ${r.challenge.toLowerCase()}" title="Prop-firm challenge">${r.challenge === "RUNNING" ? "challenge" : r.challenge}</span> ` : ""}${(r.totalR || 0) >= 0 ? "+" : ""}${(r.totalR || 0).toFixed(2)}R · ${formatSignedMoney(r.money || 0)}</td>
       <td class="nowrap muted">${b.saved ? new Date(b.saved).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : ""}</td>
       <td class="actions">
         <button class="plain bordered small" data-resume="${key}"${running ? " disabled" : ""}>Resume</button>

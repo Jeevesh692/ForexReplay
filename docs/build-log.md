@@ -212,3 +212,35 @@ In the in-app browser (on a throwaway journal, deleted afterwards): placed a mar
 - **Built so far:** data pipeline, chart M5 to D1 in India time, replay with forming candles, sessions, orders with SL and TP, account in $ with risk sizing and commission, partials and breakeven, draggable lines, drawings, and now saved, resumable backtests with a journal.
 - **Known gaps, collected from the decision records:** typing a new stop for an open trade, trailing stops, margin (0006); colours, rays, text, snapping, undo, tool shortcuts (0007, day 9); lots and dollars in the journal, renaming backtests (0008, day 10).
 - **Waiting on Jeevesh:** day 12 (AI trade review or two charts, by day 11); whether the $4 commission is round turn or per side; the friend's intrabar request stays parked (needs an MT5 export and a fresh MT5 login).
+
+---
+
+## Day 8: Sat 3 Oct 2026 · prop-firm challenge mode
+
+**Asked for (Jeevesh):** start day 8.
+
+**Built (Claude):**
+- `web/js/challenge.js`: the challenge rules and state. A profit target on the balance, a daily loss limit from the day's starting balance, and a fixed maximum loss, with days starting at 17:00 New York. See [decision 0009](decisions/0009-challenge-mode.md).
+- `web/js/trading.js` checks the rules after every M5 candle, with each open trade at its worst price in that candle, and again after each action. On a breach it closes open trades at that candle's close and cancels orders; on a pass it cancels orders; either way the run stops accepting orders.
+- **Challenge box** in the trading panel: a switch, three presets (8% target, 10% target, phase 2 with 5%) and the three limits. During a replay it is locked and shows three bars (profit towards the target, today's loss, loss from the start), the worst day, the lowest equity and the number of trading days.
+- The replay pauses the moment a challenge passes or fails, and the panel says why. Trades closed by a failure are labelled "closed: challenge failed" (`CHALLENGE_STOP` in the journal).
+- The starting balance cannot change during a challenge.
+- Challenge rules and how the challenge ended are saved with the backtest. A resumed backtest ends on the same candle, and the rebuild checks that. The Backtests list marks PASSED and FAILED runs.
+
+**Tests:** 8 new JavaScript tests (89 in total; Python stays at 57). They cover a wick through the daily limit that closes back up (still a failure), touching a limit exactly (not a failure), a sell measured at the high plus the spread, the daily reset at 17:00 New York, the fixed maximum-loss floor, a target that only passes once nothing is open, and the locked starting balance. Two deliberate breaks were tried: measuring at the candle's close instead of its worst price (5 of 8 tests failed), and leaving out the spread (the sell test failed). Both changes were undone. The random rebuild test now runs half of its 60 runs as challenges with tight limits (9 passed, 16 failed, 5 still running), and every rebuild ends the same way as the original.
+
+In the in-app browser (throwaway journal, deleted afterwards): turned on the 8% preset with a real click, started a replay, tried to change the starting balance (refused, with the reason), sold 3.50 lots risking 7% into a rising market and played. The challenge failed on Fri 14 Aug 2026, 11:30 IST. The worst price took equity to $9,464.50, which broke the $500 daily limit; the trade was closed at that candle's close for -$511.00, and the replay paused with the panel and order ticket explaining why. After a page reload, Resume rebuilt the same failure on the same candle. With the switch off, the next replay showed "off for this run" and had no limits. No console errors. Screenshots could not be taken because the app window was hidden, so the layout was checked through the page text, not by eye.
+
+**Decisions:**
+- Rules are checked on every M5 candle at its worst prices, not only at candle closes ([0009](decisions/0009-challenge-mode.md)).
+- The day boundary is the broker server's midnight (17:00 New York).
+- The daily limit is a % of the starting balance, measured from the day's starting balance; the maximum loss is a fixed floor.
+- A breach closes trades at that candle's close and ends the run; rules and the starting balance are locked for the length of a run.
+- The challenge is a money rule next to the account, not part of the engine; `broker.py` and `broker.js` are unchanged, so the parity fixture did not need regenerating.
+
+**Found along the way:**
+- "Close all" wrote its action down before closing the trades, so a challenge could not see the target banked until the next candle. The action is now recorded after the closes.
+- The first failing trade was labelled "closed by you", which is wrong; it now has its own exit reason.
+- With random trades and loose limits, almost every random challenge failed, so the test's limits were tightened on the target side until passes happened too. The point is to exercise both endings in the rebuild, not to model a trader.
+
+**How to check:** in the trading panel, tick "Challenge mode" (or click "8% target"). Start a replay, set Risk % to 7 and sell with a 20-pip stop. Press Space. If price runs against you, the replay stops when the daily bar fills: the box says FAILED with the time and the reason, and the ticket is greyed out. Open Backtests: the run is marked FAILED, and Resume brings it back in the same state.

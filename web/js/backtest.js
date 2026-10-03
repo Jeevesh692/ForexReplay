@@ -4,7 +4,8 @@
 //   * where the replay started (the time of the last candle shown),
 //   * the account settings it started with,
 //   * every action taken, with the time of the live candle when it was taken,
-//   * how far the replay got, and the drawings.
+//   * how far the replay got, and the drawings,
+//   * the challenge rules, if the run was a prop-firm challenge (challenge.js).
 // Rebuilding feeds the same M5 candles to a fresh engine and repeats each action
 // at its candle. The engine is deterministic, so the result is the same run.
 //
@@ -97,7 +98,9 @@ export function compareTrades(saved, rebuilt) {
 /** Totals shown in the list of saved backtests. */
 export function resultOf(trading) {
   const s = trading.summary();
+  const c = trading.challenge;
   return {
+    challenge: c ? c.outcome : null,
     closed: s.closed, open: s.open, pending: s.pending, wins: s.wins, losses: s.losses,
     totalR: Math.round(s.totalR * 100) / 100,
     money: Math.round(s.totalMoney * 100) / 100,
@@ -118,6 +121,8 @@ export function snapshot(meta, { trading, drawings, m5, clock, manifest, timefra
     furthestTime: m5.time[clock.furthest - 1],
     timeframe,
     settings: { ...trading.startSettings },
+    challenge: trading.challenge ? { ...trading.challenge.rules } : null,
+    challengeEnd: trading.challenge ? { outcome: trading.challenge.outcome, endTime: trading.challenge.endTime } : null,
     actions: trading.actions.map((a) => structuredClone(a)),
     drawings: drawings.toJSON(),
     trades: trading.broker.trades.map((t) => tradeRecord(t, m5, trading.account)),
@@ -167,7 +172,7 @@ export function rebuild(saved, { m5, pipPoints, pointValue }) {
   const furthest = indexOf(saved.furthestTime, "last candle reached");
 
   const clock = new StepClock(m5.length, start + 1);
-  const trading = new Trading({ m5, clock, pipPoints, pointValue, settings: saved.settings });
+  const trading = new Trading({ m5, clock, pipPoints, pointValue, settings: saved.settings, challenge: saved.challenge || null });
   const problems = [];
   saved.actions.forEach((action, n) => {
     const at = indexOfTime(m5, action.at);
@@ -187,5 +192,10 @@ export function rebuild(saved, { m5, pipPoints, pointValue }) {
 
   const rebuilt = trading.broker.trades.map((t) => tradeRecord(t, m5, trading.account));
   problems.push(...compareTrades(saved.trades, rebuilt));
+  const c = trading.challenge;
+  const end = c ? { outcome: c.outcome, endTime: c.endTime } : null;
+  if (JSON.stringify(end) !== JSON.stringify(saved.challengeEnd ?? null)) {
+    problems.push(`The challenge ended differently: saved ${JSON.stringify(saved.challengeEnd)}, now ${JSON.stringify(end)}.`);
+  }
   return { trading, position: clock.position, problems };
 }

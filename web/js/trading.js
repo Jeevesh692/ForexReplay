@@ -11,16 +11,21 @@
 //   change) is written to `actions` with the time of the live candle. The engine
 //   gives the same result for the same candles and actions, so a saved run is
 //   rebuilt by repeating them (see backtest.js) rather than by storing its insides.
+// * In challenge mode (challenge.js) the prop-firm rules are checked after every
+//   M5 candle, at that candle's worst prices. They depend only on candles and
+//   actions, so a rebuilt run fails or passes on the same candle as the original.
 
 import { Account, DEFAULT_SETTINGS } from "./account.js";
 import { Broker, InvalidOrder, OrderType, Side, Status } from "./broker.js";
+import { Challenge, CHALLENGE_EXIT, Outcome } from "./challenge.js";
 
 export class Trading {
   /**
-   * @param {object} options { m5: Candles, clock: ReplayClock, pipPoints, pointValue, settings, onChange() }
+   * @param {object} options { m5: Candles, clock: ReplayClock, pipPoints, pointValue, settings, challenge, onChange() }
    *   pointValue: dollars per point per lot. settings: account settings (see account.js).
+   *   challenge: challenge rules (see challenge.js) for the runs this starts, or null.
    */
-  constructor({ m5, clock, pipPoints = 10, pointValue = 1, settings = DEFAULT_SETTINGS, onChange = () => {} }) {
+  constructor({ m5, clock, pipPoints = 10, pointValue = 1, settings = DEFAULT_SETTINGS, challenge = null, onChange = () => {} }) {
     this.m5 = m5;
     this.clock = clock;
     this.pipPoints = pipPoints;
@@ -30,11 +35,18 @@ export class Trading {
     this.broker = this.newBroker();
     this.actions = []; // [{ at: UTC time of the live candle, kind, ... }] in the order they happened
     this.startSettings = { ...this.account.settings }; // the account settings the run started with
+    this.challengeRules = challenge; // rules for the next run; changed by the panel between replays
+    this.challenge = this.newChallenge();
     clock.onReveal((from, to) => this.reveal(from, to));
   }
 
   newBroker() {
     return new Broker({ spreadPoints: this.minSpreadPoints, onClose: () => {}, onFill: () => {} });
+  }
+
+  newChallenge() {
+    const rules = this.challengeRules;
+    return rules && rules.enabled ? new Challenge(rules, this.account.settings.startingBalance) : null;
   }
 
   /** Start a fresh run (called when a new replay starts). */
@@ -43,6 +55,7 @@ export class Trading {
     this.account.reset();
     this.actions = [];
     this.startSettings = { ...this.account.settings };
+    this.challenge = this.newChallenge();
     this.onChange();
   }
 
@@ -53,12 +66,18 @@ export class Trading {
     this.actions = rebuilt.actions;
     this.startSettings = rebuilt.startSettings;
     this.minSpreadPoints = rebuilt.minSpreadPoints;
+    this.challengeRules = rebuilt.challengeRules;
+    this.challenge = rebuilt.challenge;
     this.onChange();
   }
 
   /** Write down an action that just succeeded, at the live candle (the furthest the replay has reached). */
   record(kind, data = {}) {
-    this.actions.push({ at: this.m5.time[this.clock.furthest - 1], kind, ...data });
+    const at = this.m5.time[this.clock.furthest - 1];
+    this.actions.push({ at, kind, ...data });
+    if (!this.challenge) return;
+    if (kind === "place") this.challenge.traded(at);
+    this.checkChallenge(this.clock.furthest - 1, false); // a close can bank the target
   }
 
   /** Repeat a recorded action (used when a saved run is rebuilt). */
@@ -77,6 +96,10 @@ export class Trading {
 
   /** Change account settings (starting balance, risk %, commission, minimum spread...). */
   updateSettings(changes) {
+    if (this.challenge && this.clock.active && "startingBalance" in changes &&
+        Number(changes.startingBalance) !== this.account.settings.startingBalance) {
+      throw new InvalidOrder("The starting balance cannot change during a challenge: its limits are measured from it.");
+    }
     const settings = this.account.update(changes);
     this.minSpreadPoints = Math.round(settings.minSpreadPips * this.pipPoints);
     this.broker.spread = this.minSpreadPoints;
@@ -88,9 +111,31 @@ export class Trading {
   reveal(from, to) {
     const m = this.m5;
     for (let i = from; i < to; i++) {
+      if (this.challenge) this.challenge.beginCandle(m.time[i], this.balance);
       this.broker.processCandle(i, m.open[i], m.high[i], m.low[i], m.spread[i]);
+      if (this.challenge && this.challenge.running) this.checkChallenge(i, true);
     }
     this.onChange();
+  }
+
+  /**
+   * Check the challenge rules at M5 candle `i`: at its worst prices after the engine
+   * has processed it (`worst`), or at its close after an action. Ends the run on a breach or a pass.
+   */
+  checkChallenge(i, worst) {
+    const m = this.m5;
+    const spread = Math.max(this.minSpreadPoints, m.spread[i]);
+    const open = this.broker.openTrades;
+    let equityLow = this.balance;
+    for (const t of open) {
+      const bid = !worst ? m.close[i] : (t.side === Side.BUY ? m.low[i] : m.high[i]);
+      equityLow += this.account.unrealized(t, bid, spread);
+    }
+    const outcome = this.challenge.check(m.time[i], { balance: this.balance, equityLow, open: open.length });
+    if (outcome === Outcome.FAILED) {
+      for (const t of open) this.broker.close(t, i, m.close[i], CHALLENGE_EXIT, spread);
+    }
+    if (outcome) for (const t of this.broker.pendingOrders) this.broker.cancel(t);
   }
 
   /** Index of the last revealed M5 candle: "now". */
@@ -107,6 +152,10 @@ export class Trading {
   /** Why trading is not possible right now, or null when it is. */
   get blockedReason() {
     if (!this.clock.active) return "Start a replay to trade.";
+    if (this.challenge && !this.challenge.running) {
+      return `Challenge ${this.challenge.outcome === Outcome.PASSED ? "passed" : "failed"}: ${this.challenge.reason}. ` +
+        "This run is over; start a new replay to try again.";
+    }
     if (!this.clock.live) return "You are viewing history. Press End to return to the live candle.";
     if (this.clock.finished) return "The replay has reached the end of the data.";
     return null;
@@ -237,8 +286,8 @@ export class Trading {
   /** The "Close all" button: the same as flatten, but only while the replay is live. */
   closeAll() {
     this.ensureCanTrade();
-    this.record("closeAll");
     this.flatten();
+    this.record("closeAll"); // after the closes, so a challenge can see the target banked
   }
 
   // ----- money -------------------------------------------------------------

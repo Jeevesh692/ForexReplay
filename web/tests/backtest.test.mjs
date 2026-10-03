@@ -32,10 +32,11 @@ function randomMarket(n, seed) {
   return { m5: Candles.fromBuffer(new Int32Array(rows.flat()).buffer), rand };
 }
 
-function startRun(m5, startAt) {
+function startRun(m5, startAt, challenge = null) {
   const clock = new ReplayClock(m5.length);
-  const trading = new Trading({ m5, clock, ...ENV, settings: { startingBalance: 10000, commissionPerLot: 4 } });
+  const trading = new Trading({ m5, clock, ...ENV, settings: { startingBalance: 10000, commissionPerLot: 4 }, challenge });
   clock.start(startAt);
+  trading.reset();
   trading.startTime = m5.time[startAt - 1]; // where the run began, for save() below
   return { clock, trading };
 }
@@ -91,11 +92,14 @@ function randomAction(rand, trading, clock, view) {
   }
 }
 
-test("a rebuilt backtest matches the original run exactly, over 60 random runs", () => {
+test("a rebuilt backtest matches the original run exactly, over 60 random runs, half of them challenges", () => {
   let actions = 0, trades = 0;
+  const outcomes = { RUNNING: 0, PASSED: 0, FAILED: 0 };
   for (let run = 0; run < 60; run++) {
     const { m5, rand } = randomMarket(700, 1000 + run);
-    const { clock, trading } = startRun(m5, 50 + Math.floor(rand() * 100));
+    // Tight limits on odd runs, so challenges pass and fail often within 700 candles.
+    const challenge = run % 2 ? { enabled: true, targetPercent: 0.2 + (run % 3) / 10, dailyPercent: 4, maxPercent: 6 } : null;
+    const { clock, trading } = startRun(m5, 50 + Math.floor(rand() * 100), challenge);
     const view = new TimeframeView(m5, "M15");
     for (let step = 0; step < 250; step++) randomAction(rand, trading, clock, view);
     const saved = save(m5, clock, trading);
@@ -107,10 +111,15 @@ test("a rebuilt backtest matches the original run exactly, over 60 random runs",
     assert.deepEqual(again.actions, saved.actions);
     assert.equal(again.balance, trading.balance);
     assert.deepEqual(again.account.settings, trading.account.settings);
+    if (challenge) {
+      assert.deepEqual(again.challenge.summary(), trading.challenge.summary());
+      outcomes[trading.challenge.outcome]++;
+    }
     actions += saved.actions.length;
     trades += saved.trades.length;
   }
   assert.ok(actions > 1000 && trades > 300, `only ${actions} actions and ${trades} trades were exercised`);
+  assert.ok(outcomes.PASSED >= 3 && outcomes.FAILED >= 3, `challenge outcomes too one-sided: ${JSON.stringify(outcomes)}`);
 });
 
 test("a resumed run carries on exactly as if it had never stopped", () => {

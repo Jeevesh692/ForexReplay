@@ -444,3 +444,28 @@ button.primary {
 .dialog .journal-field { margin-top: 0; }
 .dialog .journal-field input { width: 170px; }
 .dialog code { color: var(--text); }
+
+/* ---------- challenge mode ---------- */
+.challenge { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 7px 8px; margin: 0 0 10px; }
+.challenge-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.challenge .check { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; cursor: pointer; }
+.challenge-state { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+.challenge-state.passed { color: var(--up); }
+.challenge-state.failed { color: var(--down); }
+.challenge-state.running { color: var(--blue); }
+.challenge-setup[hidden], .challenge-meters[hidden] { display: none; }
+.challenge-presets { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.challenge-rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.challenge-rules label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); font-size: 11px; }
+.challenge-rules input { width: 100%; min-width: 0; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; }
+.challenge-rules input:disabled { opacity: 0.6; }
+.challenge .muted.small { margin: 6px 0 0; }
+.meter { margin-top: 7px; }
+.meter-label { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--muted); }
+.meter-label span:last-child { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
+.bar { height: 5px; background: var(--panel-2); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.bar i { display: block; height: 100%; width: 0; background: var(--warn); }
+.bar i.good { background: var(--up); }
+.bar i.danger { background: var(--down); }
+.backtest-table .tag.passed { color: var(--up); border-color: var(--up); }
+.backtest-table .tag.failed { color: var(--down); border-color: var(--down); }

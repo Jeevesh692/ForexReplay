@@ -2,6 +2,7 @@
 
 import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
 import { drawingsBefore, rebuild } from "./backtest.js";
+import { loadRules as loadChallengeRules } from "./challenge.js";
 import { Backtests } from "./backtestpanel.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
@@ -155,7 +156,7 @@ async function boot() {
   const UP = "#26a69a", DOWN = "#ef5350", PENDING = "#ffb74d", ENTRY = "#d1d4dc";
   const trading = new Trading({
     m5, clock, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits),
-    settings: loadSettings(), onChange: () => refreshTrading(),
+    settings: loadSettings(), challenge: loadChallengeRules(), onChange: () => refreshTrading(),
   });
   const formatR = (r) => `${r >= 0 ? "+" : ""}${r.toFixed(2)}R`;
   const LINE_FIELD = { sl: "stopLoss", tp: "takeProfit", entry: "price" };
@@ -221,7 +222,14 @@ async function boot() {
     chart.setTradeMarkers(markers);
   }
 
+  let challengeOutcome = null; // to notice the moment a challenge passes or fails
   function refreshTrading() {
+    const c = clock.active ? trading.challenge : null;
+    if (panel && c && c.outcome !== "RUNNING" && challengeOutcome === "RUNNING") {
+      clock.pause(); // stop the replay where the challenge ended
+      panel.say(`Challenge ${c.outcome === "PASSED" ? "passed" : "failed"}: ${c.reason}.`, c.outcome === "PASSED" ? "ok" : "bad");
+    }
+    challengeOutcome = c ? c.outcome : null;
     if (panel) panel.render();
     drawTrades();
     if (clock.active && backtests) backtests.changed(); // saved shortly after (see backtestpanel.js)
@@ -417,6 +425,7 @@ async function boot() {
 
   function leaveReplay() {
     clock.stop();
+    trading.challengeRules = loadChallengeRules(); // likewise its challenge rules
     trading.reset();
     trading.updateSettings(loadSettings()); // a resumed backtest brought its own settings; go back to yours
     panel.renderSettings();

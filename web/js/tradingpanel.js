@@ -4,6 +4,7 @@
 
 import { formatLots, formatMoney, formatSignedMoney, saveSettings } from "./account.js";
 import { ExitReason, OrderType } from "./broker.js";
+import { CHALLENGE_EXIT, cleanRules, Outcome, PRESETS, saveRules } from "./challenge.js";
 import { InvalidOrder, Side, Status } from "./trading.js";
 import { formatDateTime } from "./time.js";
 
@@ -11,6 +12,7 @@ const REASON_LABEL = {
   [ExitReason.STOP_LOSS]: "stop loss",
   [ExitReason.TAKE_PROFIT]: "take profit",
   [ExitReason.MANUAL]: "closed by you",
+  [CHALLENGE_EXIT]: "closed: challenge failed",
 };
 const PICK_LABEL = { price: "entry price", stopLoss: "stop loss", takeProfit: "take profit" };
 
@@ -44,7 +46,12 @@ export class TradingPanel {
     });
     // Settings: each input writes one account setting, which is saved in the browser.
     const setting = (id, key) => this.el(id).addEventListener("change", (event) => {
-      saveSettings(trading.updateSettings({ [key]: event.target.value }));
+      try {
+        saveSettings(trading.updateSettings({ [key]: event.target.value }));
+      } catch (err) {
+        if (!(err instanceof InvalidOrder)) throw err;
+        this.say(err.message, "bad");
+      }
       this.renderSettings(); // show what was actually stored (a rejected value snaps back)
     });
     setting("set-balance", "startingBalance");
@@ -54,6 +61,26 @@ export class TradingPanel {
       const key = trading.account.settings.sizeMode === "risk" ? "riskPercent" : "fixedLots";
       saveSettings(trading.updateSettings({ [key]: event.target.value }));
       this.renderSettings();
+    });
+    // Challenge rules: chosen between replays, fixed for the length of one.
+    this.el("challenge-presets").innerHTML = Object.entries(PRESETS)
+      .map(([id, p]) => `<button class="plain small" data-preset="${id}" title="${p.targetPercent}% target, ${p.dailyPercent}% daily, ${p.maxPercent}% max loss">${p.label}</button>`).join("");
+    const challengeInputs = { targetPercent: "challenge-target", dailyPercent: "challenge-daily", maxPercent: "challenge-max" };
+    const setRules = (changes) => {
+      const rules = cleanRules({ ...trading.challengeRules, ...changes });
+      trading.challengeRules = rules;
+      saveRules(rules);
+      this.renderChallenge();
+    };
+    this.el("challenge-on").addEventListener("change", (event) => setRules({ enabled: event.target.checked }));
+    for (const [key, id] of Object.entries(challengeInputs)) {
+      this.el(id).addEventListener("change", (event) => setRules({ [key]: event.target.value }));
+    }
+    this.el("challenge-presets").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-preset]");
+      if (!button) return;
+      const { targetPercent, dailyPercent, maxPercent } = PRESETS[button.dataset.preset];
+      setRules({ enabled: true, targetPercent, dailyPercent, maxPercent });
     });
     this.renderSettings();
     this.render();
@@ -207,6 +234,7 @@ export class TradingPanel {
   // ----- drawing ----------------------------------------------------------
   render() {
     this.renderAccount();
+    this.renderChallenge();
     this.renderTicket();
     this.renderTrades();
   }
@@ -222,6 +250,55 @@ export class TradingPanel {
     cell.textContent = `${formatSignedMoney(run)} (${run >= 0.005 ? "+" : ""}${(run / start * 100).toFixed(2)}%)`;
     cell.className = Math.abs(run) < 0.005 ? "" : this.tone(run);
     cell.title = cell.textContent;
+  }
+
+  /** The challenge box: its rules before a replay; its progress during one. */
+  renderChallenge() {
+    const t = this.trading;
+    const inReplay = t.clock.active;
+    const c = inReplay ? t.challenge : null;
+    const rules = c ? c.rules : cleanRules(t.challengeRules);
+    const on = this.el("challenge-on");
+    on.checked = c ? true : (!inReplay && rules.enabled);
+    on.disabled = inReplay;
+    for (const [key, id] of [["targetPercent", "challenge-target"], ["dailyPercent", "challenge-daily"], ["maxPercent", "challenge-max"]]) {
+      const input = this.el(id);
+      if (document.activeElement !== input) input.value = rules[key];
+      input.disabled = inReplay;
+    }
+    this.el("challenge-presets").hidden = inReplay;
+    this.el("challenge-setup").hidden = inReplay && !c;
+    this.el("challenge-note").textContent = inReplay
+      ? "Rules are fixed for this run."
+      : (rules.enabled ? "Applies from the next replay. Days start at 17:00 New York (the broker's midnight)." : "Off: the next replay has no limits.");
+
+    const state = this.el("challenge-state");
+    state.textContent = !inReplay ? "" : !c ? "off for this run" : c.outcome;
+    state.className = `challenge-state ${c ? c.outcome.toLowerCase() : ""}`;
+    this.el("challenge-meters").hidden = !c;
+    if (!c) return;
+
+    const equity = t.equity;
+    const meter = (id, fraction, text, tone = "") => {
+      const bar = this.el(id);
+      bar.style.width = `${Math.max(0, Math.min(1, fraction)) * 100}%`;
+      bar.className = tone;
+      this.el(`${id}-text`).textContent = text;
+    };
+    const danger = (fraction) => (fraction >= 0.8 ? "danger" : "");
+    const profit = t.balance - c.start;
+    meter("meter-target", profit / (c.target - c.start), `${formatSignedMoney(profit)} of ${formatMoney(c.target - c.start)}`, "good");
+    const today = Math.max(0, c.dayStartBalance - equity);
+    meter("meter-daily", today / c.dailyLimit, `${formatMoney(today)} of ${formatMoney(c.dailyLimit)}`, danger(today / c.dailyLimit));
+    const down = Math.max(0, c.start - equity);
+    const room = c.start - c.floor;
+    meter("meter-max", down / room, `${formatMoney(down)} of ${formatMoney(room)}`, danger(down / room));
+    const s = c.summary();
+    const days = `${s.tradingDays} trading day${s.tradingDays === 1 ? "" : "s"}`;
+    this.el("challenge-detail").textContent = c.outcome === Outcome.RUNNING
+      ? `Worst today ${formatMoney(s.worstToday)} · lowest equity ${formatMoney(s.lowestEquity)} · ${days}`
+      : `${c.outcome === Outcome.PASSED ? "Passed" : "Failed"} on ${formatDateTime(c.endTime)} IST: ${c.reason}. ` +
+        `Worst day ${formatMoney(s.worstDay)} · lowest equity ${formatMoney(s.lowestEquity)} · ${days}.`;
   }
 
   renderTicket() {

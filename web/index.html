@@ -108,6 +108,27 @@
       <div><dt title="Balance plus the floating result of open trades">Equity</dt><dd id="account-equity"></dd></div>
       <div class="wide"><dt title="Change in equity since this replay started">This run</dt><dd id="account-run"></dd></div>
     </dl>
+    <section class="challenge" id="challenge-box">
+      <div class="challenge-head">
+        <label class="check" title="Prop-firm rules: a profit target, a daily loss limit and a maximum loss"><input type="checkbox" id="challenge-on"> Challenge mode</label>
+        <span class="challenge-state" id="challenge-state"></span>
+      </div>
+      <div class="challenge-setup" id="challenge-setup">
+        <div class="challenge-presets" id="challenge-presets"></div>
+        <div class="challenge-rules">
+          <label title="Passed when the balance reaches this much above the start, with nothing open">Target %<input id="challenge-target" type="number" min="0.1" step="0.5"></label>
+          <label title="Failed if equity falls this much (of the starting balance) below the day's starting balance">Daily loss %<input id="challenge-daily" type="number" min="0.1" step="0.5"></label>
+          <label title="Failed if equity falls this much below the starting balance (a fixed floor)">Max loss %<input id="challenge-max" type="number" min="0.1" step="0.5"></label>
+        </div>
+        <p class="muted small" id="challenge-note"></p>
+      </div>
+      <div class="challenge-meters" id="challenge-meters" hidden>
+        <div class="meter"><div class="meter-label"><span>Profit target</span><span id="meter-target-text"></span></div><div class="bar"><i id="meter-target" class="good"></i></div></div>
+        <div class="meter"><div class="meter-label"><span>Daily loss</span><span id="meter-daily-text"></span></div><div class="bar"><i id="meter-daily"></i></div></div>
+        <div class="meter"><div class="meter-label"><span>Max loss</span><span id="meter-max-text"></span></div><div class="bar"><i id="meter-max"></i></div></div>
+        <p class="muted small" id="challenge-detail"></p>
+      </div>
+    </section>
     <p class="order-status" id="order-status">Start a replay to trade.</p>
 
     <div class="ticket">
