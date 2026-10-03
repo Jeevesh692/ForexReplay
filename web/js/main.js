@@ -1,6 +1,8 @@
 // App start-up: load data, build the chart, wire the top bar and the replay.
 
 import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
+import { drawingsBefore, rebuild } from "./backtest.js";
+import { Backtests } from "./backtestpanel.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
 import { DrawingStore, loadSaved as loadSavedDrawings, positionStats, save as saveDrawings, TOOLS } from "./drawings.js";
@@ -222,12 +224,25 @@ async function boot() {
   function refreshTrading() {
     if (panel) panel.render();
     drawTrades();
+    if (clock.active && backtests) backtests.changed(); // saved shortly after (see backtestpanel.js)
   }
+
+  // ------------------------------------------------------------ backtests
+  // Each replay is a backtest, saved as you go. Outside a replay the chart keeps its
+  // own drawings in the browser; a replay has its own, saved with the backtest.
+  let backtests = null; // created below, once the panel exists
+  let resuming = false; // a saved backtest is being opened: the clock's "start" must not wipe it
+  const useChartDrawings = () => {
+    drawings.load(loadSavedDrawings(manifest.symbol));
+    layer.select(null);
+    layer.storeChanged();
+  };
 
   // ------------------------------------------------------------ drawings
   const drawings = new DrawingStore({
     onChange: () => {
-      saveDrawings(manifest.symbol, drawings);
+      if (clock.active) backtests.drawingsChanged(); // a replay's drawings belong to its backtest
+      else saveDrawings(manifest.symbol, drawings);
       layer.storeChanged();
     },
   });
@@ -321,7 +336,7 @@ async function boot() {
     play: $("replay-play"), forward: $("replay-forward"), speed: $("replay-speed"),
     live: $("replay-live"), exit: $("replay-exit"), clock: $("clock"),
   };
-  let exitArmed = false; // ✕ was clicked once while trades were open
+  let exitArmed = false; // ✕ was clicked once and the save failed
   ui.speed.innerHTML = SPEEDS.map((s) => `<option value="${s}">${s}x</option>`).join("");
 
   function setPicking(on) {
@@ -352,7 +367,15 @@ async function boot() {
   }
 
   clock.onChange((_, reason) => {
-    if (reason === "start") trading.reset(); // a new replay is a new run: no trades carried over
+    if (reason === "start" && !resuming) { // a new replay is a new run: no trades carried over
+      trading.reset();
+      const startTime = m5.time[clock.position - 1];
+      backtests.begin(startTime, manifest.symbol);
+      // Drawings come along only if they sit wholly before the replay's "now" (no look-ahead).
+      drawings.load(drawingsBefore(drawings.toJSON(), startTime + manifest.bar_seconds));
+      layer.select(null);
+      layer.storeChanged();
+    }
     if (exitArmed && reason !== "stop") { exitArmed = false; setHint(null); }
     const follow = chart.latestVisible();
     const change = view.setPosition(clock.position);
@@ -375,22 +398,57 @@ async function boot() {
   ui.forward.addEventListener("click", () => clock.stepForward(view));
   ui.back.addEventListener("click", () => clock.stepBack(view));
   ui.live.addEventListener("click", () => { clock.backToLive(); chart.goToLatest(); });
-  ui.exit.addEventListener("click", () => {
-    const { open, pending } = trading.summary();
-    if (open + pending > 0 && !exitArmed) {
+  // Leaving saves the backtest; open trades and orders stay open in it, ready to resume.
+  ui.exit.addEventListener("click", async () => {
+    clock.pause();
+    const wasSaved = backtests.worthSaving;
+    if (exitArmed) {
+      backtests.abandon(); // second click after a failed save: leave without saving
+    } else if (!(await backtests.end())) {
       exitArmed = true;
-      setHint(`Exiting closes ${open} open trade(s) at the current price and cancels ${pending} order(s). Click ✕ again to confirm.`);
+      setHint("This backtest could not be saved (see the bottom bar). Click ✕ again to leave without saving it.");
       return;
     }
     exitArmed = false;
     setHint(null);
-    if (open + pending > 0) {
-      clock.pause();
-      clock.backToLive();
-      trading.flatten();
-    }
-    clock.stop();
+    leaveReplay();
+    panel.say(wasSaved ? "Backtest saved. Open Backtests to carry on with it later." : "", "ok");
   });
+
+  function leaveReplay() {
+    clock.stop();
+    trading.reset();
+    trading.updateSettings(loadSettings()); // a resumed backtest brought its own settings; go back to yours
+    panel.renderSettings();
+    useChartDrawings();
+  }
+
+  /** Rebuild a saved backtest and open it at the point it had reached. Returns the rebuild's problems. */
+  async function resumeBacktest(journal, id) {
+    const saved = await loadJSON(`/api/backtests/${encodeURIComponent(journal)}/${encodeURIComponent(id)}`);
+    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits) });
+    if (clock.active && !(await backtests.end())) {
+      throw new Error("the replay on screen could not be saved, so it was left open.");
+    }
+    clock.pause();
+    layer.setTool(null);
+    setPicking(false);
+    resuming = true;
+    try { clock.start(result.position); } finally { resuming = false; }
+    trading.adopt(result.trading);
+    backtests.continueWith(saved);
+    drawings.load(saved.drawings);
+    layer.select(null);
+    layer.storeChanged();
+    if (TIMEFRAMES.some((t) => t.id === saved.timeframe)) setTimeframe(saved.timeframe, { keepPlace: false });
+    panel.renderSettings();
+    refreshTrading();
+    panel.say(result.problems.length
+      ? `Resumed "${saved.name}", but the rebuild does not match the save (see Backtests).`
+      : `Resumed "${saved.name}": ${saved.actions.length} action(s) repeated; every trade matches the save.`,
+    result.problems.length ? "bad" : "ok");
+    return result.problems;
+  }
   ui.speed.addEventListener("change", () => clock.setSpeed(Number(ui.speed.value)));
 
   window.addEventListener("keydown", (event) => {
@@ -412,6 +470,14 @@ async function boot() {
     trading, m5, digits: manifest.digits,
     onPickChange: (label) => setHint(label ? `Click the chart at the price for your ${label}. Press Esc to cancel.` : null),
   });
+  backtests = new Backtests({
+    dialog: $("backtests-dialog"),
+    status: $("status-backtest"),
+    collect: () => ({ trading, drawings, m5, clock, manifest, timeframe: current }),
+    onResume: resumeBacktest,
+  });
+  $("backtests-open").addEventListener("click", () => { clock.pause(); backtests.open(); });
+  window.addEventListener("pagehide", () => backtests.saveOnUnload());
   renderReplayUi();
   refreshTrading();
 
@@ -463,7 +529,7 @@ async function boot() {
 
   // Handy in the browser console and for automated checks.
   window.forexReplay = {
-    manifest, quality, m5, chart, clock, trading, panel, viewFor, setTimeframe, drawings, layer,
+    manifest, quality, m5, chart, clock, trading, panel, viewFor, setTimeframe, drawings, layer, backtests,
     get timeframe() { return current; },
     get view() { return view; },
   };

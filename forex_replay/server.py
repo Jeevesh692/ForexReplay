@@ -5,6 +5,17 @@
 On start it (1) rebuilds the market-data files if an MT5 export is newer,
 (2) downloads the TradingView Lightweight Charts file once if it is missing,
 (3) serves web/ on http://127.0.0.1:8765 and opens it in your browser.
+
+It also stores backtests for the app (see backtests.py):
+
+    GET    /api/backtests                    list saved backtests
+    GET    /api/backtests/<journal>/<id>     one backtest
+    PUT    /api/backtests/<journal>/<id>     save it, and add its closed trades to the journal
+    DELETE /api/backtests/<journal>/<id>     remove it (its journal rows stay)
+
+Writes must be sent as application/json. A web page on another site cannot
+send that to this server without the browser asking first, and the server
+never says yes, so only the app itself can write files.
 """
 
 from __future__ import annotations
@@ -19,7 +30,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import __version__
-from .config import PROJECT_ROOT
+from . import backtests
+from .config import JOURNALS_DIR, PROJECT_ROOT
 
 WEB_ROOT = PROJECT_ROOT / "web"
 VENDOR_DIR = WEB_ROOT / "vendor"
@@ -69,13 +81,52 @@ def ensure_chart_library() -> str | None:
 
 class Handler(SimpleHTTPRequestHandler):
     extensions_map = {**SimpleHTTPRequestHandler.extensions_map, **MIME_TYPES}
+    journals_root = JOURNALS_DIR
 
     def do_GET(self):  # noqa: N802 (http.server naming)
-        if self.path.split("?")[0] == "/api/health":
+        route = self.path.split("?")[0]
+        if route == "/api/health":
             self._json({"ok": True, "version": __version__,
                         "chart_library": chart_library_version()})
+        elif route == "/api/backtests":
+            self._json({"backtests": backtests.list_backtests(self.journals_root)})
+        elif route.startswith("/api/backtests/"):
+            self._backtest("GET")
+        else:
+            super().do_GET()
+
+    def do_PUT(self):  # noqa: N802
+        self._backtest("PUT")
+
+    def do_DELETE(self):  # noqa: N802
+        self._backtest("DELETE")
+
+    def _backtest(self, method: str) -> None:
+        parts = self.path.split("?")[0].split("/")  # ['', 'api', 'backtests', journal, id]
+        if len(parts) != 5 or parts[:3] != ["", "api", "backtests"]:
+            self._json({"error": "Not found."}, 404)
             return
-        super().do_GET()
+        journal, backtest_id = parts[3], parts[4]
+        try:
+            if method == "GET":
+                self._json(backtests.load(journal, backtest_id, self.journals_root))
+            elif method == "DELETE":
+                backtests.delete(journal, backtest_id, self.journals_root)
+                self._json({"ok": True})
+            else:
+                self._json(backtests.save(journal, backtest_id, self._read_json(), self.journals_root))
+        except FileNotFoundError as err:
+            self._json({"error": str(err)}, 404)
+        except (backtests.BacktestError, ValueError) as err:
+            self._json({"error": str(err)}, 400)
+
+    def _read_json(self):
+        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            raise backtests.BacktestError("Send the backtest as application/json.")
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > backtests.MAX_BYTES:
+            raise backtests.BacktestError("The backtest is empty or too large to save.")
+        return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def end_headers(self):
         # Always serve fresh files while developing: no stale JavaScript after an update.
@@ -95,9 +146,10 @@ class Handler(SimpleHTTPRequestHandler):
             super().log_message(fmt, *args)
 
 
-def make_server(port: int = DEFAULT_PORT, root: Path = WEB_ROOT) -> ThreadingHTTPServer:
+def make_server(port: int = DEFAULT_PORT, root: Path = WEB_ROOT,
+                journals_root: Path = JOURNALS_DIR) -> ThreadingHTTPServer:
     """Bind to localhost only; if the port is busy, try the next few."""
-    handler = partial(Handler, directory=str(root))
+    handler = partial(type("AppHandler", (Handler,), {"journals_root": journals_root}), directory=str(root))
     last_error = None
     for candidate in range(port, port + 10):
         try:

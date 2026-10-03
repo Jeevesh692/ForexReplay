@@ -9,6 +9,7 @@ import pandas as pd
 
 from .broker import Trade
 from .config import Instrument
+from .datapipe import utc_to_server
 from .sessions import session_of
 
 COLUMNS = [
@@ -60,6 +61,61 @@ def trade_to_row(trade: Trade, instrument: Instrument, run_id: str) -> dict:
     }
 
 
+def web_trade_to_row(trade: dict, *, symbol: str, digits: int, pip_points: int, run_id: str) -> dict:
+    """The same row as trade_to_row, for a closed trade sent by the browser app.
+
+    The browser works in whole points and UTC seconds. The journal keeps v1's
+    format: prices as decimals and times on the broker server clock, so rows
+    from the browser and from the v1 replay window can be read together.
+    """
+    scale = 10 ** digits
+    times = {key: trade.get(key) for key in ("placedTime", "entryTime", "exitTime")}
+    known = [t for t in times.values() if t is not None]
+    server = dict(zip(
+        [k for k, t in times.items() if t is not None],
+        utc_to_server(pd.to_datetime(known, unit="s", utc=True)) if known else [],
+    ))
+
+    def fmt_time(key):
+        return server[key].strftime("%Y-%m-%d %H:%M:%S") if key in server else ""
+
+    def price(points):
+        return "" if points is None else round(points / scale, digits)
+
+    def rnd(value, places):
+        return "" if value is None else round(float(value), places)
+
+    entry = server.get("entryTime")
+    duration = None
+    if times["entryTime"] is not None and times["exitTime"] is not None:
+        duration = (times["exitTime"] - times["entryTime"]) / 60
+    pnl = trade.get("pnl")
+    return {
+        "trade_id": trade["id"],
+        "run_id": run_id,
+        "symbol": symbol,
+        "side": trade["side"],
+        "order_type": trade["orderType"],
+        "placed_time": fmt_time("placedTime"),
+        "entry_time": fmt_time("entryTime"),
+        "exit_time": fmt_time("exitTime"),
+        "entry_price": price(trade.get("entryPrice")),
+        "exit_price": price(trade.get("exitPrice")),
+        "stop_loss": price(trade.get("stopLoss")),
+        "take_profit": price(trade.get("takeProfit")),
+        "risk_pips": rnd(trade["plannedRisk"] / pip_points, 1),
+        "pnl_pips": rnd(None if pnl is None else pnl / pip_points, 1),
+        "result_r": rnd(trade.get("resultR"), 2),
+        "planned_rr": rnd(trade.get("plannedRewardR"), 2),
+        "mfe_r": rnd(trade.get("mfeR"), 2),
+        "mae_r": rnd(trade.get("maeR"), 2),
+        "exit_reason": trade.get("exitReason") or "",
+        "session": "" if entry is None else session_of(entry),
+        "weekday": "" if entry is None else entry.day_name(),
+        "duration_min": rnd(duration, 0),
+    }
+
+
 class TradeJournal:
     """Appends closed trades to a CSV file (created with a header if missing).
 
@@ -86,12 +142,15 @@ class TradeJournal:
 
     def log(self, trade: Trade) -> bool:
         """Append a closed trade. Returns False if it was already in the journal."""
-        key = (self.run_id, str(trade.id))
+        return self.log_row(trade_to_row(trade, self.instrument, self.run_id))
+
+    def log_row(self, row: dict) -> bool:
+        """Append a row made by trade_to_row or web_trade_to_row, unless it is already there."""
+        key = (str(row["run_id"]), str(row["trade_id"]))
         if key in self._logged:
             return False
         with self.path.open("a", newline="", encoding="utf-8") as f:
-            csv.DictWriter(f, fieldnames=COLUMNS).writerow(
-                trade_to_row(trade, self.instrument, self.run_id))
+            csv.DictWriter(f, fieldnames=COLUMNS).writerow(row)
         self._logged.add(key)
         return True
 

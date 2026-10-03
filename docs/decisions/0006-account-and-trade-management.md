@@ -48,4 +48,4 @@ The price scale now stretches to keep the lines of active trades on screen, unle
 
 ## Not yet done
 
-Typing a new stop or target for an open trade (dragging and breakeven cover it for now), trailing stops, margin, and saving trades to the journal (day 7).
+Typing a new stop or target for an open trade (dragging and breakeven cover it for now), trailing stops, margin. (Saving trades to the journal came on day 7, [0008](0008-backtests-saved-as-actions.md).)

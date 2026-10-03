@@ -431,3 +431,16 @@ button.primary {
 }
 .draw-bar[hidden] { display: none; }
 .draw-bar button:hover { border-color: var(--blue); color: #fff; }
+
+/* ---------- backtests dialog ---------- */
+#backtests-dialog { width: min(940px, calc(100vw - 32px)); }
+.backtest-table { margin-top: 10px; }
+.backtest-table td { vertical-align: middle; }
+.backtest-table .nowrap { white-space: nowrap; }
+.backtest-table .actions { white-space: nowrap; text-align: right; }
+.backtest-table .bad { color: var(--down); }
+.backtest-table .tag { color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.backtest-table button.armed { color: var(--down); }
+.dialog .journal-field { margin-top: 0; }
+.dialog .journal-field input { width: 170px; }
+.dialog code { color: var(--text); }

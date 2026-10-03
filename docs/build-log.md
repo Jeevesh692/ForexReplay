@@ -171,3 +171,44 @@ Plan: two weeks, 28 Sep to 11 Oct 2026 (day 1 started early, on 27 Sep).
 
 **How to check:** click the trendline tool on the left, then two points on the chart. Click the line: handles appear; drag one. Switch to H1 and back: the line stays on the same candles and prices. Click the Fibonacci tool, click a swing low then a swing high: the orange band is the OTE zone. Click the long tool and a price; drag the red and green edges; click "Use in ticket". Reload the page: the drawings are still there.
 
+---
+
+## Day 7: Sat 3 Oct 2026 · backtests you can save and resume, the journal, and a halfway checkpoint
+
+**Asked for (Jeevesh):** start day 7; keep to the original plan and leave out the friend's suggestion (M1 candles for live-forming candles).
+
+**Built (Claude):**
+- Every replay is now a **backtest**, saved as you go: its trades (open ones too), its drawings, its settings and how far it got. See [decision 0008](decisions/0008-backtests-saved-as-actions.md).
+- A backtest is saved as the **actions** you took, each with the time of its candle. `web/js/backtest.js` rebuilds a run by repeating them on the same candles, then checks every trade against the copy in the save and reports any difference.
+- `web/js/trading.js` writes each action down (order, close, cancel, stop or target move, partial, close all, settings change) and can repeat one.
+- **Backtests** button in the top bar: a list of saved backtests (name, journal, candle reached, trades, result in R and $, when saved) with Resume and Delete (two clicks). The journal for new replays is set there.
+- ✕ now saves and leaves; open trades stay open in the backtest instead of being closed. The bottom bar shows the backtest's name and when it was last saved, or why it was not.
+- **Journal:** saving adds the backtest's closed trades to `strategies/<journal>/trades.csv` in the v1 columns and on the broker server clock, once each. `forex_replay/backtests.py` keeps the files; `forex_replay/server.py` has four new routes for them.
+- A new replay brings along only the chart drawings that sit wholly before its start.
+
+**Tests:** 7 new JavaScript tests (81 in total) and 5 new Python tests (57 in total). The main one plays 60 random runs (5,952 actions and 2,523 trades in total, with refused actions, look-backs and settings changes mixed in), saves each through JSON, rebuilds it and requires identical trades, actions, balance and settings. To check the test can fail, the rebuild was broken on purpose (settings changes skipped): the test failed, and the change was undone. Others: a run saved and resumed half-way ends the same as one played straight through; a damaged save is reported; journal rows are written once, in server time; unsafe file names and non-JSON writes are refused.
+
+In the in-app browser (on a throwaway journal, deleted afterwards): placed a market buy and a sell limit, drew a line, part-closed the buy, opened a third trade, left with ✕ (two trades still active), opened Backtests and pressed Resume: balance, trades, action list and position matched exactly, and the line was back. Then closed and cancelled, changed the minimum spread, traded again, reloaded the page in the middle of the replay, and resumed: everything matched, including the spread setting; leaving brought back the normal settings. A replay with no trades or drawings left no file. `python -m forex_replay report` read the journal the app wrote. No console errors.
+
+**Decisions:**
+- A backtest is saved as its actions and rebuilt by the engine, never as a copy of the engine's state ([0008](decisions/0008-backtests-saved-as-actions.md)).
+- Backtests are files on disk next to the v1 journals, not browser storage, so clearing the browser cannot lose them.
+- New replays journal into `manual_backtests` until Jeevesh picks another name, so nothing is written into `impulse_candle/trades.csv` by default.
+- Leaving a replay no longer closes trades.
+- `strategies/*/backtests/` is ignored by git: backtests are personal working files, like `impulse_candle/trades.csv`.
+
+**Found along the way:**
+- Drawings made before a replay used to come into it unchanged, including any drawn on candles the replay had hidden: a small look-ahead leak from day 6. Now only drawings wholly before the start come along.
+- A settings change made while looking back would have been recorded at the candle on screen, but it takes effect at the live candle. It is now recorded at the live candle (there is a test for this).
+- After leaving a replay that had nothing to save, the old "Backtest saved" message stayed in the panel. It is cleared now.
+- pytest was not installed for the Python on this computer, so it was installed with `pip install --user pytest` (as the README says).
+
+**How to check:** start a replay, place a trade and let it fill. The bottom bar says `Backtest "EURUSD from …" · saved …`. Press ✕: the trade's lines disappear. Click Backtests, then Resume: you are back at the same candle with the trade still open. Let it close, then open `strategies/manual_backtests/trades.csv`: the trade is there once, however many times it was saved.
+
+### Checkpoint at the halfway mark
+
+- **Where the plan stands:** days 1 to 7 are done on 3 Oct. The build log's plan runs 28 Sep to 11 Oct, which puts day 7 on 4 Oct, so the work is on schedule, not behind. (`docs/plan.md` said the plan started on 29 Sep and was three days behind; the two documents disagreed. Moving the dates is not needed for now.)
+- **Tests:** 57 Python and 81 JavaScript tests, all passing. The engine parity test still matches every recorded Python trade; the engine rules did not change today.
+- **Built so far:** data pipeline, chart M5 to D1 in India time, replay with forming candles, sessions, orders with SL and TP, account in $ with risk sizing and commission, partials and breakeven, draggable lines, drawings, and now saved, resumable backtests with a journal.
+- **Known gaps, collected from the decision records:** typing a new stop for an open trade, trailing stops, margin (0006); colours, rays, text, snapping, undo, tool shortcuts (0007, day 9); lots and dollars in the journal, renaming backtests (0008, day 10).
+- **Waiting on Jeevesh:** day 12 (AI trade review or two charts, by day 11); whether the $4 commission is round turn or per side; the friend's intrabar request stays parked (needs an MT5 export and a fresh MT5 login).

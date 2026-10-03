@@ -43,4 +43,4 @@ Day 5 added moving stops, partial closes and a frozen first stop to both engines
 
 ## Not yet done
 
-Account balance in $, lot sizing from risk %, partial close, breakeven and dragging lines on the chart came on day 5. Trades are kept in memory for the current replay; saving them to the journal comes with backtest sessions on day 7.
+Account balance in $, lot sizing from risk %, partial close, breakeven and dragging lines on the chart came on day 5. Since day 7, trades are saved with their backtest and written to the journal ([0008](0008-backtests-saved-as-actions.md)).

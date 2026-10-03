@@ -21,3 +21,6 @@ Thumbs.db
 web/data/
 web/vendor/
 node_modules/
+
+# Saved backtests from the browser app (personal working files)
+strategies/*/backtests/

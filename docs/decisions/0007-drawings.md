@@ -46,4 +46,4 @@ Drawings are saved in the browser (`forexreplay.drawings.EURUSD`) on every chang
 
 ## Not yet done
 
-Colours and line styles, rays and extended lines, text notes, snapping to candle highs and lows, undo, and keyboard shortcuts for the tools (day 9). Drawings are saved per browser, not yet with a backtest session (day 7).
+Colours and line styles, rays and extended lines, text notes, snapping to candle highs and lows, undo, and keyboard shortcuts for the tools (day 9). (Since day 7, a replay's drawings are saved with its backtest; see [0008](0008-backtests-saved-as-actions.md).)

@@ -37,8 +37,9 @@
       <button id="replay-forward" title="Step forward one candle (Right arrow). Shift + Right = one M5 candle">&#10072;&#9654;</button>
       <select id="replay-speed" title="Speed: M5 candles per second"></select>
       <button id="replay-live" title="Return to where the replay had got to (End)" hidden>Live &#8677;</button>
-      <button id="replay-exit" title="Exit replay and show all candles">&#10005;</button>
+      <button id="replay-exit" title="Save this backtest and leave the replay">&#10005;</button>
     </div>
+    <button class="plain" id="backtests-open" title="Saved backtests: resume one where it stopped, or delete it">Backtests</button>
     <div class="divider"></div>
     <div class="group tabs" aria-label="View">
       <button class="active" data-view="chart">Chart</button>
@@ -201,10 +202,31 @@
     </div>
   </dialog>
 
+  <dialog id="backtests-dialog" class="dialog">
+    <h2>Backtests</h2>
+    <p class="muted">Each replay with a trade or a drawing is saved as you go, with its trades, its drawings and where it got to.
+      Resume rebuilds it by repeating every action on the same candles, then carries on live from there.
+      Closed trades are also added to the journal (<code>strategies/&lt;journal&gt;/trades.csv</code>).</p>
+    <table class="grid backtest-table">
+      <thead><tr><th>Name</th><th>Journal</th><th>Reached (IST)</th><th class="num">Trades</th><th class="num">Result</th><th>Saved</th><th></th></tr></thead>
+      <tbody id="backtest-rows"></tbody>
+    </table>
+    <p class="order-message" id="backtest-message"></p>
+    <div class="dialog-actions">
+      <label class="field inline journal-field" title="Folder under strategies/ for new replays: letters, digits, - and _">
+        <span>Journal for new replays</span>
+        <input id="backtest-journal" type="text" maxlength="48" autocomplete="off">
+      </label>
+      <span class="spacer"></span>
+      <button type="button" class="plain bordered" id="backtest-close">Close</button>
+    </div>
+  </dialog>
+
   <footer class="statusbar">
     <span id="status-data">No data loaded</span>
     <span id="status-lib">Chart library: checking...</span>
     <span>All times India (UTC+5:30)</span>
+    <span id="status-backtest" hidden></span>
     <span id="session-key" class="session-key"></span>
     <span id="status-version"></span>
   </footer>

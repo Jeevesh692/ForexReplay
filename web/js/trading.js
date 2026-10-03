@@ -7,6 +7,10 @@
 //   at history), so you cannot enter on a move you have already watched.
 //   The same goes for closing, moving a stop or anything else that changes a trade.
 // * The account (account.js) turns the engine's price results into lots and dollars.
+// * Every action that changes the run (an order, a close, a stop move, a settings
+//   change) is written to `actions` with the time of the live candle. The engine
+//   gives the same result for the same candles and actions, so a saved run is
+//   rebuilt by repeating them (see backtest.js) rather than by storing its insides.
 
 import { Account, DEFAULT_SETTINGS } from "./account.js";
 import { Broker, InvalidOrder, OrderType, Side, Status } from "./broker.js";
@@ -24,6 +28,8 @@ export class Trading {
     this.minSpreadPoints = Math.round(this.account.settings.minSpreadPips * pipPoints);
     this.onChange = onChange;
     this.broker = this.newBroker();
+    this.actions = []; // [{ at: UTC time of the live candle, kind, ... }] in the order they happened
+    this.startSettings = { ...this.account.settings }; // the account settings the run started with
     clock.onReveal((from, to) => this.reveal(from, to));
   }
 
@@ -35,7 +41,38 @@ export class Trading {
   reset() {
     this.broker = this.newBroker();
     this.account.reset();
+    this.actions = [];
+    this.startSettings = { ...this.account.settings };
     this.onChange();
+  }
+
+  /** Take over the engine, account and action log of a run rebuilt by backtest.js. */
+  adopt(rebuilt) {
+    this.broker = rebuilt.broker;
+    this.account = rebuilt.account;
+    this.actions = rebuilt.actions;
+    this.startSettings = rebuilt.startSettings;
+    this.minSpreadPoints = rebuilt.minSpreadPoints;
+    this.onChange();
+  }
+
+  /** Write down an action that just succeeded, at the live candle (the furthest the replay has reached). */
+  record(kind, data = {}) {
+    this.actions.push({ at: this.m5.time[this.clock.furthest - 1], kind, ...data });
+  }
+
+  /** Repeat a recorded action (used when a saved run is rebuilt). */
+  apply(action) {
+    switch (action.kind) {
+      case "place": return this.place(action.order);
+      case "close": return this.closeTrade(action.id);
+      case "cancel": return this.cancelOrder(action.id);
+      case "modify": return this.modifyTrade(action.id, action.changes);
+      case "partial": return this.partialClose(action.id, action.percent);
+      case "closeAll": return this.closeAll();
+      case "settings": return this.updateSettings(action.settings);
+      default: throw new InvalidOrder(`Unknown action "${action.kind}".`);
+    }
   }
 
   /** Change account settings (starting balance, risk %, commission, minimum spread...). */
@@ -43,6 +80,7 @@ export class Trading {
     const settings = this.account.update(changes);
     this.minSpreadPoints = Math.round(settings.minSpreadPips * this.pipPoints);
     this.broker.spread = this.minSpreadPoints;
+    if (this.clock.active) this.record("settings", { settings: { ...settings } }); // they change sizes and spreads from here on
     this.onChange();
     return settings;
   }
@@ -109,6 +147,7 @@ export class Trading {
       ? this.broker.marketOrder(side, stopLoss, takeProfit, this.nowIndex, this.bid, this.spread)
       : this.broker.pendingOrder(side, price, stopLoss, takeProfit, this.nowIndex, this.bid, this.spread);
     this.account.attach(trade, sized);
+    this.record("place", { order: { side, type, ...(type === "pending" ? { price } : {}), stopLoss, takeProfit } });
     this.onChange();
     return trade;
   }
@@ -122,12 +161,14 @@ export class Trading {
   closeTrade(id) {
     this.ensureCanTrade();
     this.broker.close(this.find(id), this.nowIndex, this.bid, undefined, this.spread);
+    this.record("close", { id });
     this.onChange();
   }
 
   cancelOrder(id) {
     this.ensureCanTrade();
     this.broker.cancel(this.find(id));
+    this.record("cancel", { id });
     this.onChange();
   }
 
@@ -153,6 +194,7 @@ export class Trading {
     }
     this.broker.modify(trade, this.bid, { price: null, ...changes }, this.spread);
     if (sized) size.units = sized.units;
+    this.record("modify", { id, changes: { ...changes } });
     this.onChange();
     return trade;
   }
@@ -180,11 +222,12 @@ export class Trading {
     const part = this.account.partial(trade, percent);
     if (part.error) throw new InvalidOrder(part.error);
     this.broker.partialClose(trade, part.fraction, this.nowIndex, this.bid, this.spread);
+    this.record("partial", { id, percent });
     this.onChange();
     return part;
   }
 
-  /** Close every open trade at market and cancel every pending order (used when leaving a replay). */
+  /** Close every open trade at market and cancel every pending order. */
   flatten() {
     for (const t of this.broker.openTrades) this.broker.close(t, this.nowIndex, this.bid, undefined, this.spread);
     for (const t of this.broker.pendingOrders) this.broker.cancel(t);
@@ -194,6 +237,7 @@ export class Trading {
   /** The "Close all" button: the same as flatten, but only while the replay is live. */
   closeAll() {
     this.ensureCanTrade();
+    this.record("closeAll");
     this.flatten();
   }
 
