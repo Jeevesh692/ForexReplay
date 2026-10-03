@@ -190,6 +190,7 @@ export class ChartView {
     this.drag = null; // { spec, line, startY, points, moved } while a line is being dragged
     this.deferredLines = null;
     this.justDragged = false;
+    this.toolActive = false; // set by the drawing layer
     this.markers = lib.createSeriesMarkers(this.series, []);
 
     // Dragging trade lines. The library has no draggable lines, so the mouse is watched here.
@@ -230,7 +231,7 @@ export class ChartView {
   }
 
   startDrag(event) {
-    if (event.button !== 0 || this.drag) return;
+    if (event.button !== 0 || this.drag || this.toolActive) return; // a drawing tool is waiting for its clicks
     const hit = this.lineAt(event);
     if (!hit) return;
     event.preventDefault();

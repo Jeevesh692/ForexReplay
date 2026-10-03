@@ -10,7 +10,7 @@ I built it to test discretionary, session-based trading ideas honestly, with no 
 > Lightweight Charts, developed with an AI coding agent (Claude) over a two-week plan.
 > Start it with a double-click on `start_app.bat`, or run `python -m forex_replay app`.
 > Progress is tracked in the [build log](docs/build-log.md), and design choices in [docs/decisions](docs/decisions/).
-> So far: data pipeline, TradingView-style chart with M5 to D1 timeframes in India time, bar replay with forming candles, configurable session shading, market/limit/stop orders with stop loss and take profit, and an account in $ with lot sizing from risk %, commission, partial close, breakeven and draggable stop and target lines.
+> So far: data pipeline, TradingView-style chart with M5 to D1 timeframes in India time, bar replay with forming candles, configurable session shading, market/limit/stop orders with stop loss and take profit, and an account in $ with lot sizing from risk %, commission, partial close, breakeven and draggable stop and target lines, and drawing tools (trendline, horizontal line, rectangle, Fibonacci with the OTE zone, long/short position).
 
 ## Features
 

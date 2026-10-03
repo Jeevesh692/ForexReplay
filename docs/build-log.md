@@ -141,3 +141,33 @@ Plan: two weeks, 28 Sep to 11 Oct 2026 (day 1 started early, on 27 Sep).
 - The engine's rejection messages in Python were still written for programmers; they now match the JavaScript wording.
 
 **How to check:** start a replay. The ticket shows something like "1.00 lots · risk $100.00 + $7.00 commission". Press "Buy at market", then Shift + Right. Drag the red SL line up or down and watch the hint. Press 50%: the row says "0.50 of 1.00" and the balance goes up or down by what was banked. Press BE once the trade is in profit. Open "Account settings" at the bottom of the panel to change the starting balance, commission and minimum spread.
+
+---
+
+## Day 6: Sat 3 Oct 2026 · drawing tools
+
+**Asked for (Jeevesh):** start day 6; "my broker has 4$ per lot price for my position".
+
+**Built (Claude):**
+- `web/js/drawings.js`: drawings as data anchored in time and price, handle and move rules, geometry, hit-testing, saving. See [decision 0007](decisions/0007-drawings.md).
+- `web/js/drawinglayer.js`: paints drawings on the chart and handles the mouse.
+- **Tools in the left bar:** trendline, horizontal line, rectangle, Fibonacci retracement (0, 0.382, 0.5, 0.618, 0.705, 0.79, 1, with the OTE band shaded), long position, short position, and "remove all".
+- **Working with a drawing:** click to select, drag a handle to reshape, drag the body to move, Delete to remove, Esc to cancel. A small bar shows what is selected.
+- **Long/short tool:** shows pips, R, lot size and dollars at risk. "Use in ticket" copies its entry, stop and target into the order ticket.
+- Drawings are saved in the browser and stay in place across timeframes, replays and reloads.
+- Commission default changed from the guessed $7 to the broker's $4 per lot. A saved setting still holding the guess is replaced; a value chosen on purpose is kept.
+
+**Tests:** 12 new JavaScript tests (74 in total; Python stays at 52). They cover time-to-chart placement across a weekend gap and past the last candle, M5 points landing on the right H1 candle, Fibonacci prices, handle rules for the position tool, geometry, hit-testing and loading damaged saves. In the headless browser, a scripted session drew one of each tool (by clicking and by dragging), checked the chart did not pan while drawing, dragged a position's stop handle, used "Use in ticket", moved a trendline, checked an empty drag still pans, cancelled with Esc, deleted with the Delete key, switched timeframes, reloaded, drew during a replay, dragged a trade's stop line with drawings present, and cleared everything.
+
+**Decisions:**
+- Drawings are anchored in time and price, never pixels or candle numbers ([0007](decisions/0007-drawings.md)).
+- One pure function lays a drawing out; painting and hit-testing both use its result.
+- The position tool fills the ticket; it never places an order itself.
+- A trade's stop or target line wins over a drawing under the same mouse position.
+
+**Found along the way:**
+- On a small Fibonacci the level names printed over each other; names closer than 12 pixels are now skipped.
+- A drawing tool waiting for a click could have started a drag of a trade's stop line underneath; trade lines are now locked while a tool is active.
+
+**How to check:** click the trendline tool on the left, then two points on the chart. Click the line: handles appear; drag one. Switch to H1 and back: the line stays on the same candles and prices. Click the Fibonacci tool, click a swing low then a swing high: the orange band is the OTE zone. Click the long tool and a price; drag the red and green edges; click "Use in ticket". Reload the page: the drawings are still there.
+

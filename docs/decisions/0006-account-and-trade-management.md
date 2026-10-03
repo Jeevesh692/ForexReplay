@@ -38,6 +38,8 @@ All three were written in Python first and then in JavaScript. The recorded scen
 
 Starting balance $10,000, risk 1%, commission $7 per lot, minimum spread 0. The MT5 export records a spread of 0 on about 95% of candles, which looks like a raw-spread account, and those normally charge commission; $7 is a common figure, not Jeevesh's broker's actual rate. All four are settings in the app and should be set to the real account.
 
+**Update, same day:** Jeevesh gave his broker's commission as $4 per lot. That is now the default, and a saved setting that still held the guessed $7 is replaced with it.
+
 ## Dragging lines
 
 The chart library has no draggable lines. `web/js/chart.js` watches the mouse itself: within 5 pixels of a stop-loss, take-profit or pending-entry line, a press starts a drag and stops the chart from panning. On release the new price goes through the same `modifyTrade` call as everything else, so a drag can never do something the engine would refuse; a refused drag snaps back with the reason. Lines can be dragged only while the replay is live.

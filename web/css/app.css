@@ -405,3 +405,29 @@ button.primary {
 .account-settings .field.inline input { width: 86px; }
 /* A stop-loss, take-profit or pending-entry line is under the mouse: it can be dragged. */
 .chart.line-hover, .chart.line-hover * { cursor: ns-resize !important; }
+
+/* ---------- drawing tools (day 6) ---------- */
+.tools button.active { background: var(--panel-2); color: var(--blue); }
+.tools .tools-gap { flex: 1; }
+.tools #drawings-clear.armed { color: var(--down); background: var(--panel-2); }
+.chart.tool-active, .chart.tool-active * { cursor: crosshair !important; }
+.chart.draw-hover, .chart.draw-hover * { cursor: pointer !important; }
+.chart.draw-drag, .chart.draw-drag * { cursor: grabbing !important; }
+.draw-bar {
+  position: absolute;
+  z-index: 5;
+  top: 34px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px 4px 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.draw-bar[hidden] { display: none; }
+.draw-bar button:hover { border-color: var(--blue); color: #fff; }

@@ -46,21 +46,24 @@
     </div>
   </header>
 
-  <aside class="tools" aria-label="Drawing tools (day 6)">
-    <button disabled title="Crosshair">
+  <aside class="tools" id="tools" aria-label="Drawing tools">
+    <button data-tool="" class="active" title="Pointer: select and move drawings (Esc)">
       <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg></button>
-    <button disabled title="Trendline (day 6)">
+    <button data-tool="trend" title="Trendline: click two points">
       <svg viewBox="0 0 24 24"><path d="M4 19L20 5"/><circle cx="4" cy="19" r="1.6"/><circle cx="20" cy="5" r="1.6"/></svg></button>
-    <button disabled title="Horizontal line (day 6)">
-      <svg viewBox="0 0 24 24"><path d="M3 12h18"/></svg></button>
-    <button disabled title="Rectangle (day 6)">
+    <button data-tool="hline" title="Horizontal line: click a price">
+      <svg viewBox="0 0 24 24"><path d="M3 12h18"/><circle cx="12" cy="12" r="1.6"/></svg></button>
+    <button data-tool="rect" title="Rectangle: click two corners">
       <svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="10" rx="1"/></svg></button>
-    <button disabled title="Fibonacci retracement (day 6)">
+    <button data-tool="fib" title="Fibonacci retracement with the OTE zone: click where the move starts, then where it ends">
       <svg viewBox="0 0 24 24"><path d="M3 5h18M3 10h18M3 14h18M3 19h18"/></svg></button>
-    <button disabled title="Long / short position (day 6)">
-      <svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="7"/><rect x="5" y="13" width="14" height="7"/></svg></button>
-    <button disabled title="Text (day 9)">
-      <svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13"/></svg></button>
+    <button data-tool="long" title="Long position: click the entry price, then drag the stop and target">
+      <svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="9"/><rect x="5" y="13" width="14" height="5"/><path d="M12 11V6.5M10 8.5l2-2 2 2"/></svg></button>
+    <button data-tool="short" title="Short position: click the entry price, then drag the stop and target">
+      <svg viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="5"/><rect x="5" y="11" width="14" height="9"/><path d="M12 13v4.5M10 15.5l2 2 2-2"/></svg></button>
+    <span class="tools-gap"></span>
+    <button id="drawings-clear" title="Remove all drawings">
+      <svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 10v6M14 10v6"/></svg></button>
   </aside>
 
   <main class="stage">
@@ -69,6 +72,11 @@
     <section class="chart-view" id="chart-view">
       <div class="legend" id="legend">EURUSD</div>
       <div class="hint" id="hint" hidden></div>
+      <div class="draw-bar" id="draw-bar" hidden>
+        <span id="draw-bar-text"></span>
+        <button class="plain small" id="draw-to-ticket" title="Copy this entry, stop and target into the order ticket" hidden>Use in ticket</button>
+        <button class="plain small" id="draw-delete" title="Delete this drawing (Delete key)">Delete</button>
+      </div>
       <div class="chart" id="chart"></div>
     </section>
 

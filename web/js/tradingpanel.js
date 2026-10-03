@@ -114,6 +114,19 @@ export class TradingPanel {
     return true;
   }
 
+  /** Fill the ticket from a long/short position drawing. Prices in points. Nothing is placed until you press the button. */
+  loadOrder({ side, price, stopLoss, takeProfit }) {
+    this.side = side;
+    this.type = "pending";
+    this.inputs.price.value = this.price(price);
+    this.inputs.stopLoss.value = this.price(stopLoss);
+    this.inputs.takeProfit.value = this.price(takeProfit);
+    this.touched = true;
+    this.setPick(null);
+    this.say("Copied from the drawing. Check it, then place the order.");
+    this.render();
+  }
+
   say(text, tone = "") {
     this.message = { text, tone };
     const box = this.el("order-message");

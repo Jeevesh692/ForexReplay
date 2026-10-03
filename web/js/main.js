@@ -1,7 +1,9 @@
 // App start-up: load data, build the chart, wire the top bar and the replay.
 
-import { formatLots, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
+import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
 import { ChartView } from "./chart.js";
+import { DrawingLayer } from "./drawinglayer.js";
+import { DrawingStore, loadSaved as loadSavedDrawings, positionStats, save as saveDrawings, TOOLS } from "./drawings.js";
 import { loadJSON, loadSymbol } from "./data.js";
 import { renderDataView } from "./dataview.js";
 import { OrderType } from "./broker.js";
@@ -222,6 +224,79 @@ async function boot() {
     drawTrades();
   }
 
+  // ------------------------------------------------------------ drawings
+  const drawings = new DrawingStore({
+    onChange: () => {
+      saveDrawings(manifest.symbol, drawings);
+      layer.storeChanged();
+    },
+  });
+  const toolButtons = [...$("tools").querySelectorAll("[data-tool]")];
+  const drawBar = { box: $("draw-bar"), text: $("draw-bar-text"), ticket: $("draw-to-ticket"), remove: $("draw-delete") };
+  const clearButton = $("drawings-clear");
+  let clearArmed = false;
+  const disarmClear = () => {
+    if (!clearArmed) return;
+    clearArmed = false;
+    clearButton.classList.remove("armed");
+    setHint(null);
+  };
+  const priceText = (points) => (points / 10 ** manifest.digits).toFixed(manifest.digits);
+
+  /** Lots and dollars at risk for a long/short drawing, from the account's size settings. */
+  function positionNote(d) {
+    const sized = trading.account.size(positionStats(d).risk, trading.balance);
+    return sized.error ? "" : `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}`;
+  }
+
+  const layer = new DrawingLayer(chart, {
+    store: drawings,
+    pipPoints: manifest.pip_points,
+    note: positionNote,
+    onToolChange: (tool) => {
+      toolButtons.forEach((b) => b.classList.toggle("active", b.dataset.tool === (tool || "")));
+      setHint(!tool ? null : `${TOOLS[tool].label}: ${TOOLS[tool].clicks === 2
+        ? "click the first point, then the second" : "click the chart at the price you want"}. Esc cancels.`);
+      if (tool && picking) setPicking(false);
+      if (tool && panel && panel.pickTarget) panel.setPick(null);
+    },
+    onSelect: (d) => {
+      drawBar.box.hidden = !d;
+      if (!d) return;
+      const position = d.type === "long" || d.type === "short";
+      drawBar.ticket.hidden = !position;
+      drawBar.text.textContent = position
+        ? `${TOOLS[d.type].label} · ${positionStats(d).ratio.toFixed(2)}R`
+        : d.type === "hline" ? `${TOOLS[d.type].label} · ${priceText(d.points[0].price)}` : TOOLS[d.type].label;
+    },
+  });
+  drawings.load(loadSavedDrawings(manifest.symbol));
+  layer.redraw();
+
+  toolButtons.forEach((b) => b.addEventListener("click", () => {
+    disarmClear();
+    layer.setTool(layer.tool === b.dataset.tool ? null : b.dataset.tool || null);
+  }));
+  drawBar.remove.addEventListener("click", () => layer.deleteSelected());
+  drawBar.ticket.addEventListener("click", () => {
+    const d = layer.selected;
+    if (!d) return;
+    panel.loadOrder({
+      side: d.type === "long" ? Side.BUY : Side.SELL, price: d.points[0].price, stopLoss: d.stop, takeProfit: d.target,
+    });
+  });
+  clearButton.addEventListener("click", () => {
+    if (drawings.items.length === 0) return;
+    if (!clearArmed) { // removing everything cannot be undone, so it takes a second click
+      clearArmed = true;
+      clearButton.classList.add("armed");
+      setHint(`Remove all ${drawings.items.length} drawings? Click the bin again to confirm, or press Esc.`);
+      return;
+    }
+    disarmClear();
+    drawings.clear();
+  });
+
   const tfButtons = [...$("timeframes").querySelectorAll("button")];
   function setTimeframe(tf, { keepPlace = true } = {}) {
     // Stay at the same place in history, unless you were at the newest candle: then stay at the newest.
@@ -250,6 +325,7 @@ async function boot() {
   ui.speed.innerHTML = SPEEDS.map((s) => `<option value="${s}">${s}x</option>`).join("");
 
   function setPicking(on) {
+    if (on) layer.setTool(null);
     picking = on;
     setHint(on ? "Click the candle you want the replay to start from. Press Esc to cancel." : null);
     ui.toggle.classList.toggle("active", on);
@@ -321,6 +397,9 @@ async function boot() {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
     if (document.querySelector("dialog[open]")) return;
     if (event.key === "Escape" && chart.cancelDrag()) return;
+    if (event.key === "Escape" && clearArmed) { disarmClear(); return; }
+    if (event.key === "Escape" && layer.cancel()) return;
+    if ((event.key === "Delete" || event.key === "Backspace") && layer.deleteSelected()) { event.preventDefault(); return; }
     if (event.key === "Escape" && picking) { setPicking(false); return; }
     if (event.key === "Escape" && panel.pickTarget) { panel.setPick(null); return; }
     if (!clock.active) return;
@@ -384,7 +463,7 @@ async function boot() {
 
   // Handy in the browser console and for automated checks.
   window.forexReplay = {
-    manifest, quality, m5, chart, clock, trading, panel, viewFor, setTimeframe,
+    manifest, quality, m5, chart, clock, trading, panel, viewFor, setTimeframe, drawings, layer,
     get timeframe() { return current; },
     get view() { return view; },
   };

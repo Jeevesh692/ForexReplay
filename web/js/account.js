@@ -22,11 +22,12 @@ export const LOT_UNITS = 100; // sizes are whole numbers of 0.01 lots, so they n
 export const STORAGE_KEY = "forexreplay.account";
 
 export const DEFAULT_SETTINGS = Object.freeze({
+  version: 2,
   startingBalance: 10000,
   sizeMode: "risk", // "risk": size from a % of the balance; "lots": a fixed size
   riskPercent: 1,
   fixedLots: 0.1,
-  commissionPerLot: 7, // $ per lot, round turn
+  commissionPerLot: 4, // $ per lot, round turn (Jeevesh's broker)
   minSpreadPips: 0,
 });
 
@@ -42,6 +43,8 @@ const LIMITS = {
 export function cleanSettings(raw) {
   const out = { ...DEFAULT_SETTINGS };
   if (!raw || typeof raw !== "object") return out;
+  // Settings saved on day 5 carried that day's guessed commission of $7. Replace the guess, keep a deliberate choice.
+  if (!raw.version && Number(raw.commissionPerLot) === 7) raw = { ...raw, commissionPerLot: DEFAULT_SETTINGS.commissionPerLot };
   for (const [key, [low, high]] of Object.entries(LIMITS)) {
     const value = Number(raw[key]);
     if (raw[key] !== null && raw[key] !== "" && Number.isFinite(value) && value >= low && value <= high) out[key] = value;

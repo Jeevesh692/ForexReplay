@@ -22,7 +22,7 @@ function market(n, overrides = {}) {
 
 function setup(m5, settings = {}, startAt = 5) {
   const clock = new ReplayClock(m5.length);
-  const trading = new Trading({ m5, clock, settings: { ...DEFAULT_SETTINGS, ...settings } });
+  const trading = new Trading({ m5, clock, settings: { ...DEFAULT_SETTINGS, commissionPerLot: 7, ...settings } });
   clock.start(startAt);
   return { clock, trading };
 }
@@ -181,6 +181,14 @@ test("damaged saved settings fall back to the defaults", () => {
   assert.deepEqual(cleanSettings({ startingBalance: "abc", riskPercent: -3, sizeMode: "all-in", commissionPerLot: 3.5 }),
     { ...DEFAULT_SETTINGS, commissionPerLot: 3.5 });
   assert.equal(cleanSettings({ fixedLots: 0.237 }).fixedLots, 0.24);
+});
+
+test("the commission guessed on day 5 ($7) is replaced by the broker's real $4; a deliberate choice is kept", () => {
+  assert.equal(DEFAULT_SETTINGS.commissionPerLot, 4);
+  assert.equal(cleanSettings({ commissionPerLot: 7, riskPercent: 2 }).commissionPerLot, 4); // saved before versions existed
+  assert.equal(cleanSettings({ commissionPerLot: 7, riskPercent: 2 }).riskPercent, 2);
+  assert.equal(cleanSettings({ version: 2, commissionPerLot: 7 }).commissionPerLot, 7);     // chosen after the change
+  assert.equal(cleanSettings({ commissionPerLot: 3.5 }).commissionPerLot, 3.5);
 });
 
 test("money and lots are written the same way everywhere", () => {

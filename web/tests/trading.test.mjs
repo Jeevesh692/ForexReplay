@@ -108,5 +108,5 @@ test("flatten closes open trades at the current price and cancels pending orders
   assert.equal(pending.status, Status.CANCELLED);
   const { totalMoney, ...counts } = trading.summary();
   assert.deepEqual(counts, { open: 0, pending: 0, closed: 1, wins: 0, losses: 0, totalR: 0 });
-  assert.equal(totalMoney, -7); // 1.00 lot at 1% risk, flat price: only the $7 commission
+  assert.equal(totalMoney, -4); // 1.00 lot at 1% risk, flat price: only the $4 commission
 });
