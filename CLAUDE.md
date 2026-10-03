@@ -21,7 +21,7 @@ The project is also a portfolio piece for AI-engineering applications: "a comple
 3. Add a day entry to `docs/build-log.md` in the existing format: asked for, built, tests, decisions, found along the way, how to check.
 4. If a design choice was made, add `docs/decisions/NNNN-title.md` in the existing format (date, status, decided by, reasoning, not yet done).
 5. Update the "So far" line near the top of `README.md` and the status table in `docs/plan.md`.
-6. Commit as `v2 day N: summary` with a bullet list. Leave `strategies/impulse_candle/trades.csv` uncommitted (his own test trades).
+6. Commit as `v2 day N: summary` with a bullet list, then push to `origin main` without asking (Jeevesh's standing instruction, 3 Oct 2026). Leave `strategies/impulse_candle/trades.csv` uncommitted (his own test trades).
 7. Finish with: what was built, how to check it by hand, how you know it is right, a short walkthrough of the ideas, and **three questions** that test whether he understood the day. Grade his answers honestly next time.
 
 ## Run and test
