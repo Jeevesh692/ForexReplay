@@ -2,7 +2,7 @@
 
 Goal: a browser app that covers about 70% of what TradingView replay or FX Replay offers, for testing Jeevesh's own strategies on EURUSD. A very cheap paid version is a far-future idea, not part of this plan.
 
-Day 10 was finished on 4 Oct 2026. The build log's plan runs 28 Sep to 11 Oct, which puts day 10 on 7 Oct, so the work is ahead of schedule (this file used to say three days behind; see the day-7 checkpoint in the build log).
+Day 11 was finished on 4 Oct 2026. The build log's plan runs 28 Sep to 11 Oct, which puts day 11 on 8 Oct, so the work is ahead of schedule (this file used to say three days behind; see the day-7 checkpoint in the build log).
 
 | Day | Scope | Status |
 |---|---|---|
@@ -16,8 +16,8 @@ Day 10 was finished on 4 Oct 2026. The build log's plan runs 28 Sep to 11 Oct, w
 | 8 | Prop-firm challenge mode (daily loss, max loss, profit target) | done |
 | 9 | More drawings and keyboard shortcuts (rays, text, colours, snapping, undo) | done |
 | 10 | Journal: notes, tags, screenshots per trade | done |
-| 11 | Analytics page | next |
-| 12 | AI trade review, or two charts side by side | |
+| 11 | Analytics page | done |
+| 12 | AI trade review, or two charts side by side | next (choice needed) |
 | 13 | Speed and fixes, plus basic indicators (proposed: SMA, EMA, RSI, VWAP; computed from revealed candles only) | |
 | 14 | Release, README, CV bullet | |
 

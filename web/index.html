@@ -43,6 +43,7 @@
     <div class="divider"></div>
     <div class="group tabs" aria-label="View">
       <button class="active" data-view="chart">Chart</button>
+      <button data-view="analytics">Analytics</button>
       <button data-view="data">Data</button>
     </div>
   </header>
@@ -103,6 +104,46 @@
         <button class="plain small" id="draw-delete" title="Delete this drawing (Delete key)">Delete</button>
       </div>
       <div class="chart" id="chart"></div>
+    </section>
+
+    <section class="view analytics" id="analytics-view" hidden>
+      <div class="view-head">
+        <h1>Analytics</h1>
+        <span class="muted" id="an-count"></span>
+      </div>
+      <div class="an-filters">
+        <label>Journal <select id="an-journal"></select></label>
+        <select id="an-run" aria-label="Run"></select>
+        <select id="an-side" aria-label="Side"></select>
+        <select id="an-session" aria-label="Session"></select>
+        <select id="an-tag" aria-label="Tag"></select>
+        <button class="plain bordered small" id="an-clear">Clear filters</button>
+        <span class="spacer"></span>
+        <label title="Used only for the prop-firm line below">Risk per trade % <input id="an-risk" type="number" min="0.1" step="0.25"></label>
+      </div>
+      <p class="lead" id="an-message" hidden></p>
+      <div id="an-body">
+        <div class="tiles" id="an-tiles"></div>
+        <div class="block chart-block">
+          <h2>Equity in R, trade by trade</h2>
+          <div class="svg-wrap"><svg id="an-equity" role="img" aria-label="Cumulative result in R after each trade"></svg>
+            <div class="svg-tip" id="an-equity-tip" hidden></div></div>
+        </div>
+        <div class="block chart-block">
+          <h2>How trades ended</h2>
+          <div class="svg-wrap"><svg id="an-histogram" role="img" aria-label="Number of trades in each half-R band of result"></svg>
+            <div class="svg-tip" id="an-histogram-tip" hidden></div></div>
+        </div>
+        <div class="block"><h2>Worth knowing</h2><ul class="insights" id="an-insights"></ul></div>
+        <div class="breakdowns" id="an-breakdowns"></div>
+        <div class="block">
+          <h2>Trades <span class="muted" id="an-trades-note"></span></h2>
+          <div class="table-scroll"><table class="grid trades-table">
+            <thead><tr><th>#</th><th>Side</th><th>Entry (server time)</th><th class="num">Result</th><th class="num">$</th><th>Exit</th><th>Tags</th><th>Note</th><th>Pictures</th></tr></thead>
+            <tbody id="an-trades"></tbody>
+          </table></div>
+        </div>
+      </div>
     </section>
 
     <section class="view" id="data-view" hidden>

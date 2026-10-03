@@ -13,6 +13,8 @@ It also stores backtests for the app (see backtests.py):
     PUT    /api/backtests/<journal>/<id>     save it, and add its closed trades to the journal
     DELETE /api/backtests/<journal>/<id>     remove it (its journal rows stay)
     GET / PUT / DELETE /api/screenshots/<journal>/<name>.png   chart pictures for trades
+    GET    /api/journals                     journal folders that have a trades.csv
+    GET    /api/journal/<journal>            the rows of a journal, for the analytics page
 
 Writes must be sent as application/json (screenshots as image/png). A web page on another site cannot
 send that to this server without the browser asking first, and the server
@@ -95,6 +97,15 @@ class Handler(SimpleHTTPRequestHandler):
             self._backtest("GET")
         elif route.startswith("/api/screenshots/"):
             self._screenshot("GET")
+        elif route == "/api/journals":
+            self._json({"journals": backtests.list_journals(self.journals_root)})
+        elif route.startswith("/api/journal/"):
+            try:
+                self._json({"rows": backtests.journal_rows(route.split("/")[3], self.journals_root)})
+            except FileNotFoundError as err:
+                self._json({"error": str(err)}, 404)
+            except backtests.BacktestError as err:
+                self._json({"error": str(err)}, 400)
         else:
             super().do_GET()
 

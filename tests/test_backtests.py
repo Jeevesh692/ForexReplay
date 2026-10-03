@@ -204,3 +204,16 @@ def test_server_takes_screenshots_only_as_png():
         finally:
             server.shutdown()
             server.server_close()
+
+
+def test_journals_are_listed_and_read_for_the_analytics_page():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        backtests.save("test_journal", "bt-1", backtest([closed_trade(1, note="a, b\nc")]), root)
+        assert backtests.list_journals(root) == [{"name": "test_journal", "trades": 1}]
+        rows = backtests.journal_rows("test_journal", root)
+        assert rows[0]["result_r"] == "2.0" and rows[0]["note"] == "a, b\nc"
+        with pytest.raises(backtests.BacktestError):
+            backtests.journal_rows("../x", root)
+        with pytest.raises(FileNotFoundError):
+            backtests.journal_rows("nope", root)

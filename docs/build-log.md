@@ -341,3 +341,45 @@ No console errors.
 - A note typed and then followed within 0.4 seconds by a tag click could have been wiped from the box before it was saved. The box now never redraws text that is still waiting to be saved.
 
 **How to check:** start a replay and buy at market. Let the trade close. Click it in "Closed": the journal box opens with two screenshots (entry and exit). Click one to see it full size. Type a note, click "A+ setup", type a tag of your own and press Enter. Leave with ✕, then Resume from Backtests: the note, tags and pictures are still there. Open `strategies/manual_backtests/trades.csv`: the last columns hold the lots, dollars, note, tags and screenshot names.
+
+---
+
+## Day 11: Sun 4 Oct 2026 · analytics page
+
+**Asked for (Jeevesh):** start day 11.
+
+**Built (Claude):**
+- **Analytics tab** next to Chart and Data. It reads a journal's `trades.csv` and filters by run, side, session and tag. See [decision 0012](decisions/0012-analytics-page.md).
+- **Tiles:** trades, win rate, expectancy, total R and $, profit factor, payoff, maximum drawdown, streaks, average MFE, worst day, average duration, commission.
+- **Equity curve** in R, trade by trade, with a crosshair, and a **histogram** of results in half-R bands.
+- **Worth knowing:** the v1 prop-firm check at a chosen risk %, losing trades that had been +1R first, and challenge runs passed and failed.
+- **Breakdowns** by session, weekday, side, exit reason, tag and run, and a **trades table** with notes, tags and screenshot links.
+- `web/js/analytics.js` computes the statistics with the definitions of `forex_replay/stats.py`. `forex_replay/stats_golden.py` records what `stats.py` says about 40 random journals, and the JavaScript must match every number.
+- Server: `GET /api/journals` and `GET /api/journal/<name>` (read only).
+
+**Tests:** 5 new JavaScript tests (105 in total) and 3 new Python tests (64 in total).
+- The parity test compares more than 2,000 numbers (17 statistics, four breakdowns and the prop-firm figures for 39 non-empty journals, plus an empty one) with what `stats.py` recorded.
+- To check it can fail, the code was broken on purpose twice, and each time the test failed; both changes were undone. The breaks: grouping the worst day by date only (not run and date), and counting exactly +0.05R as a win.
+- Other tests: empty cells never count as zero; drawdown from the starting zero; streaks through breakevens; a trade with two tags in both tag groups; histogram buckets; give-backs; money totals; filters.
+- Python tests: the recorded file is still what `stats.py` gives and covers the awkward cases; journals are listed and read safely.
+
+In the in-app browser:
+- **Jeevesh's `impulse_candle` journal** (read only, not changed): 24 trades, 50.0% win rate, -0.23R expectancy, -5.53R total, profit factor 0.54, payoff 0.54, 6.60R drawdown, streaks 3 / 5, MFE 1.45R, worst day -2.0R. All match `python -m forex_replay report` on the same file, once the rounding fix below was in.
+- **A throwaway journal of 32 trades** made through the app, with tags and a note containing HTML: +13.82R total, +0.43R expectancy, 4.08R drawdown, 990 min average. All match the report.
+- **Filters and safety:** the FOMO tag filter showed 6 of 32 trades. The HTML note appeared as plain text and did not run. Both hover readouts worked.
+- **Screenshots** were taken and looked at; they led to the fixes below.
+- No console errors. The throwaway journal was deleted afterwards.
+
+**Decisions:**
+- The page reads the journal CSV, not the backtest files ([0012](decisions/0012-analytics-page.md)).
+- Statistics are computed in the browser for instant filtering, and held to `stats.py` by a recorded comparison, like the engines.
+- Trades are taken in logged order, as `stats.py` does.
+- The prop-firm line keeps v1's fixed 8 / 5 / 10 rules; per-run challenge results come from challenge mode itself.
+
+**Found along the way:**
+- The page said 33 min average duration where the report said 32: the average is exactly 32.5. Python prints halves to the even number; the page now rounds the same way.
+- The report says when only some trades have an MFE; the page now does too ("only 3 of 24 have it").
+- In the first screenshot the Total R numbers sat on top of their bars in the breakdown tables. The number now has its own column. The histogram's axis title was cramped against the tick labels and got more room.
+- A test script ran past the browser tool's time limit, because every simulated candle redraws the chart. It was left to finish rather than run again.
+
+**How to check:** click "Analytics" in the top bar. Pick a journal; the tiles, the equity curve and the tables fill in. Choose a tag in the filter row and every number changes to just those trades. Compare with `python -m forex_replay report strategies/<journal>/trades.csv`: the same numbers.

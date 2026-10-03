@@ -31,9 +31,10 @@ python -m forex_replay app          # or double-click start_app.bat; serves http
 python -m pytest                    # Python tests (pip install pytest)
 node --test web/tests/*.test.mjs    # JavaScript tests (needs Node.js; check `node --version`)
 python -m forex_replay.golden       # regenerate the engine comparison fixture (only when engine rules change)
+python -m forex_replay.stats_golden # regenerate the statistics comparison fixture (only when stats.py changes)
 ```
 
-Expected today: 61 Python tests, 100 JavaScript tests, all passing.
+Expected today: 64 Python tests, 105 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -44,6 +45,7 @@ Expected today: 61 Python tests, 100 JavaScript tests, all passing.
 - **Prices are whole points** in the browser (1.08500 is 108500). Lot sizes are whole numbers of 0.01 lots. No floats for either.
 - **Times are UTC seconds everywhere.** India time (+5:30) is applied only inside `web/js/chart.js` and `web/js/time.js`. MT5 server time is New York + 7 hours; conversion is in `forex_replay/datapipe.py`.
 - **The engine knows prices and R; money lives in `web/js/account.js`.**
+- **One set of statistics.** `forex_replay/stats.py` defines them; `web/js/analytics.js` must match `web/tests/fixtures/stats_golden.json`.
 - **Drawings are anchored in time and price**, never pixels or candle numbers.
 - **No build step, no npm packages.** Plain ES modules. The only third-party code is TradingView Lightweight Charts v5 (Apache 2.0) in `web/vendor/`, downloaded on first run; keep `attributionLogo: true`.
 - `web/data/` and `web/vendor/` are generated and gitignored. Never commit them.
@@ -62,6 +64,7 @@ Expected today: 61 Python tests, 100 JavaScript tests, all passing.
 | Shortcuts | `web/js/shortcuts.js` (one table for keys and the help list) |
 | Journal | `web/js/tradenotes.js` (notes, tags), `web/js/journalpanel.js` (the box), `web/js/screenshots.js` (pictures), `forex_replay/journal.py` (CSV) |
 | Backtests | `web/js/backtest.js` (save, rebuild, check), `web/js/backtestpanel.js` (autosave, dialog), `forex_replay/backtests.py` (files, journal) |
+| Analytics | `web/js/analytics.js` (statistics, held to `forex_replay/stats.py`), `web/js/analyticsview.js` (the tab), `forex_replay/stats_golden.py` |
 | Wiring | `web/js/main.js`, `web/index.html`, `web/css/app.css` |
 | Tests | `tests/`, `web/tests/` |
 

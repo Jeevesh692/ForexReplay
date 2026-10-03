@@ -16,6 +16,7 @@ same backtest again never adds a trade twice.
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 import threading
@@ -110,6 +111,25 @@ def save(journal: str, backtest_id: str, data: dict, root: Path = JOURNALS_DIR) 
         updated = log.update_notes({str(t["id"]): note_fields(t) for t in closed})
     return {"ok": True, "journalAdded": added, "journalUpdated": updated,
             "journal": str(log.path.relative_to(root.parent))}
+
+
+def list_journals(root: Path = JOURNALS_DIR) -> list[dict]:
+    """Every journal folder with a trades.csv, and how many rows it has."""
+    out = []
+    for path in sorted(root.glob("*/trades.csv")):
+        if NAME.match(path.parent.name):
+            with path.open(newline="", encoding="utf-8") as f:
+                out.append({"name": path.parent.name, "trades": sum(1 for _ in csv.DictReader(f))})
+    return out
+
+
+def journal_rows(journal: str, root: Path = JOURNALS_DIR) -> list[dict]:
+    """The rows of a journal as text, in the order they were logged (the analytics page reads these)."""
+    path = root / check_name(journal, "A journal name") / "trades.csv"
+    if not path.exists():
+        raise FileNotFoundError(f"No journal {journal}.")
+    with path.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
 
 
 def image_path(journal: str, name: str, root: Path = JOURNALS_DIR) -> Path:

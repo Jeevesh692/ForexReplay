@@ -3,6 +3,7 @@
 import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
 import { drawingsBefore, rebuild } from "./backtest.js";
 import { loadRules as loadChallengeRules } from "./challenge.js";
+import { AnalyticsView } from "./analyticsview.js";
 import { Backtests } from "./backtestpanel.js";
 import { JournalPanel } from "./journalpanel.js";
 import { capture as captureChart, remove as removeScreenshot, upload as uploadScreenshot } from "./screenshots.js";
@@ -706,13 +707,19 @@ async function boot() {
   $("latest").addEventListener("click", () => chart.goToLatest());
 
   // ------------------------------------------------------------ tabs
-  const tabViews = { chart: $("chart-view"), data: $("data-view") };
+  const tabViews = { chart: $("chart-view"), analytics: $("analytics-view"), data: $("data-view") };
+  const analytics = new AnalyticsView($("analytics-view"));
   document.querySelectorAll("[data-view]").forEach((tab) => {
     tab.addEventListener("click", () => {
       const name = tab.dataset.view;
       Object.entries(tabViews).forEach(([key, el]) => { el.hidden = key !== name; });
       document.querySelectorAll("[data-view]").forEach((t) => t.classList.toggle("active", t === tab));
       if (name === "data") redrawData();
+      if (name === "analytics") {
+        clock.pause();
+        // Save the replay on screen first, so its latest trades are in the journal being read.
+        (backtests.current ? backtests.save() : Promise.resolve()).then(() => analytics.open());
+      }
     });
   });
 

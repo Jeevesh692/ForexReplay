@@ -522,3 +522,38 @@ button.primary {
 .shot b:hover { color: var(--down); }
 .journal .check { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); }
 #journal-editor[hidden], #journal-empty[hidden] { display: none; }
+
+/* ---------- day 11: analytics ---------- */
+.view.analytics { max-width: 1180px; overflow-y: auto; height: 100%; box-sizing: border-box; }
+.an-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 14px; color: var(--muted); }
+.an-filters select, .an-filters input {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px;
+}
+.an-filters input { width: 64px; }
+.an-filters label { display: flex; align-items: center; gap: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+.tile-label { color: var(--muted); font-size: 11.5px; }
+.tile-value { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; color: var(--text); }
+.tile-note { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.chart-block .svg-wrap { position: relative; }
+.chart-block svg { display: block; width: 100%; height: auto; }
+.chart-block svg .axis { fill: var(--muted); font-size: 11px; }
+.chart-block svg .label { fill: var(--text); font-size: 12px; font-weight: 600; }
+.chart-block svg .bucket.hover path { filter: brightness(1.25); }
+.svg-tip {
+  position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 8px; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.svg-tip[hidden] { display: none; }
+.insights { margin: 0; padding-left: 18px; line-height: 1.6; }
+.breakdowns { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+.breakdowns .block { margin: 0; }
+.divbar { position: relative; height: 18px; min-width: 90px; }
+.divbar i { position: absolute; top: 5px; height: 8px; border-radius: 2px; }
+.divbar::before { content: ""; position: absolute; left: 50%; top: 2px; bottom: 2px; width: 1px; background: var(--border); }
+.table-scroll { overflow-x: auto; }
+.trades-table td.note { max-width: 320px; white-space: pre-wrap; color: var(--muted); }
+.trades-table .nowrap { white-space: nowrap; }
+.view .up { color: var(--up); }
+.view .down { color: var(--down); }
