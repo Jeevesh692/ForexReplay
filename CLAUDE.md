@@ -3,7 +3,7 @@
 A forex bar-replay and backtesting tool for EURUSD. Owner: Jeevesh Prakash (GitHub `Jeevesh692/ForexReplay`, branch `main`).
 
 - **v1** (`forex_replay/`): Python package. Matplotlib replay, event-driven backtest, journal CSV, R-multiple stats.
-- **v2** (`web/`): a TradingView-style browser app in plain JavaScript modules, served by a small Python server. This is what is being built now, to a day-by-day plan in `docs/plan.md`.
+- **v2** (`web/`): a TradingView-style browser app in plain JavaScript modules, served by a small Python server. Built to the 14-day plan in `docs/plan.md` and released as v2.0.0 on 4 Oct 2026. New work starts from a new plan.
 
 The project is also a portfolio piece for AI-engineering applications: "a complex app built with an AI agent, directed and understood by me". So the record of who decided what matters as much as the code. Keep it honest.
 

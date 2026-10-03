@@ -524,7 +524,7 @@ button.primary {
 #journal-editor[hidden], #journal-empty[hidden] { display: none; }
 
 /* ---------- day 11: analytics ---------- */
-.view.analytics { max-width: 1180px; overflow-y: auto; height: 100%; box-sizing: border-box; }
+.view.analytics { max-width: 1180px; overflow-y: auto; overflow-x: hidden; height: 100%; box-sizing: border-box; } /* its own scrollbar took 5px and caused a sideways one */
 .an-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 14px; color: var(--muted); }
 .an-filters select, .an-filters input {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px;

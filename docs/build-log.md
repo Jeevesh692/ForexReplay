@@ -477,3 +477,38 @@ In the in-app browser:
 - Real playback at 100× could not be timed: the browser slows timers in a window that is not on screen. The figures above are the app's own work per step.
 
 **How to check:** start a replay with a few trades and press Space at 100×: the candles keep up. Click "Indicators", tick all four: three lines over the candles and an RSI panel below. Step back with ←: the lines end where the candles end, never further right.
+
+---
+
+## Day 14: Sun 4 Oct 2026 · release v2.0.0, README, CV bullet
+
+**Asked for (Jeevesh):** start day 14.
+
+**Built (Claude):**
+- **README** rewritten around v2: what it does, how to run it, how it is tested (the three recorded comparisons), how it was built and who decided what, the architecture, what is not done, and v1 as its own section with its results unchanged.
+- **Screenshots** of the real app for the README (`docs/app-v2.jpg`, `docs/analytics-v2.jpg`). They were taken in the in-app browser on a throwaway journal, which was deleted afterwards. The analytics screenshot is labelled as a scripted test run, not a strategy.
+- **`docs/cv.md`:** a one-line and a three-line CV entry, worded around what Jeevesh did (the code was written by Claude), with the seven ideas to be ready to explain in an interview.
+- **`docs/release-notes-v2.0.0.md`:** release notes to paste into a GitHub release.
+- Version 2.0.0 (was 2.0.0-dev), and the git tag `v2.0.0`.
+- **Fix:** the analytics page showed a sideways scrollbar; its own vertical scrollbar took 5 px of width. It no longer scrolls sideways.
+
+**Tests:** no new tests; 66 Python and 115 JavaScript, all passing.
+- **Fresh clone:** the repository was cloned into an empty folder. There, both suites passed (115 of 115 JavaScript tests after building the market data with `python -m forex_replay data`; 3 skip without it, by design). The app then started, downloaded the chart library, and loaded all 82,569 candles in the browser.
+
+**Decisions:**
+- The README leads with v2 and keeps v1 as a section; v1's published results are unchanged.
+- The CV entry says the app was built by directing an AI coding agent, not "built" alone.
+- The release is a git tag plus release notes. There is no GitHub command-line tool on this computer, so the GitHub release page itself is left for Jeevesh to create from the tag (paste `docs/release-notes-v2.0.0.md`).
+
+**Found along the way:**
+- The browser asks for `/favicon.ico` although the page sets its own icon; the server logs a harmless 404 for it.
+- The scratch folder's path was too long for git on Windows, so the fresh-clone check ran in a short temporary folder, deleted afterwards.
+
+**How to check:** open the repository on GitHub: the README shows the two screenshots and the test table. Under Tags, `v2.0.0` points at this commit. To make the release page, choose "Draft a new release", pick the tag `v2.0.0`, and paste `docs/release-notes-v2.0.0.md`.
+
+### The two weeks in numbers
+
+- 14 days of plan done on 4 Oct 2026, one commit per day (`v2 day 1` to `v2 day 14`).
+- 14 design records, one build-log entry per day.
+- 66 Python and 115 JavaScript tests, including three recorded comparisons between the JavaScript and Python versions.
+- About 6,400 lines of JavaScript in `web/js` and 3,300 lines of Python in `forex_replay` (v1 and v2 together), counted on day 14.
