@@ -50,19 +50,35 @@
   <aside class="tools" id="tools" aria-label="Drawing tools">
     <button data-tool="" class="active" title="Pointer: select and move drawings (Esc)">
       <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg></button>
-    <button data-tool="trend" title="Trendline: click two points">
+    <button data-tool="trend" title="Trendline: click two points (Alt + T)">
       <svg viewBox="0 0 24 24"><path d="M4 19L20 5"/><circle cx="4" cy="19" r="1.6"/><circle cx="20" cy="5" r="1.6"/></svg></button>
-    <button data-tool="hline" title="Horizontal line: click a price">
+    <button data-tool="ray" title="Ray: click two points; it carries on past the second (Alt + R)">
+      <svg viewBox="0 0 24 24"><path d="M5 18L21 4"/><circle cx="5" cy="18" r="1.6"/><circle cx="12" cy="12" r="1.6"/></svg></button>
+    <button data-tool="hline" title="Horizontal line: click a price (Alt + H)">
       <svg viewBox="0 0 24 24"><path d="M3 12h18"/><circle cx="12" cy="12" r="1.6"/></svg></button>
-    <button data-tool="rect" title="Rectangle: click two corners">
+    <button data-tool="hray" title="Horizontal ray: click a candle and price; it runs to the right (Alt + J)">
+      <svg viewBox="0 0 24 24"><path d="M7 12h14"/><circle cx="6" cy="12" r="1.6"/></svg></button>
+    <button data-tool="vline" title="Vertical line: click a time (Alt + V)">
+      <svg viewBox="0 0 24 24"><path d="M12 3v18"/><circle cx="12" cy="12" r="1.6"/></svg></button>
+    <button data-tool="rect" title="Rectangle: click two corners (Alt + B)">
       <svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="10" rx="1"/></svg></button>
-    <button data-tool="fib" title="Fibonacci retracement with the OTE zone: click where the move starts, then where it ends">
+    <button data-tool="fib" title="Fibonacci retracement with the OTE zone: click where the move starts, then where it ends (Alt + F)">
       <svg viewBox="0 0 24 24"><path d="M3 5h18M3 10h18M3 14h18M3 19h18"/></svg></button>
-    <button data-tool="long" title="Long position: click the entry price, then drag the stop and target">
+    <button data-tool="long" title="Long position: click the entry price, then drag the stop and target (Alt + L)">
       <svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="9"/><rect x="5" y="13" width="14" height="5"/><path d="M12 11V6.5M10 8.5l2-2 2 2"/></svg></button>
-    <button data-tool="short" title="Short position: click the entry price, then drag the stop and target">
+    <button data-tool="short" title="Short position: click the entry price, then drag the stop and target (Alt + S)">
       <svg viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="5"/><rect x="5" y="11" width="14" height="9"/><path d="M12 13v4.5M10 15.5l2 2 2-2"/></svg></button>
+    <button data-tool="text" title="Text note: click where it goes, type, press Enter. Double-click a note to change it (Alt + N)">
+      <svg viewBox="0 0 24 24"><path d="M6 6h12M12 6v13M9.5 19h5"/></svg></button>
     <span class="tools-gap"></span>
+    <button id="magnet" title="Magnet: points jump to the nearest open, high, low or close (Alt + M). Hold Ctrl to flip it for one move">
+      <svg viewBox="0 0 24 24"><path d="M6 4v8a6 6 0 0 0 12 0V4M6 8h3M15 8h3M9 4v8a3 3 0 0 0 6 0V4"/></svg></button>
+    <button id="undo" title="Undo the last drawing change (Ctrl + Z)" disabled>
+      <svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2"/></svg></button>
+    <button id="redo" title="Redo (Ctrl + Y)" disabled>
+      <svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 0 0 0 10h2"/></svg></button>
+    <button id="shortcuts-open" title="Keyboard shortcuts (?)">
+      <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg></button>
     <button id="drawings-clear" title="Remove all drawings">
       <svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 10v6M14 10v6"/></svg></button>
   </aside>
@@ -73,8 +89,16 @@
     <section class="chart-view" id="chart-view">
       <div class="legend" id="legend">EURUSD</div>
       <div class="hint" id="hint" hidden></div>
+      <input class="text-editor" id="text-editor" type="text" autocomplete="off" hidden aria-label="Text note">
       <div class="draw-bar" id="draw-bar" hidden>
         <span id="draw-bar-text"></span>
+        <span class="draw-colours" id="draw-colours"></span>
+        <span class="draw-styles" id="draw-styles">
+          <button class="plain small" data-line-style="solid" title="Solid line">&#9472;</button>
+          <button class="plain small" data-line-style="dashed" title="Dashed line">&#9476;</button>
+          <button class="plain small" data-line-style="dotted" title="Dotted line">&#8943;</button>
+        </span>
+        <button class="plain small" id="draw-edit-text" title="Change the text (or double-click the note)" hidden>Edit text</button>
         <button class="plain small" id="draw-to-ticket" title="Copy this entry, stop and target into the order ticket" hidden>Use in ticket</button>
         <button class="plain small" id="draw-delete" title="Delete this drawing (Delete key)">Delete</button>
       </div>
@@ -241,6 +265,14 @@
       <span class="spacer"></span>
       <button type="button" class="plain bordered" id="backtest-close">Close</button>
     </div>
+  </dialog>
+
+  <dialog id="shortcuts-dialog" class="dialog">
+    <h2>Keyboard shortcuts</h2>
+    <p class="muted">They work whenever you are not typing in a box. Undo and redo cover drawings only; trades cannot be undone.</p>
+    <table class="grid shortcut-table"><tbody id="shortcut-rows"></tbody></table>
+    <div class="dialog-actions"><span class="spacer"></span>
+      <button type="button" class="plain bordered" id="shortcuts-close">Close</button></div>
   </dialog>
 
   <footer class="statusbar">

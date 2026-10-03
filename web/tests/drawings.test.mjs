@@ -5,9 +5,10 @@ import { test } from "node:test";
 import { Candles } from "../js/data.js";
 import {
   cleanDrawing, createDrawing, distanceToSegment, DrawingStore, FIB_LEVELS, fibPrice, handles, hit, layout,
-  logicalToTime, moveAll, moveHandle, positionStats, timeToLogical, TOOLS,
+  logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, positionStats, snapPrice, timeToLogical, TOOLS, UNDO_LIMIT,
 } from "../js/drawings.js";
-import { aggregate } from "../js/timeframes.js";
+import { SHORTCUTS, shortcutFor } from "../js/shortcuts.js";
+import { aggregate, TimeframeView } from "../js/timeframes.js";
 
 const utc = (text) => Date.parse(text + "Z") / 1000;
 const T0 = utc("2025-08-04T07:00"); // a Monday, on an hour boundary of the broker clock
@@ -28,8 +29,11 @@ function screen(c, tfSeconds = 300) {
     x: (time) => timeToLogical(c, tfSeconds, time) * 10,
     y: (price) => 500 - (price - 110000),
     width: 800,
+    height: 600,
     formatPrice: (points) => (points / 1e5).toFixed(5),
+    formatTime: (time) => `t${time}`,
     pips: (points) => points / 10,
+    textWidth: (text) => text.length * 7,
     note: () => "1.00 lots",
   };
 }
@@ -73,7 +77,8 @@ test("every tool starts from one click", () => {
   const short = createDrawing("short", at, defaults(c));
   assert.deepEqual([short.stop, short.target], [110100, 109800]);
   assert.deepEqual(positionStats(short), { entry: 110000, risk: 100, reward: 200, ratio: 2 });
-  for (const type of Object.keys(TOOLS)) assert.ok(cleanDrawing(createDrawing(type, at, defaults(c))) || TOOLS[type].clicks === 2);
+  // Two-click tools are empty until the second click; text is empty until it is typed.
+  for (const type of Object.keys(TOOLS)) assert.ok(cleanDrawing(createDrawing(type, at, defaults(c))) || TOOLS[type].clicks === 2 || type === "text");
 });
 
 test("Fibonacci levels run from the end of the move (0) back to its start (1), with OTE at 0.618 to 0.79", () => {
@@ -168,4 +173,105 @@ test("the store keeps order, survives save and load, and drops damaged drawings"
   assert.equal(kept, 2);
   assert.deepEqual(loaded.toJSON(), saved);
   assert.equal(loaded.load("not a list"), 0);
+});
+
+test("a ray carries on through its second point past the edge; a horizontal ray starts at its candle", () => {
+  const c = candles(40);
+  const ray = layout({ type: "ray", points: [{ time: c.time[5], price: 110000 }, { time: c.time[10], price: 110050 }] }, screen(c));
+  const [line] = ray.lines;
+  assert.ok(line.x2 > 800 && line.y2 < 0);                          // well past the right or top edge
+  assert.ok(Math.abs((line.y2 - line.y1) / (line.x2 - line.x1) - (-50 / 50)) < 1e-9); // the same slope as its two points
+  assert.deepEqual(hit(ray, 300, 250), { part: "body" });          // far beyond the second point, on the line
+  assert.equal(hit(ray, 20, 520), null);                           // but not behind the first point
+
+  const hray = layout({ type: "hray", points: [{ time: c.time[30], price: 110050 }] }, screen(c));
+  assert.deepEqual(hray.lines[0], { x1: 300, y1: 450, x2: 800, y2: 450, role: "line" });
+  assert.equal(hit(hray, 100, 450), null);                         // nothing to the left of its candle
+  const hline = layout({ type: "hline", points: [{ time: c.time[30], price: 110050 }] }, screen(c));
+  assert.equal(hline.lines[0].x1, 0);
+
+  const vline = layout({ type: "vline", points: [{ time: c.time[12], price: 110000 }] }, screen(c));
+  assert.deepEqual(vline.lines[0], { x1: 120, y1: 0, x2: 120, y2: 600, role: "line" });
+  assert.equal(vline.labels[0].text, `t${c.time[12]}`);
+});
+
+test("a text note is clickable over its whole width, and must have some text", () => {
+  const c = candles(40);
+  const at = { time: c.time[10], price: 110000 };
+  const note = { type: "text", points: [at], text: "London sweep" };
+  const shape = layout(note, screen(c));
+  assert.equal(shape.labels[0].text, "London sweep");
+  assert.deepEqual(hit(shape, 100 + 12 * 7, 495), { part: "body" }); // near the end of the text
+  assert.equal(hit(shape, 100 + 12 * 7 + 20, 495), null);
+  assert.deepEqual(createDrawing("text", at, defaults(c)), { type: "text", points: [at], text: "" });
+  assert.equal(cleanDrawing({ ...note, text: "   " }), null);
+  assert.equal(cleanDrawing({ ...note, text: "x".repeat(MAX_TEXT + 1) }), null);
+  assert.deepEqual(cleanDrawing(note), note);
+});
+
+test("colours and line styles are kept only where they belong", () => {
+  const p = [{ time: T0, price: 110000 }, { time: T0 + 300, price: 110100 }];
+  assert.deepEqual(cleanDrawing({ type: "trend", points: p, color: PALETTE[2], style: "dashed" }),
+    { type: "trend", points: p, color: PALETTE[2], style: "dashed" });
+  assert.deepEqual(cleanDrawing({ type: "trend", points: p, color: "red; drop table", style: "wavy" }), { type: "trend", points: p });
+  assert.deepEqual(cleanDrawing({ type: "fib", points: p, color: PALETTE[2] }), { type: "fib", points: p }); // fib keeps its OTE colours
+  assert.deepEqual(cleanDrawing({ type: "text", points: [p[0]], text: "a", color: PALETTE[1], style: "dotted" }),
+    { type: "text", points: [p[0]], text: "a", color: PALETTE[1] });
+});
+
+test("the magnet snaps to the nearest open, high, low or close, and never to a hidden candle", () => {
+  const rows = [];
+  for (let i = 0; i < 24; i++) rows.push([T0 + i * 300, 110000, 110000 + 10 * (i + 1), 109990, 110005, 10, 0]); // highs keep rising
+  const m5 = Candles.fromBuffer(new Int32Array(rows.flat()).buffer);
+  assert.equal(snapPrice(m5, 3, 110030), 110040);                  // high of candle 3
+  assert.equal(snapPrice(m5, 3, 109992), 109990);                  // its low
+  assert.equal(snapPrice(m5, 3.4, 110003), 110005);                // the close; the position rounds to candle 3
+  assert.equal(snapPrice(m5, 30, 110003), 110003);                 // past the candles: left alone
+  // In a replay, an H1 candle with only 6 of its 12 M5 candles revealed offers the high of those 6 only.
+  const view = new TimeframeView(m5, "H1");
+  view.setPosition(6);
+  assert.equal(snapPrice(view.display, 0, 120000), 110060);        // not 110120, the high of the whole hour
+});
+
+test("undo and redo step back and forth through every change, and a new change clears redo", () => {
+  const store = new DrawingStore();
+  const line = (price) => ({ type: "hline", points: [{ time: T0, price }] });
+  const a = store.add(line(110000));
+  store.update(a.id, line(110100));
+  store.update(a.id, line(110100)); // no change: no undo step
+  const b = store.add(line(110200));
+  store.remove(a.id);
+  store.clear();
+  const prices = () => store.items.map((d) => d.points[0].price);
+  assert.deepEqual(prices(), []);
+  assert.ok(store.undo()); assert.deepEqual(prices(), [110200]);
+  assert.ok(store.undo()); assert.deepEqual(prices(), [110100, 110200]);
+  assert.ok(store.undo()); assert.deepEqual(prices(), [110100]);
+  assert.ok(store.redo()); assert.deepEqual(prices(), [110100, 110200]);
+  assert.equal(store.get(b.id).points[0].price, 110200);         // ids come back too
+  store.add(line(110300));
+  assert.equal(store.canRedo, false);
+  assert.ok(store.undo()); assert.ok(store.undo()); assert.ok(store.undo()); assert.ok(store.undo());
+  assert.deepEqual(prices(), []);
+  assert.equal(store.undo(), false);
+  for (let i = 0; i < UNDO_LIMIT + 20; i++) store.add(line(110000 + i));
+  assert.equal(store.undoStack.length, UNDO_LIMIT);
+  store.load([]);                                                 // a new run starts a fresh history
+  assert.equal(store.canUndo, false);
+});
+
+test("shortcuts: modifiers must match exactly, Cmd counts as Ctrl, and no two shortcuts share a key", () => {
+  const key = (code, mods = {}) => ({ code, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods });
+  assert.equal(shortcutFor(key("KeyT", { altKey: true })), "tool:trend");
+  assert.equal(shortcutFor(key("KeyT")), null);
+  assert.equal(shortcutFor(key("KeyZ", { ctrlKey: true })), "undo");
+  assert.equal(shortcutFor(key("KeyZ", { metaKey: true })), "undo");
+  assert.equal(shortcutFor(key("KeyZ", { ctrlKey: true, shiftKey: true })), "redo");
+  assert.equal(shortcutFor(key("KeyZ", { ctrlKey: true, altKey: true })), null);
+  const combos = SHORTCUTS.map((s) => `${s.code}:${!!s.ctrl}:${!!s.alt}:${!!s.shift}`);
+  assert.equal(new Set(combos).size, combos.length);
+  for (const s of SHORTCUTS) {
+    if (s.action.startsWith("tool:")) assert.ok(TOOLS[s.action.slice(5)], s.action);
+  }
+  for (const tool of Object.keys(TOOLS)) assert.ok(SHORTCUTS.some((s) => s.action === `tool:${tool}`), `no shortcut for ${tool}`);
 });

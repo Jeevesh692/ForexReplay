@@ -91,6 +91,7 @@ button.plain:hover { background: var(--panel-2); }
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow-y: auto; /* short windows: the tool column scrolls instead of being cut off */
   gap: 4px;
   padding: 8px 0;
   background: var(--panel);
@@ -469,3 +470,27 @@ button.primary {
 .bar i.danger { background: var(--down); }
 .backtest-table .tag.passed { color: var(--up); border-color: var(--up); }
 .backtest-table .tag.failed { color: var(--down); border-color: var(--down); }
+
+/* ---------- day 9: more drawing tools ---------- */
+.tools button { flex-shrink: 0; }
+.tools button:disabled { opacity: 0.35; }
+.tools #magnet.active { color: var(--blue); background: var(--panel-2); }
+.draw-colours { display: flex; gap: 3px; }
+.draw-colours button { width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.draw-colours button.active { border-color: #fff; }
+.draw-styles { display: flex; gap: 2px; }
+.draw-styles button.active, .draw-bar .draw-styles button.active { border-color: var(--blue); color: #fff; }
+.draw-colours[hidden], .draw-styles[hidden] { display: none; }
+.text-editor {
+  position: absolute;
+  z-index: 6;
+  min-width: 180px;
+  font: 13px -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--panel);
+  border: 1px solid var(--blue);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.text-editor[hidden] { display: none; }
+.shortcut-table td:first-child { white-space: nowrap; width: 170px; }
+.shortcut-table kbd { font: 12px ui-monospace, Consolas, monospace; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }

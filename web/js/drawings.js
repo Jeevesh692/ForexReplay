@@ -16,18 +16,47 @@ export const STORAGE_PREFIX = "forexreplay.drawings.";
 export const FIB_LEVELS = [0, 0.382, 0.5, 0.618, 0.705, 0.79, 1];
 export const OTE = [0.618, 0.79];
 
-/** How many clicks each tool needs, and its name in the app. */
+/**
+ * How many clicks each tool needs, its name in the app, and whether it takes a colour and
+ * line style. Fibonacci and the position tools keep their own colours, which carry meaning
+ * (OTE zone, profit and loss).
+ */
 export const TOOLS = Object.freeze({
-  trend: { clicks: 2, label: "Trendline" },
-  hline: { clicks: 1, label: "Horizontal line" },
-  rect: { clicks: 2, label: "Rectangle" },
-  fib: { clicks: 2, label: "Fibonacci retracement" },
-  long: { clicks: 1, label: "Long position" },
-  short: { clicks: 1, label: "Short position" },
+  trend: { clicks: 2, label: "Trendline", styled: true },
+  ray: { clicks: 2, label: "Ray", styled: true },
+  hline: { clicks: 1, label: "Horizontal line", styled: true },
+  hray: { clicks: 1, label: "Horizontal ray", styled: true },
+  vline: { clicks: 1, label: "Vertical line", styled: true },
+  rect: { clicks: 2, label: "Rectangle", styled: true },
+  fib: { clicks: 2, label: "Fibonacci retracement", styled: false },
+  long: { clicks: 1, label: "Long position", styled: false },
+  short: { clicks: 1, label: "Short position", styled: false },
+  text: { clicks: 1, label: "Text", styled: true },
 });
 
+/** Colours a drawing may have (the first is the default), and its line styles. */
+export const PALETTE = ["#2962ff", "#26a69a", "#ef5350", "#f5a623", "#ab47bc", "#00bcd4", "#d1d4dc", "#ffeb3b"];
+export const LINE_STYLES = ["solid", "dashed", "dotted"];
+export const MAX_TEXT = 200;
+
+const ONE_POINT = new Set(["hline", "hray", "vline", "text"]);
 const isPosition = (type) => type === "long" || type === "short";
 const whole = (value) => Number.isInteger(value);
+
+/**
+ * Magnet: the price of the open, high, low or close nearest to `price`, on the candle at
+ * chart position `logical`. Only candles on the chart can be snapped to, so during a replay
+ * nothing hidden is ever used. Outside the candles the price is left as it is.
+ */
+export function snapPrice(candles, logical, price) {
+  const i = Math.round(logical);
+  if (!candles || i < 0 || i >= candles.length) return price;
+  let best = price, distance = Infinity;
+  for (const value of [candles.open[i], candles.high[i], candles.low[i], candles.close[i]]) {
+    if (Math.abs(value - price) < distance) { best = value; distance = Math.abs(value - price); }
+  }
+  return best;
+}
 
 // ----- time <-> position on the chart -----------------------------------------
 // The chart library places candles by index ("logical" position), not by time, so
@@ -60,7 +89,8 @@ export function logicalToTime(candles, tfSeconds, logical) {
  */
 export function createDrawing(type, point, defaults) {
   const p = { time: point.time, price: point.price };
-  if (type === "hline") return { type, points: [p] };
+  if (type === "text") return { type, points: [p], text: "" };
+  if (ONE_POINT.has(type)) return { type, points: [p] };
   if (isPosition(type)) {
     const direction = type === "long" ? 1 : -1;
     const pip = defaults.pipPoints;
@@ -76,7 +106,7 @@ export function createDrawing(type, point, defaults) {
 
 /** The points you can grab: [{ key, time, price }]. */
 export function handles(d) {
-  if (d.type === "hline") return [{ key: "p0", time: d.points[0].time, price: d.points[0].price }];
+  if (ONE_POINT.has(d.type)) return [{ key: "p0", time: d.points[0].time, price: d.points[0].price }];
   if (isPosition(d.type)) {
     const [entry, end] = d.points;
     return [
@@ -155,8 +185,10 @@ export function positionStats(d) {
 // ----- what to draw -----------------------------------------------------------
 /**
  * Pixel geometry of a drawing.
- * proj = { x(time), y(price), width, formatPrice(points), pips(points) -> number, note?(drawing) -> string }
+ * proj = { x(time), y(price), width, height, formatPrice(points), formatTime(time), pips(points) -> number,
+ *          textWidth(text) -> pixels, note?(drawing) -> string }
  * Returns { lines: [{x1,y1,x2,y2,role}], boxes: [{x,y,w,h,role}], labels: [{x,y,text,align,role}], handles: [{key,x,y}] }.
+ * Colours are not decided here: painting uses the drawing's own colour for the roles "line", "fill" and "text".
  */
 export function layout(d, proj) {
   const out = { lines: [], boxes: [], labels: [], handles: [] };
@@ -164,11 +196,40 @@ export function layout(d, proj) {
   const box = (xa, ya, xb, yb, role) => out.boxes.push({
     x: Math.min(xa, xb), y: Math.min(ya, yb), w: Math.abs(xb - xa), h: Math.abs(yb - ya), role });
 
-  if (d.type === "hline") {
-    const y = Y(d.points[0].price);
-    out.lines.push({ x1: 0, y1: y, x2: proj.width, y2: y, role: "line" });
-    out.labels.push({ x: proj.width - 6, y: y - 5, text: proj.formatPrice(d.points[0].price), align: "right", role: "line" });
-    out.handles.push({ key: "p0", x: X(d.points[0].time), y });
+  if (d.type === "hline" || d.type === "hray") {
+    const x = X(d.points[0].time), y = Y(d.points[0].price);
+    out.lines.push({ x1: d.type === "hray" ? x : 0, y1: y, x2: Math.max(proj.width, x), y2: y, role: "line" });
+    out.labels.push({ x: proj.width - 6, y: y - 5, text: proj.formatPrice(d.points[0].price), align: "right", role: "text" });
+    out.handles.push({ key: "p0", x, y });
+    return out;
+  }
+
+  if (d.type === "vline") {
+    const x = X(d.points[0].time), y = Y(d.points[0].price);
+    out.lines.push({ x1: x, y1: 0, x2: x, y2: proj.height, role: "line" });
+    out.labels.push({ x: x + 4, y: proj.height - 6, text: proj.formatTime(d.points[0].time), align: "left", role: "text" });
+    out.handles.push({ key: "p0", x, y });
+    return out;
+  }
+
+  if (d.type === "text") {
+    const x = X(d.points[0].time), y = Y(d.points[0].price);
+    const w = proj.textWidth(d.text) + 8;
+    out.boxes.push({ x: x - 2, y: y - 15, w, h: 20, role: "textbox" }); // invisible: makes the whole text clickable
+    out.labels.push({ x: x + 2, y, text: d.text, align: "left", role: "note" });
+    out.handles.push({ key: "p0", x: x - 2, y: y + 5 });
+    return out;
+  }
+
+  if (d.type === "ray") {
+    const [a, b] = d.points;
+    const xa = X(a.time), ya = Y(a.price), xb = X(b.time), yb = Y(b.price);
+    const length = Math.hypot(xb - xa, yb - ya);
+    // Carried on through the second point to well past the edge of the chart.
+    const k = length === 0 ? 0 : (proj.width + proj.height + 1000) / length;
+    out.lines.push({ x1: xa, y1: ya, x2: xa + (xb - xa) * k, y2: ya + (yb - ya) * k, role: "line" });
+    out.labels.push({ x: Math.max(xa, xb) + 8, y: yb, text: `${proj.pips(Math.abs(b.price - a.price)).toFixed(1)} pips`, align: "left", role: "measure" });
+    for (const h of handles(d)) out.handles.push({ key: h.key, x: X(h.time), y: Y(h.price) });
     return out;
   }
 
@@ -255,7 +316,7 @@ export function hit(shape, x, y, { tolerance = 5, withHandles = false } = {}) {
 /** A drawing read from storage, or null if it is damaged. Nothing unchecked ever reaches the chart. */
 export function cleanDrawing(raw) {
   if (!raw || typeof raw !== "object" || !TOOLS[raw.type] || !Array.isArray(raw.points)) return null;
-  const count = raw.type === "hline" ? 1 : 2;
+  const count = ONE_POINT.has(raw.type) ? 1 : 2;
   if (raw.points.length !== count) return null;
   const points = [];
   for (const p of raw.points) {
@@ -263,6 +324,14 @@ export function cleanDrawing(raw) {
     points.push({ time: p.time, price: p.price });
   }
   const d = { type: raw.type, points };
+  if (raw.type === "text") {
+    if (typeof raw.text !== "string" || !raw.text.trim() || raw.text.length > MAX_TEXT) return null;
+    d.text = raw.text;
+  }
+  if (TOOLS[raw.type].styled) { // an unknown colour or style is dropped, not the drawing
+    if (PALETTE.includes(raw.color)) d.color = raw.color;
+    if (LINE_STYLES.includes(raw.style) && raw.type !== "text") d.style = raw.style;
+  }
   if (isPosition(raw.type)) {
     const direction = raw.type === "long" ? 1 : -1;
     const entry = points[0].price;
@@ -274,40 +343,81 @@ export function cleanDrawing(raw) {
   return d;
 }
 
+/**
+ * The drawings on the chart, with undo and redo.
+ * Every change (add, move, restyle, delete, clear) keeps a copy of the list before it, up to
+ * UNDO_LIMIT steps. Loading a list (a new replay, a resumed backtest) starts a fresh history,
+ * so undo never reaches into another run. Undo covers drawings only, never trades.
+ */
+export const UNDO_LIMIT = 100;
+
 export class DrawingStore {
   /** @param {object} options { onChange() } called after every change */
   constructor({ onChange = () => {} } = {}) {
     this.items = []; // in drawing order: later ones are on top
     this.nextId = 1;
     this.onChange = onChange;
+    this.undoStack = [];
+    this.redoStack = [];
   }
 
   get(id) { return this.items.find((d) => d.id === id) || null; }
 
+  snapshot() { return { items: structuredClone(this.items), nextId: this.nextId }; }
+
+  /** Remember the list as it is, before a change. */
+  checkpoint() {
+    this.undoStack.push(this.snapshot());
+    if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
+  get canUndo() { return this.undoStack.length > 0; }
+  get canRedo() { return this.redoStack.length > 0; }
+
+  undo() { return this.step(this.undoStack, this.redoStack); }
+  redo() { return this.step(this.redoStack, this.undoStack); }
+
+  step(from, to) {
+    if (from.length === 0) return false;
+    to.push(this.snapshot());
+    const { items, nextId } = from.pop();
+    this.items = items;
+    this.nextId = nextId;
+    this.onChange();
+    return true;
+  }
+
   add(drawing) {
+    this.checkpoint();
     const d = { ...drawing, id: this.nextId++ };
     this.items.push(d);
     this.onChange();
     return d;
   }
 
-  /** Replace a drawing's contents (after a move), keeping its id and place in the order. */
+  /** Replace a drawing's contents (after a move or a restyle), keeping its id and place in the order. */
   update(id, drawing) {
     const i = this.items.findIndex((d) => d.id === id);
     if (i < 0) return null;
-    this.items[i] = { ...drawing, id };
+    const next = { ...drawing, id };
+    if (JSON.stringify(next) === JSON.stringify(this.items[i])) return this.items[i]; // nothing changed: no undo step
+    this.checkpoint();
+    this.items[i] = next;
     this.onChange();
     return this.items[i];
   }
 
   remove(id) {
-    const before = this.items.length;
+    if (!this.get(id)) return;
+    this.checkpoint();
     this.items = this.items.filter((d) => d.id !== id);
-    if (this.items.length !== before) this.onChange();
+    this.onChange();
   }
 
   clear() {
     if (this.items.length === 0) return;
+    this.checkpoint();
     this.items = [];
     this.onChange();
   }
@@ -318,6 +428,8 @@ export class DrawingStore {
   load(list) {
     this.items = [];
     this.nextId = 1;
+    this.undoStack = [];
+    this.redoStack = [];
     for (const raw of Array.isArray(list) ? list : []) {
       const d = cleanDrawing(raw);
       if (d) this.items.push({ ...d, id: this.nextId++ });

@@ -9,13 +9,23 @@
 //    Fibonacci). Press-drag-release also works for the two-click tools. The tool then switches off.
 //  * Click a drawing to select it. Drag a handle to reshape it, drag its body to move it.
 //  * Delete removes the selected drawing. Esc cancels whatever is in progress.
+//  * Text: click where the note goes, type, press Enter. Double-click a note to change it.
+//  * Magnet: new points and dragged handles jump to the nearest open, high, low or close of
+//    the candle under the mouse. Holding Ctrl turns it the other way for that move.
 
-import { createDrawing, hit, layout, logicalToTime, moveAll, moveHandle, timeToLogical, TOOLS } from "./drawings.js";
+import {
+  createDrawing, hit, layout, logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, snapPrice, timeToLogical, TOOLS,
+} from "./drawings.js";
+import { formatDateTime } from "./time.js";
 import { timeframe as timeframeInfo } from "./timeframes.js";
 
-const BLUE = "#2962ff";
+const BLUE = PALETTE[0];
+const DASHES = { solid: [], dashed: [6, 4], dotted: [1.5, 3] };
 const STYLE = {
   line: { stroke: BLUE, width: 1.5 },
+  text: { text: BLUE },
+  note: { text: "#d1d4dc" },
+  textbox: { fill: "rgba(0, 0, 0, 0)" },
   guide: { stroke: "rgba(120, 123, 134, 0.8)", width: 1, dash: [4, 4] },
   level: { stroke: "rgba(120, 123, 134, 0.9)", width: 1 },
   ote: { stroke: "#f5a623", width: 1, fill: "rgba(245, 166, 35, 0.10)" },
@@ -26,14 +36,29 @@ const STYLE = {
   measure: { text: "#b2b5be" },
 };
 const FONT = '11px -apple-system, "Segoe UI", Roboto, sans-serif';
+const NOTE_FONT = '13px -apple-system, "Segoe UI", Roboto, sans-serif';
+
+/** "#2962ff" with an alpha, for a rectangle's fill in the drawing's own colour. */
+const withAlpha = (hex, alpha) => `rgba(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}, ${alpha})`;
+
+/** How a role is painted for this drawing: the drawing's colour and line style where it has them. */
+function styleFor(role, d) {
+  const base = STYLE[role];
+  if (!d.color && !d.style) return base;
+  if (role === "line") return { ...base, stroke: d.color || base.stroke, dash: DASHES[d.style || "solid"] };
+  if (role === "fill") return { fill: withAlpha(d.color || BLUE, 0.12) };
+  if (role === "text" || role === "note") return { text: d.color || base.text };
+  return base;
+}
 
 export class DrawingLayer {
   /**
    * @param {ChartView} view
    * @param {object} options { store: DrawingStore, pipPoints, note(drawing) -> text for position tools,
-   *   onSelect(drawing | null), onToolChange(tool | null) }
+   *   onSelect(drawing | null), onToolChange(tool | null), editor: <input> for text notes,
+   *   styleDefaults: { tool: { color, style } } for new drawings, onStyleDefaults(map) when they change }
    */
-  constructor(view, { store, pipPoints, note, onSelect, onToolChange }) {
+  constructor(view, { store, pipPoints, note, onSelect, onToolChange, editor, styleDefaults = {}, onStyleDefaults }) {
     this.view = view;
     this.store = store;
     this.pipPoints = pipPoints;
@@ -45,6 +70,14 @@ export class DrawingLayer {
     this.selectedId = null;
     this.drag = null; // { id, hit, start, original, current, moved } while a drawing is being moved
     this.paneWidth = 0;
+    this.paneHeight = 0;
+    this.magnet = false;
+    this.styleDefaults = styleDefaults;
+    this.onStyleDefaults = onStyleDefaults || (() => {});
+    this.editor = editor;
+    this.editing = null; // { id } or { draft } while a text note is being typed
+    this.measure = document.createElement("canvas").getContext("2d");
+    this.measure.font = NOTE_FONT;
 
     const draw = (target) => target.useMediaCoordinateSpace(({ context, mediaSize }) => this.paint(context, mediaSize));
     const paneView = { zOrder: () => "top", renderer: () => ({ draw }) };
@@ -59,8 +92,16 @@ export class DrawingLayer {
     const el = view.container;
     el.addEventListener("mousedown", (event) => this.handleDown(event), true); // capture: before the chart pans
     el.addEventListener("mousemove", (event) => this.handleHover(event));
+    el.addEventListener("dblclick", (event) => this.handleDoubleClick(event));
     this.dragMove = (event) => this.handleDragMove(event);
     this.release = (event) => this.handleUp(event);
+    if (editor) {
+      editor.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); this.finishText(true); }
+        if (event.key === "Escape") { event.preventDefault(); this.finishText(false); }
+      });
+      editor.addEventListener("blur", () => this.finishText(true));
+    }
   }
 
   redraw() {
@@ -78,14 +119,20 @@ export class DrawingLayer {
       x: (time) => scale.logicalToCoordinate(timeToLogical(v.candles, this.tfSeconds, time)) ?? 0,
       y: (price) => v.series.priceToCoordinate(price / unit) ?? 0,
       width: this.paneWidth,
+      height: this.paneHeight,
       formatPrice: (points) => (points / unit).toFixed(v.digits),
+      formatTime: (time) => formatDateTime(time).split(", ").join(" "),
       pips: (points) => points / this.pipPoints,
+      textWidth: (text) => this.measure.measureText(text).width,
       note: this.note,
     };
   }
 
-  /** Where the mouse is: { x, y, logical, time, price }. `anywhere` also accepts positions outside the price pane. */
-  pointAt(event, anywhere = false) {
+  /**
+   * Where the mouse is: { x, y, logical, time, price }. `anywhere` also accepts positions outside the price pane.
+   * `snap`: apply the magnet (Ctrl held turns it the other way).
+   */
+  pointAt(event, anywhere = false, snap = false) {
     const v = this.view;
     if (!v.candles) return null;
     let point = v.panePoint(event);
@@ -97,11 +144,73 @@ export class DrawingLayer {
     const logical = v.chart.timeScale().coordinateToLogical(point.x);
     const price = v.series.coordinateToPrice(point.y);
     if (logical === null || price === null) return null;
-    return {
-      ...point, logical,
-      time: logicalToTime(v.candles, this.tfSeconds, logical),
-      price: Math.round(price * 10 ** v.digits),
-    };
+    let points = Math.round(price * 10 ** v.digits);
+    if (snap && this.magnet !== !!event.ctrlKey) points = snapPrice(v.candles, logical, points);
+    return { ...point, logical, time: logicalToTime(v.candles, this.tfSeconds, logical), price: points };
+  }
+
+  setMagnet(on) {
+    this.magnet = !!on;
+  }
+
+  /** Change the colour or line style of the selected drawing; new drawings of that tool get it too. */
+  restyle(changes) {
+    const d = this.selected;
+    if (!d || !TOOLS[d.type].styled) return false;
+    const { id, ...rest } = d;
+    this.store.update(id, { ...rest, ...changes });
+    this.styleDefaults = { ...this.styleDefaults, [d.type]: { ...this.styleDefaults[d.type], ...changes } };
+    this.onStyleDefaults(this.styleDefaults);
+    this.onSelect(this.selected);
+    return true;
+  }
+
+  // ----- text notes ----------------------------------------------------------------------
+  /** Open the text box over the chart for a new note (`draft`) or an existing one (`id`). */
+  editText({ id = null, draft = null }) {
+    if (!this.editor) return;
+    const d = draft || this.store.get(id);
+    if (!d) return;
+    this.editing = { id, draft };
+    const proj = this.projection();
+    const chartBox = this.view.container.getBoundingClientRect();
+    const parentBox = this.editor.offsetParent ? this.editor.offsetParent.getBoundingClientRect() : chartBox;
+    this.editor.hidden = false;
+    this.editor.maxLength = MAX_TEXT;
+    this.editor.value = d.text || "";
+    this.editor.style.left = `${chartBox.left - parentBox.left + proj.x(d.points[0].time) - 4}px`;
+    this.editor.style.top = `${chartBox.top - parentBox.top + proj.y(d.points[0].price) - 18}px`;
+    this.editor.style.color = d.color || STYLE.note.text;
+    this.editor.focus();
+    this.editor.select();
+    this.redraw();
+  }
+
+  /** Enter or clicking away keeps the text; Esc or an empty box keeps nothing (an existing note is left as it was). */
+  finishText(keep) {
+    const editing = this.editing;
+    if (!editing) return;
+    this.editing = null;
+    this.editor.hidden = true;
+    const text = this.editor.value.trim().slice(0, MAX_TEXT);
+    if (keep && text) {
+      if (editing.draft) {
+        const added = this.store.add({ ...editing.draft, text });
+        this.select(added.id);
+      } else {
+        const { id, ...rest } = this.store.get(editing.id) || {};
+        if (id !== undefined) this.store.update(id, { ...rest, text });
+        this.onSelect(this.selected);
+      }
+    }
+    this.redraw();
+  }
+
+  handleDoubleClick(event) {
+    const at = this.pointAt(event);
+    if (!at || this.tool) return;
+    const found = this.find(at.x, at.y);
+    if (found && this.store.get(found.id).type === "text") this.editText({ id: found.id });
   }
 
   // ----- tools and selection --------------------------------------------------------
@@ -134,6 +243,7 @@ export class DrawingLayer {
 
   /** Esc: drop the drawing in progress, then the tool, then the selection. Returns true if there was anything to cancel. */
   cancel() {
+    if (this.editing) { this.finishText(false); return true; }
     if (this.drag) { this.finishDrag(true); return true; }
     if (this.tool) { this.setTool(null); return true; }
     if (this.selectedId !== null) { this.select(null); return true; }
@@ -165,7 +275,8 @@ export class DrawingLayer {
   // ----- mouse ------------------------------------------------------------------------
   handleDown(event) {
     if (event.button !== 0 || this.view.drag) return; // a trade line is being dragged
-    const at = this.pointAt(event);
+    if (this.editing) return; // the click that closes the text box (it keeps the text on blur)
+    const at = this.pointAt(event, false, !!this.tool);
     if (!at) return;
 
     if (this.tool) {
@@ -173,10 +284,20 @@ export class DrawingLayer {
       event.stopPropagation();
       if (!this.draft) {
         const v = this.view;
-        this.draft = createDrawing(this.tool, at, {
-          pipPoints: this.pipPoints,
-          barsAhead: (time, bars) => logicalToTime(v.candles, this.tfSeconds, timeToLogical(v.candles, this.tfSeconds, time) + bars),
-        });
+        this.draft = {
+          ...createDrawing(this.tool, at, {
+            pipPoints: this.pipPoints,
+            barsAhead: (time, bars) => logicalToTime(v.candles, this.tfSeconds, timeToLogical(v.candles, this.tfSeconds, time) + bars),
+          }),
+          ...(TOOLS[this.tool].styled ? this.styleDefaults[this.tool] : {}),
+        };
+        if (this.tool === "text") {
+          const draft = this.draft;
+          this.draft = null;
+          this.setTool(null);
+          this.editText({ draft });
+          return;
+        }
         if (TOOLS[this.tool].clicks === 1) { this.commit(); return; }
         this.pressed = { x: event.clientX, y: event.clientY }; // press-drag-release also finishes a two-click drawing
         window.addEventListener("mouseup", this.release, true);
@@ -206,7 +327,7 @@ export class DrawingLayer {
 
   handleHover(event) {
     if (this.drag) return;
-    const at = this.pointAt(event);
+    const at = this.pointAt(event, false, !!this.draft);
     if (this.draft) {
       if (at) {
         this.draft = moveHandle(this.draft, "p1", at);
@@ -220,7 +341,7 @@ export class DrawingLayer {
 
   handleDragMove(event) {
     const drag = this.drag;
-    const at = this.pointAt(event, true);
+    const at = this.pointAt(event, true, drag && drag.hit.part === "handle"); // the magnet moves points, not whole drawings
     if (!drag || !at) return;
     if (!drag.moved && Math.hypot(at.x - drag.start.x, at.y - drag.start.y) < 3) return; // a click, not a drag (yet)
     drag.moved = true;
@@ -241,7 +362,7 @@ export class DrawingLayer {
     if (this.drag) { this.finishDrag(false); return; }
     // Press-drag-release with a two-click tool: finish the drawing where the mouse was let go.
     if (this.draft && this.pressed && Math.hypot(event.clientX - this.pressed.x, event.clientY - this.pressed.y) > 5) {
-      const at = this.pointAt(event, true);
+      const at = this.pointAt(event, true, true);
       if (at) {
         this.draft = moveHandle(this.draft, "p1", at);
         this.commit();
@@ -277,9 +398,12 @@ export class DrawingLayer {
   // ----- painting ------------------------------------------------------------------------
   paint(ctx, size) {
     this.paneWidth = size.width;
+    this.paneHeight = size.height;
     if (!this.view.candles || this.view.candles.length === 0) return;
     const proj = this.projection();
-    const shown = this.store.items.map((d) => (this.drag && this.drag.id === d.id ? { ...this.drag.current, id: d.id } : d));
+    const shown = this.store.items
+      .filter((d) => !(this.editing && this.editing.id === d.id)) // the text box stands in for a note being edited
+      .map((d) => (this.drag && this.drag.id === d.id ? { ...this.drag.current, id: d.id } : d));
     if (this.draft) shown.push({ ...this.draft, id: "draft" });
 
     ctx.save();
@@ -289,11 +413,17 @@ export class DrawingLayer {
       const active = d.id === this.selectedId || d.id === "draft";
       const shape = layout(d, proj);
       for (const b of shape.boxes) {
-        ctx.fillStyle = STYLE[b.role].fill;
+        ctx.fillStyle = styleFor(b.role, d).fill;
         ctx.fillRect(b.x, b.y, b.w, b.h);
       }
+      if (d.type === "text" && active) { // a selected note gets a faint frame so you can see what is selected
+        const b = shape.boxes[0];
+        ctx.strokeStyle = "rgba(41, 98, 255, 0.6)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w, b.h);
+      }
       for (const l of shape.lines) {
-        const style = STYLE[l.role];
+        const style = styleFor(l.role, d);
         ctx.strokeStyle = style.stroke;
         ctx.lineWidth = style.width + (active && l.role === "line" ? 0.5 : 0);
         ctx.setLineDash(style.dash || []);
@@ -310,9 +440,10 @@ export class DrawingLayer {
           if (lastLevelY !== null && Math.abs(t.y - lastLevelY) < 12) continue;
           lastLevelY = t.y;
         }
-        const style = STYLE[t.role];
+        const style = styleFor(t.role, d);
         ctx.fillStyle = style.text || style.stroke;
         ctx.textAlign = t.align;
+        ctx.font = t.role === "note" ? NOTE_FONT : FONT;
         ctx.fillText(t.text, t.x, t.y);
       }
       if (d.id === this.selectedId) {

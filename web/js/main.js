@@ -6,7 +6,10 @@ import { loadRules as loadChallengeRules } from "./challenge.js";
 import { Backtests } from "./backtestpanel.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
-import { DrawingStore, loadSaved as loadSavedDrawings, positionStats, save as saveDrawings, TOOLS } from "./drawings.js";
+import {
+  DrawingStore, LINE_STYLES, loadSaved as loadSavedDrawings, PALETTE, positionStats, save as saveDrawings, TOOLS,
+} from "./drawings.js";
+import { OTHER_KEYS, SHORTCUTS, shortcutFor } from "./shortcuts.js";
 import { loadJSON, loadSymbol } from "./data.js";
 import { renderDataView } from "./dataview.js";
 import { OrderType } from "./broker.js";
@@ -21,6 +24,8 @@ const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
 const KEY_TIMEFRAME = "forexreplay.timeframe";
 const KEY_SESSIONS = "forexreplay.sessions";
+const KEY_MAGNET = "forexreplay.magnet";
+const KEY_DRAW_STYLES = "forexreplay.drawstyles";
 
 function remember(key, value) {
   try { localStorage.setItem(key, value); } catch { /* private mode: ignore */ }
@@ -252,10 +257,27 @@ async function boot() {
       if (clock.active) backtests.drawingsChanged(); // a replay's drawings belong to its backtest
       else saveDrawings(manifest.symbol, drawings);
       layer.storeChanged();
+      renderUndo();
     },
   });
+  const undoButton = $("undo"), redoButton = $("redo");
+  const renderUndo = () => {
+    undoButton.disabled = !drawings.canUndo;
+    redoButton.disabled = !drawings.canRedo;
+  };
   const toolButtons = [...$("tools").querySelectorAll("[data-tool]")];
-  const drawBar = { box: $("draw-bar"), text: $("draw-bar-text"), ticket: $("draw-to-ticket"), remove: $("draw-delete") };
+  const drawBar = {
+    box: $("draw-bar"), text: $("draw-bar-text"), ticket: $("draw-to-ticket"), remove: $("draw-delete"),
+    colours: $("draw-colours"), styles: $("draw-styles"), editText: $("draw-edit-text"),
+  };
+  drawBar.colours.innerHTML = PALETTE.map((c) => `<button data-colour="${c}" style="background:${c}" title="Colour"></button>`).join("");
+  let styleDefaults = {};
+  try { styleDefaults = JSON.parse(recall(KEY_DRAW_STYLES, "{}")) || {}; } catch { /* damaged: start plain */ }
+  // Only known colours and styles are kept from storage.
+  styleDefaults = Object.fromEntries(Object.entries(styleDefaults).filter(([tool]) => TOOLS[tool] && TOOLS[tool].styled)
+    .map(([tool, s]) => [tool, {
+      ...(PALETTE.includes(s && s.color) ? { color: s.color } : {}), ...(LINE_STYLES.includes(s && s.style) ? { style: s.style } : {}),
+    }]));
   const clearButton = $("drawings-clear");
   let clearArmed = false;
   const disarmClear = () => {
@@ -276,10 +298,14 @@ async function boot() {
     store: drawings,
     pipPoints: manifest.pip_points,
     note: positionNote,
+    editor: $("text-editor"),
+    styleDefaults,
+    onStyleDefaults: (map) => remember(KEY_DRAW_STYLES, JSON.stringify(map)),
     onToolChange: (tool) => {
       toolButtons.forEach((b) => b.classList.toggle("active", b.dataset.tool === (tool || "")));
-      setHint(!tool ? null : `${TOOLS[tool].label}: ${TOOLS[tool].clicks === 2
-        ? "click the first point, then the second" : "click the chart at the price you want"}. Esc cancels.`);
+      const how = tool === "text" ? "click where the note goes, then type and press Enter"
+        : TOOLS[tool]?.clicks === 2 ? "click the first point, then the second" : "click the chart at the price you want";
+      setHint(!tool ? null : `${TOOLS[tool].label}: ${how}. Esc cancels.${layer && layer.magnet ? " Magnet on." : ""}`);
       if (tool && picking) setPicking(false);
       if (tool && panel && panel.pickTarget) panel.setPick(null);
     },
@@ -290,11 +316,49 @@ async function boot() {
       drawBar.ticket.hidden = !position;
       drawBar.text.textContent = position
         ? `${TOOLS[d.type].label} · ${positionStats(d).ratio.toFixed(2)}R`
-        : d.type === "hline" ? `${TOOLS[d.type].label} · ${priceText(d.points[0].price)}` : TOOLS[d.type].label;
+        : d.type === "hline" || d.type === "hray" ? `${TOOLS[d.type].label} · ${priceText(d.points[0].price)}` : TOOLS[d.type].label;
+      const styled = TOOLS[d.type].styled;
+      drawBar.colours.hidden = !styled;
+      drawBar.styles.hidden = !styled || d.type === "text";
+      drawBar.editText.hidden = d.type !== "text";
+      drawBar.colours.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.colour === (d.color || PALETTE[0])));
+      drawBar.styles.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lineStyle === (d.style || "solid")));
     },
   });
   drawings.load(loadSavedDrawings(manifest.symbol));
   layer.redraw();
+  renderUndo();
+
+  drawBar.colours.addEventListener("click", (event) => {
+    const b = event.target.closest("[data-colour]");
+    if (b) layer.restyle({ color: b.dataset.colour });
+  });
+  drawBar.styles.addEventListener("click", (event) => {
+    const b = event.target.closest("[data-line-style]");
+    if (b) layer.restyle({ style: b.dataset.lineStyle });
+  });
+  drawBar.editText.addEventListener("click", () => { if (layer.selected) layer.editText({ id: layer.selected.id }); });
+
+  const magnetButton = $("magnet");
+  const setMagnet = (on) => {
+    layer.setMagnet(on);
+    magnetButton.classList.toggle("active", layer.magnet);
+    remember(KEY_MAGNET, layer.magnet ? "on" : "off");
+  };
+  setMagnet(recall(KEY_MAGNET, "off") === "on");
+  magnetButton.addEventListener("click", () => setMagnet(!layer.magnet));
+  const undoDrawing = () => { layer.cancel(); if (drawings.undo()) layer.select(null); };
+  const redoDrawing = () => { layer.cancel(); if (drawings.redo()) layer.select(null); };
+  undoButton.addEventListener("click", undoDrawing);
+  redoButton.addEventListener("click", redoDrawing);
+
+  // The shortcut list is built from the same table that handles the keys, so it cannot go out of date.
+  const kbd = (keys) => keys.split(" + ").map((k) => `<kbd>${k}</kbd>`).join(" + ");
+  $("shortcut-rows").innerHTML = [...SHORTCUTS, ...OTHER_KEYS]
+    .map((s) => `<tr><td>${kbd(s.keys)}</td><td>${s.label}</td></tr>`).join("");
+  const shortcutsDialog = $("shortcuts-dialog");
+  $("shortcuts-open").addEventListener("click", () => shortcutsDialog.showModal());
+  $("shortcuts-close").addEventListener("click", () => shortcutsDialog.close());
 
   toolButtons.forEach((b) => b.addEventListener("click", () => {
     disarmClear();
@@ -313,7 +377,7 @@ async function boot() {
     if (!clearArmed) { // removing everything cannot be undone, so it takes a second click
       clearArmed = true;
       clearButton.classList.add("armed");
-      setHint(`Remove all ${drawings.items.length} drawings? Click the bin again to confirm, or press Esc.`);
+      setHint(`Remove all ${drawings.items.length} drawings? Click the bin again to confirm, or press Esc. (Ctrl + Z brings them back.)`);
       return;
     }
     disarmClear();
@@ -467,6 +531,22 @@ async function boot() {
     if (event.key === "Escape" && clearArmed) { disarmClear(); return; }
     if (event.key === "Escape" && layer.cancel()) return;
     if ((event.key === "Delete" || event.key === "Backspace") && layer.deleteSelected()) { event.preventDefault(); return; }
+    const action = shortcutFor(event);
+    if (action) {
+      event.preventDefault(); // Alt + F would otherwise open the browser's menu
+      disarmClear();
+      if (action.startsWith("tool:")) {
+        const tool = action.slice(5);
+        layer.setTool(layer.tool === tool ? null : tool);
+      } else if (action === "magnet") {
+        setMagnet(!layer.magnet);
+        setHint(`Magnet ${layer.magnet ? "on: points jump to the nearest open, high, low or close" : "off"}.`);
+        setTimeout(() => setHint(null), 1800);
+      } else if (action === "undo") undoDrawing();
+      else if (action === "redo") redoDrawing();
+      else if (action === "help") shortcutsDialog.showModal();
+      return;
+    }
     if (event.key === "Escape" && picking) { setPicking(false); return; }
     if (event.key === "Escape" && panel.pickTarget) { panel.setPick(null); return; }
     if (!clock.active) return;

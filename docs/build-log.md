@@ -244,3 +244,53 @@ In the in-app browser (throwaway journal, deleted afterwards): turned on the 8% 
 - With random trades and loose limits, almost every random challenge failed, so the test's limits were tightened on the target side until passes happened too. The point is to exercise both endings in the rebuild, not to model a trader.
 
 **How to check:** in the trading panel, tick "Challenge mode" (or click "8% target"). Start a replay, set Risk % to 7 and sell with a 20-pip stop. Press Space. If price runs against you, the replay stops when the daily bar fills: the box says FAILED with the time and the reason, and the ticket is greyed out. Open Backtests: the run is marked FAILED, and Resume brings it back in the same state.
+
+---
+
+## Day 9: Sat 3 Oct 2026 · more drawing tools, colours, magnet, undo and shortcuts
+
+**Asked for (Jeevesh):** start day 9.
+
+**Built (Claude):**
+- **New tools:** ray, horizontal ray, vertical line (with its India time) and text notes (click, type, Enter; double-click to change). See [decision 0010](decisions/0010-drawing-styles-magnet-undo-shortcuts.md).
+- **Colour and line style** for lines, rays, rectangles and notes, from the bar that appears when a drawing is selected. Each tool remembers the last colour and style for new drawings. Fibonacci and the position tools keep their meaningful colours.
+- **Magnet** (button, or Alt + M): new points and dragged handles snap to the nearest open, high, low or close of the candle under the mouse. Hold Ctrl to flip it for one move. It only sees candles on the chart, so it cannot snap to a hidden price during a replay.
+- **Undo and redo** for drawings (Ctrl + Z, Ctrl + Y, or the tool-bar arrows), up to 100 steps, starting fresh with each run. Trades cannot be undone.
+- **Keyboard shortcuts:** Alt + T, R, H, J, V, B, F, L, S, N for the tools, plus `?` for a list of every key. `web/js/shortcuts.js` holds the one table both the keys and the list are built from.
+- The tool column scrolls in short windows instead of being cut off.
+
+**Tests:** 6 new JavaScript tests (95 in total; Python stays at 57). They cover:
+- a ray carrying on past the edge at the same slope, and not behind its first point; a horizontal ray starting at its candle; the vertical line and its label
+- text notes clickable over their whole width, and empty or over-long text refused
+- colours and styles kept only from the fixed list and only on the tools that take them
+- the magnet picking the nearest open, high, low or close, leaving prices past the candles alone, and never snapping to the hidden part of a forming H1 candle
+- undo and redo through add, move, delete and clear, with ids restored, redo cleared by a new change, no step for a non-change, the 100-step limit, and a fresh history after loading
+- shortcuts matching modifiers exactly, Cmd as Ctrl, no two shortcuts on one key, and a shortcut for every tool
+
+In the in-app browser, the real mouse and keyboard handlers were driven with dispatched events, because the app window was hidden and screenshots could not be taken. Checked:
+- Alt + R ray with two clicks; Alt + J and Alt + V
+- the magnet on: a horizontal line landed on the candle's low of 1.16140
+- with Ctrl held, the same click did not snap
+- red and dashed applied, two undos took them off, and redo put the colour back
+- the next horizontal line came out red and dashed
+- a text note typed and saved with Enter, changed by double-click, and nothing kept on Esc
+- Delete, then Ctrl + Z brought the note back
+- `?` opened the 22-row list
+- Alt + F picked the Fibonacci tool, and its key press was cancelled
+- a new replay started with no undo history
+- drawings, colours and styles survived a reload
+No console errors. The page's visual layout was not checked by eye.
+
+**Decisions:**
+- Strong magnet (always snaps); Ctrl flips it ([0010](decisions/0010-drawing-styles-magnet-undo-shortcuts.md)).
+- Undo covers drawings only, never trades, and never crosses into another run.
+- Only colours from a fixed list of eight are accepted from a save.
+- Fibonacci and position tools are not recoloured.
+- Tool shortcuts follow TradingView's Alt + letter scheme, matched on the physical key.
+
+**Found along the way:**
+- The hidden browser pane shrank the page to 0 × 0 pixels, so the first scripted clicks found no chart. The page was given a fixed 1280 × 800 size and reloaded for the check. This was the test setup, not the app.
+- With twelve more buttons the tool column would have been cut off in a short window; it now scrolls.
+- The horizontal line's price label used the line's colour by accident of its role name; labels now follow the drawing's chosen colour on purpose.
+
+**How to check:** press Alt + R and click two points: the line carries on past the second. Click it, pick red and dashed in the bar above the chart. Press Ctrl + Z twice: it is blue and solid again. Turn on the magnet (the U-shaped button, or Alt + M) and draw a horizontal line near a candle: it sits exactly on that candle's high, low, open or close. Press Alt + N, click, type a note, press Enter. Press `?` for every shortcut.
