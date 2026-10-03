@@ -10,6 +10,7 @@ import { capture as captureChart, remove as removeScreenshot, upload as uploadSc
 import { TradeNotes } from "./tradenotes.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
+import { cleanIndicators, STORAGE_KEY as KEY_INDICATORS } from "./indicators.js";
 import { LayerGroup } from "./layergroup.js";
 import {
   DrawingStore, LINE_STYLES, loadSaved as loadSavedDrawings, PALETTE, positionStats, save as saveDrawings, TOOLS,
@@ -62,7 +63,8 @@ function renderLegend(el, symbol, timeframeId, digits, info, forming) {
     `<span class="${tone}">O <b>${p(info.open)}</b> H <b>${p(info.high)}</b> ` +
     `L <b>${p(info.low)}</b> C <b>${p(info.close)}</b> ` +
     `${sign}${p(info.change)} (${sign}${info.changePercent.toFixed(2)}%)</span>` +
-    `<span class="legend-volume">Vol ${number(info.volume)}</span>`;
+    `<span class="legend-volume">Vol ${number(info.volume)}</span>` +
+    (info.indicators || []).map((ind) => `<span class="legend-ind"><i style="background:${ind.colour}"></i>${ind.label} <b>${ind.text}</b></span>`).join("");
 }
 
 /** "2026-03-05T13:30" typed in India time -> UTC seconds. */
@@ -177,7 +179,9 @@ async function boot() {
       }
     },
   });
+  let indicators = cleanIndicators((() => { try { return JSON.parse(recall(KEY_INDICATORS, "null")); } catch { return null; } })());
   const chart = new ChartView($("chart"), chartOptions(mainPane));
+  chart.setIndicators(indicators);
   mainPane.chart = chart;
 
   // ------------------------------------------------------------ trading
@@ -223,9 +227,14 @@ async function boot() {
         lines.push({ id: `tp:${t.id}`, draggable, price: t.takeProfit, colour: UP, dashed: true, title: `TP #${t.id}` });
       }
     }
+    // Only when something changed: re-creating the lines and markers on every candle was measurable work.
+    const linesKey = JSON.stringify(lines);
     for (const p of panes()) {
-      p.chart.setTradeLines(lines);
-      p.chart.setTradeMarkers(markersFor(p.view));
+      const markers = markersFor(p.view);
+      const markersKey = JSON.stringify(markers);
+      if (p.chart !== p.drawnOn || linesKey !== p.linesKey) p.chart.setTradeLines(lines);
+      if (p.chart !== p.drawnOn || markersKey !== p.markersKey) p.chart.setTradeMarkers(markers);
+      Object.assign(p, { drawnOn: p.chart, linesKey, markersKey });
     }
   }
 
@@ -261,7 +270,19 @@ async function boot() {
   }
 
   let challengeOutcome = null; // to notice the moment a challenge passes or fails
+  let refreshQueued = false;
+  /**
+   * Redraw the panel, lines and markers once the current step is over. A replay tick used to
+   * redraw twice (once for the engine, once for the clock); now everything that happens in one
+   * tick is drawn once, right after it (a microtask: before the browser paints).
+   */
   function refreshTrading() {
+    if (refreshQueued) return;
+    refreshQueued = true;
+    queueMicrotask(() => { refreshQueued = false; refreshNow(); });
+  }
+
+  function refreshNow() {
     const c = clock.active ? trading.challenge : null;
     if (panel && c && c.outcome !== "RUNNING" && challengeOutcome === "RUNNING") {
       clock.pause(); // stop the replay where the challenge ended
@@ -540,6 +561,7 @@ async function boot() {
       if (!sidePane.chart) {
         sidePane.chart = new ChartView($("chart2"), chartOptions(sidePane));
         sidePane.chart.setSessionsVisible(sessionsOn);
+        sidePane.chart.setIndicators(indicators);
       }
       if (!sidePane.layer) sidePane.layer = addLayer(sidePane.chart);
       setSideTimeframe(sidePane.tf);
@@ -551,6 +573,33 @@ async function boot() {
     }
   }
   layoutButton.addEventListener("click", () => setLayout(!layoutTwo));
+
+  // ------------------------------------------------------------ indicators
+  const indicatorsDialog = $("indicators-dialog");
+  const indicatorsButton = $("indicators-open");
+  function renderIndicatorForm() {
+    for (const [key, s] of Object.entries(indicators)) {
+      indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked = s.on;
+      const period = indicatorsDialog.querySelector(`[data-period="${key}"]`);
+      if (period) period.value = s.period;
+    }
+    indicatorsButton.classList.toggle("active", Object.values(indicators).some((s) => s.on));
+  }
+  function applyIndicators() {
+    const raw = {};
+    for (const key of Object.keys(indicators)) {
+      const period = indicatorsDialog.querySelector(`[data-period="${key}"]`);
+      raw[key] = { on: indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked, ...(period ? { period: period.value } : {}) };
+    }
+    indicators = cleanIndicators(raw);
+    remember(KEY_INDICATORS, JSON.stringify(indicators));
+    for (const c of [chart, sidePane.chart]) if (c) c.setIndicators(indicators);
+    renderIndicatorForm(); // a refused period snaps back to what is used
+  }
+  indicatorsDialog.addEventListener("change", applyIndicators);
+  indicatorsButton.addEventListener("click", () => { renderIndicatorForm(); indicatorsDialog.showModal(); });
+  $("indicators-close").addEventListener("click", () => indicatorsDialog.close());
+  renderIndicatorForm();
 
   // ------------------------------------------------------------ replay
   const ui = {

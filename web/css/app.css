@@ -572,3 +572,15 @@ button.primary {
   border-radius: 4px; padding: 2px 4px; font-size: 12px;
 }
 .pane-side .legend { position: static; right: auto; }
+
+/* ---------- day 13: indicators ---------- */
+.legend-ind { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.legend-ind i, .indicator-table .swatch { display: inline-block; width: 10px; height: 2px; }
+.legend-ind b { color: var(--text); font-weight: 500; }
+.indicator-table td { vertical-align: middle; }
+.indicator-table input[type="number"] {
+  width: 64px; margin-left: 6px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px;
+}
+.indicator-table .check { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+/* The bar for the selected drawing sat on top of the legend (day 12 screenshot); it now sits at the bottom of the chart. */
+.draw-bar { top: auto; bottom: 40px; }

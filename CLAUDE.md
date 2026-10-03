@@ -32,13 +32,14 @@ python -m pytest                    # Python tests (pip install pytest)
 node --test web/tests/*.test.mjs    # JavaScript tests (needs Node.js; check `node --version`)
 python -m forex_replay.golden       # regenerate the engine comparison fixture (only when engine rules change)
 python -m forex_replay.stats_golden # regenerate the statistics comparison fixture (only when stats.py changes)
+python -m forex_replay.indicator_golden # regenerate the indicator reference values (only when an indicator definition changes)
 ```
 
-Expected today: 64 Python tests, 110 JavaScript tests, all passing.
+Expected today: 66 Python tests, 115 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
-- **No look-ahead.** The chart and the engine may only ever see candles the replay clock has revealed. Orders, closes and stop moves are accepted only at the live edge of the replay.
+- **No look-ahead.** The chart and the engine may only ever see candles the replay clock has revealed. Orders, closes and stop moves are accepted only at the live edge of the replay. A `Candles` object's arrays can be longer than its `length` (a replay's display reuses full-size arrays): never read past `length`.
 - **One replay clock** (`web/js/replay.js`): one position in M5 candles; every timeframe is derived from it.
 - **Fills are resolved on M5 candles** whatever timeframe is on screen. An order is never evaluated on the candle it was placed on.
 - **Two engines, one truth.** `forex_replay/broker.py` and `web/js/broker.js` implement the same rules. Change Python first, then JavaScript, then run `python -m forex_replay.golden`; the JavaScript parity test must match every recorded trade.
@@ -57,7 +58,8 @@ Expected today: 64 Python tests, 110 JavaScript tests, all passing.
 | Data pipeline, server | `forex_replay/datapipe.py`, `forex_replay/server.py` |
 | Candles, timeframes | `web/js/data.js`, `web/js/timeframes.js` |
 | Replay | `web/js/replay.js` |
-| Chart | `web/js/chart.js` (candles, sessions, trade lines, line dragging, crosshair sync) |
+| Chart | `web/js/chart.js` (candles, sessions, trade lines and markers, line dragging, crosshair sync, indicator lines) |
+| Indicators | `web/js/indicators.js` (SMA, EMA, RSI, VWAP and the step-by-step engine), `forex_replay/indicator_golden.py` |
 | Two charts | `web/js/layergroup.js` (both charts' drawing layers as one); panes in `web/js/main.js` |
 | Sessions | `web/js/sessions.js`, `web/js/sessionsettings.js` |
 | Trading | `web/js/broker.js` (engine), `web/js/trading.js` (clock to engine), `web/js/account.js` (money), `web/js/challenge.js` (prop-firm rules), `web/js/tradingpanel.js` (panel) |

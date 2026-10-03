@@ -28,6 +28,7 @@
     <button class="plain" id="latest" title="Jump to the newest candle on the chart">Latest &#8677;</button>
     <button class="plain toggle" id="sessions-toggle" title="Show or hide session shading (M5 to H1)">Sessions</button>
     <button class="plain" id="sessions-settings" title="Session settings: names, timezones, hours, colours" aria-label="Session settings">&#9881;</button>
+    <button class="plain toggle" id="indicators-open" title="Indicators: SMA, EMA, VWAP and RSI">Indicators</button>
     <button class="plain toggle" id="layout-toggle" title="Two charts side by side, on the same replay clock">&#9707; 2 charts</button>
     <div class="spacer"></div>
     <div class="clock" id="clock"></div>
@@ -327,6 +328,28 @@
       <span class="spacer"></span>
       <button type="button" class="plain bordered" id="backtest-close">Close</button>
     </div>
+  </dialog>
+
+  <dialog id="indicators-dialog" class="dialog indicators-dialog">
+    <h2>Indicators</h2>
+    <p class="muted">Worked out from the candles on the chart only, so during a replay they never use a hidden candle.
+      The last value moves while a candle is forming. They show on both charts, each on its own timeframe.</p>
+    <table class="grid indicator-table"><tbody>
+      <tr><td><label class="check"><input type="checkbox" data-ind="sma"> <i class="swatch" style="background:#00a7b8"></i> SMA</label></td>
+        <td><label>Period <input type="number" data-period="sma" min="2" max="500" step="1"></label></td>
+        <td class="muted">simple moving average of the closes</td></tr>
+      <tr><td><label class="check"><input type="checkbox" data-ind="ema"> <i class="swatch" style="background:#9c4fd6"></i> EMA</label></td>
+        <td><label>Period <input type="number" data-period="ema" min="2" max="500" step="1"></label></td>
+        <td class="muted">exponential moving average: recent closes count more</td></tr>
+      <tr><td><label class="check"><input type="checkbox" data-ind="vwap"> <i class="swatch" style="background:#c27c0e"></i> VWAP</label></td>
+        <td></td>
+        <td class="muted">volume-weighted average price, from 17:00 New York each day (tick volume)</td></tr>
+      <tr><td><label class="check"><input type="checkbox" data-ind="rsi"> <i class="swatch" style="background:#2962ff"></i> RSI</label></td>
+        <td><label>Period <input type="number" data-period="rsi" min="2" max="500" step="1"></label></td>
+        <td class="muted">relative strength index (Wilder), in a panel under the chart, lines at 70 and 30</td></tr>
+    </tbody></table>
+    <div class="dialog-actions"><span class="spacer"></span>
+      <button type="button" class="plain bordered" id="indicators-close">Close</button></div>
   </dialog>
 
   <dialog id="shortcuts-dialog" class="dialog">

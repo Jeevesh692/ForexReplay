@@ -432,6 +432,11 @@ export class TradingPanel {
     const s = t.summary();
     this.el("closed-title").textContent = `Closed (${s.closed})` +
       (s.closed ? ` · ${this.r(s.totalR)} · ${formatSignedMoney(s.totalMoney)} · ${s.wins}W ${s.losses}L` : "");
+    // A closed trade never changes, so the list is rebuilt only when one is added, or its journal marks
+    // or the picked trade change (rebuilding it on every candle took about 7 ms with 40 trades).
+    const closedKey = JSON.stringify([this.pickedTrade, closed.map((trade) => [trade.id, this.marks(trade)])]);
+    if (closedKey === this.closedKey) return;
+    this.closedKey = closedKey;
     this.el("closed-list").innerHTML = closed.length === 0
       ? '<li class="empty">Closed trades appear here.</li>'
       : closed.map((trade) => {

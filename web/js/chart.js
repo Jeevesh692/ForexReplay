@@ -5,6 +5,7 @@
 // when the library gives one to us (fromChartTime). Nothing else in the app
 // ever sees shifted times.
 
+import { cleanIndicators, IndicatorEngine } from "./indicators.js";
 import { rgb, sessionsBetween } from "./sessions.js";
 import { formatDate, formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
 import { indexAtOrBefore, timeframe as timeframeInfo } from "./timeframes.js";
@@ -20,6 +21,9 @@ const COLOURS = {
   downVolume: "rgba(239, 83, 80, 0.35)",
   crosshair: "#758696",
 };
+
+// Indicator colours: checked for colour-blind separation and contrast on the chart background (day 13).
+export const INDICATOR_COLOURS = { sma: "#00a7b8", ema: "#9c4fd6", vwap: "#c27c0e", rsi: "#2962ff" };
 
 const DEFAULT_VISIBLE_BARS = 160;
 const GRAB_PIXELS = 5; // how close the mouse must be to a line to drag it
@@ -83,6 +87,71 @@ class SessionBands {
       ctx.fillStyle = `rgba(${rgb(session.colour)}, 0.07)`; // the colour key is in the status bar
       ctx.fillRect(x0, 0, x1 - x0, size.height);
     }
+  }
+}
+
+/**
+ * Entry, partial and exit markers, drawn with the primitive hook like the session bands.
+ *
+ * The library's own markers plugin was measured on day 13: with it attached, updating the
+ * forming candle took about 16 ms on a chart of 21,000 candles, against 0.8 ms without it,
+ * because it re-indexes every candle on every update. Drawing them here costs nothing
+ * per update; they are worked out only when the chart is painted, and only for candles on screen.
+ */
+class TradeMarkers {
+  constructor(view) {
+    this.view = view;
+    this.markers = []; // [{ time, above, colour, shape, text }], sorted by time
+    const draw = (target) => target.useMediaCoordinateSpace(({ context }) => this.paint(context));
+    this.views = [{ zOrder: () => "top", renderer: () => ({ draw }) }];
+  }
+
+  attached({ requestUpdate }) { this.requestUpdate = requestUpdate; }
+  detached() { this.requestUpdate = null; }
+  updateAllViews() {}
+  paneViews() { return this.views; }
+
+  set(markers) {
+    this.markers = markers;
+    if (this.requestUpdate) this.requestUpdate();
+  }
+
+  paint(ctx) {
+    const { candles, chart, series } = this.view;
+    if (!candles || candles.length === 0 || this.markers.length === 0) return;
+    const scale = chart.timeScale();
+    const range = scale.getVisibleLogicalRange();
+    if (!range) return;
+    const stacked = new Map(); // markers on the same candle and side sit one above the other
+    ctx.save();
+    ctx.font = '11px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = "center";
+    for (const m of this.markers) {
+      const i = indexAtOrBefore(candles, m.time);
+      if (i < 0 || i < range.from - 1 || i > range.to + 1) continue;
+      const x = scale.logicalToCoordinate(i);
+      const edge = series.priceToCoordinate(candles.price(m.above ? candles.high[i] : candles.low[i]));
+      if (x === null || edge === null) continue;
+      const key = `${i}:${m.above}`;
+      const n = stacked.get(key) || 0;
+      stacked.set(key, n + 1);
+      const dir = m.above ? -1 : 1; // away from the candle
+      const y = edge + dir * (10 + n * 26);
+      ctx.fillStyle = m.colour;
+      ctx.beginPath();
+      if (m.shape === "arrowUp" || m.shape === "arrowDown") {
+        const up = m.shape === "arrowUp";
+        ctx.moveTo(x, y + (up ? -5 : 5));
+        ctx.lineTo(x - 5, y + (up ? 3 : -3));
+        ctx.lineTo(x + 5, y + (up ? 3 : -3));
+        ctx.closePath();
+      } else {
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      if (m.text) ctx.fillText(m.text, x, y + dir * 13 + (dir > 0 ? 4 : 0));
+    }
+    ctx.restore();
   }
 }
 
@@ -187,13 +256,18 @@ export class ChartView {
       this.onClick(index, price === null ? null : Math.round(price * 10 ** this.digits));
     });
 
+    this.indicatorSettings = cleanIndicators(null);
+    this.indicatorSeries = new Map(); // indicator id -> line series
+    this.indicatorEngine = new IndicatorEngine(); // works out only what a replay step changed
+    this.indicatorLines = []; // the last computed lines, for the legend
     this.priceLines = [];
     this.lineSpecs = [];
     this.drag = null; // { spec, line, startY, points, moved } while a line is being dragged
     this.deferredLines = null;
     this.justDragged = false;
     this.toolActive = false; // set by the drawing layer
-    this.markers = lib.createSeriesMarkers(this.series, []);
+    this.markers = new TradeMarkers(this);
+    this.series.attachPrimitive(this.markers);
 
     // Dragging trade lines. The library has no draggable lines, so the mouse is watched here.
     // Listening in the capture phase lets a drag start before the library begins to pan the chart.
@@ -312,16 +386,7 @@ export class ChartView {
    * Entry and exit markers. markers = [{ time (UTC s of a candle on screen), above, colour, shape, text }]
    */
   setTradeMarkers(markers) {
-    this.markers.setMarkers(markers
-      .slice()
-      .sort((a, b) => a.time - b.time)
-      .map((m) => ({
-        time: toChartTime(m.time),
-        position: m.above ? "aboveBar" : "belowBar",
-        color: m.colour,
-        shape: m.shape,
-        text: m.text,
-      })));
+    this.markers.set(markers.slice().sort((a, b) => a.time - b.time));
   }
 
   candlePoint(i) {
@@ -350,7 +415,72 @@ export class ChartView {
       this.series.update(this.candlePoint(i));
       this.volume.update(this.volumePoint(i));
     }
+    this.drawIndicators(Math.max(0, from), to);
     this.onHover(this.barInfo(this.candles.length - 1));
+  }
+
+  // ----- indicators -----------------------------------------------------------
+  /** Which indicators to show (see indicators.js). Redraws them on the candles on screen. */
+  setIndicators(settings) {
+    this.indicatorSettings = cleanIndicators(settings);
+    if (!this.candles) return;
+    this.drawIndicators();
+    this.onHover(this.barInfo(this.candles.length - 1)); // the legend shows the new set straight away
+  }
+
+  indicatorPoint(line, i) {
+    const v = line.values[i];
+    const time = toChartTime(this.candles.time[i]);
+    if (!Number.isFinite(v)) return { time }; // not worked out yet: a gap in the line
+    return { time, value: line.pane === "rsi" ? v : v / 10 ** this.digits };
+  }
+
+  /**
+   * Work the indicators out again from the candles on screen. With `from`, only points from..to
+   * are sent to the chart (a replay step); otherwise every point (new candles or new settings).
+   */
+  drawIndicators(from = null, to = null) {
+    const lines = this.indicatorEngine.compute(this.candles, this.indicatorSettings, from);
+    this.indicatorLines = lines;
+    const wanted = new Set(lines.map((l) => l.id));
+    for (const [id, series] of this.indicatorSeries) {
+      if (!wanted.has(id)) { this.chart.removeSeries(series); this.indicatorSeries.delete(id); }
+    }
+    for (const line of lines) {
+      let series = this.indicatorSeries.get(line.id);
+      const fresh = !series;
+      if (fresh) {
+        const rsiPane = line.pane === "rsi";
+        series = this.chart.addSeries(this.lib.LineSeries, {
+          color: INDICATOR_COLOURS[line.id], lineWidth: rsiPane ? 2 : 1, priceLineVisible: false,
+          crosshairMarkerVisible: false, lastValueVisible: true, title: line.label,
+          priceFormat: rsiPane ? { type: "price", precision: 1, minMove: 0.1 } : { type: "price", precision: this.digits, minMove: 1 / 10 ** this.digits },
+          autoscaleInfoProvider: rsiPane ? () => ({ priceRange: { minValue: 0, maxValue: 100 } }) : undefined,
+        }, rsiPane ? 1 : 0);
+        if (rsiPane) {
+          for (const level of [70, 30]) {
+            series.createPriceLine({ price: level, color: "#4a4e5a", lineWidth: 1, lineStyle: this.lib.LineStyle.Dashed, axisLabelVisible: true, title: "" });
+          }
+          const pane = this.chart.panes()[1];
+          if (pane) pane.setHeight(110);
+        }
+        this.indicatorSeries.set(line.id, series);
+      }
+      if (series.options().title !== line.label) series.applyOptions({ title: line.label }); // changing options redoes the chart's layout
+      if (fresh || from === null) {
+        series.setData(Array.from(line.values, (_, i) => this.indicatorPoint(line, i)));
+      } else {
+        for (let i = from; i <= to; i++) series.update(this.indicatorPoint(line, i));
+      }
+    }
+  }
+
+  /** The indicators' values at candle i, for the legend: [{ id, label, value text, colour }]. */
+  indicatorValues(i) {
+    return this.indicatorLines.map((l) => ({
+      id: l.id, label: l.label, colour: INDICATOR_COLOURS[l.id],
+      text: !Number.isFinite(l.values[i]) ? "–" : l.pane === "rsi" ? l.values[i].toFixed(1) : (l.values[i] / 10 ** this.digits).toFixed(this.digits),
+    }));
   }
 
   /** Is the newest candle on screen? (Then the chart follows the replay.) */
@@ -377,6 +507,7 @@ export class ChartView {
       low: c.price(c.low[i]),
       close: c.price(c.close[i]),
       volume: c.volume[i],
+      indicators: this.indicatorValues(i),
       change: c.price(c.close[i] - previousClose),
       changePercent: ((c.close[i] - previousClose) / previousClose) * 100,
       rising: c.close[i] >= c.open[i],
@@ -442,6 +573,7 @@ export class ChartView {
     const range = preserveView ? this.chart.timeScale().getVisibleLogicalRange() : null;
     this.series.setData(candleData);
     this.volume.setData(volumeData);
+    this.drawIndicators();
 
     if (range) {
       this.chart.timeScale().setVisibleLogicalRange(range); // same candles stay under the same pixels

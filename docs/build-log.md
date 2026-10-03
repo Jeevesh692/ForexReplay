@@ -428,3 +428,52 @@ In the in-app browser:
 - The new two-chart screenshot code first filled the gap between charts with the text colour; caught while reading the change, before it ran.
 
 **How to check:** click "2 charts" in the top bar. Pick H4 in the right chart's menu. Start a replay on the left chart and press Space: both charts move together, and the H4 candle forms as the M15 candles arrive. Draw a horizontal line on H4: it appears on M15 at the same price. Hover over M15: the H4 crosshair jumps to the 4-hour candle that contains it.
+
+---
+
+## Day 13: Sun 4 Oct 2026 · replay speed, fixes, and indicators
+
+**Asked for (Jeevesh):** start day 13 (speed and fixes, plus the basic indicators added to this day on 4 Oct).
+
+**Built (Claude):**
+- **Indicators:** SMA, EMA, daily VWAP on the candles, and RSI in its own panel with lines at 70 and 30. An "Indicators" button opens their settings (on or off, periods). They apply to both charts, and the legend shows their values. See [decision 0014](decisions/0014-indicators-and-replay-speed.md).
+- `web/js/indicators.js`: the four definitions, plus `IndicatorEngine`, which recomputes only the candles a replay step changed.
+- **Replay speed:** from 101 ms to about 3 ms per candle (8.7 ms with all four indicators). The causes were found by measuring each part, not by guessing:
+  - the chart library's markers plugin (replaced by our own primitive)
+  - redrawing twice per candle (now once)
+  - rebuilding the closed-trades list on every candle (now only when it changes)
+  - re-creating trade lines and markers on every candle (now only when they change)
+- **Fixes:**
+  - the bar for a selected drawing covered the chart legend; it now sits at the bottom of the chart
+  - the legend did not show changed indicators until the next candle
+
+**Tests:** 5 new JavaScript tests (115 in total) and 2 new Python tests (66 in total).
+- **Python reference:** SMA, EMA, RSI and VWAP must match a second, plain-Python writing of the same definitions on 900 candles across 5 server days, including zero-volume candles and a stretch with no losses. Breaking each indicator on purpose (EMA started from one price, RSI smoothed with the wrong weights, VWAP not starting again each day) made the test fail every time; each change was undone.
+- **Step-by-step engine:** it must equal the full calculation after every one of 400 random replay steps on M5, M15 and H1. Breaking its VWAP day restart made it fail.
+- **No look-ahead:** after everything has been shown and a replay then starts, each indicator line must stop at the last revealed candle, and its values must equal those calculated on the full data.
+- **Python tests:** the recorded file is up to date, and the reference calculations give the right answers on numbers you can check by hand.
+
+In the in-app browser:
+- **Speed** was timed with 40 closed trades and one open on a 21,000-candle M15 chart:
+  - before: 101 ms per candle
+  - after: 2.9 ms (3.9 in a later run), 3.2 ms with two charts, 8.7 ms with all four indicators
+  - 1,473 candles of trading took 2.6 seconds, where the same run had passed the browser tool's 45-second limit before
+- **Indicators:**
+  - all four switched on through the dialog; RSI opened its own panel
+  - after 300 replay steps every indicator's last point equalled a fresh calculation and sat on the newest candle, on both charts
+  - switching EMA off and on updated the legend at once
+- **Markers** drawn by the new primitive were looked at on a chart with 40 trades.
+- No console errors.
+
+**Decisions:**
+- Indicators are worked out from the chart's candles only, step by step, and held to a plain-Python reference ([0014](decisions/0014-indicators-and-replay-speed.md)).
+- Trade markers are drawn by our own primitive instead of the library's plugin.
+- All redrawing for one replay step happens once, right after the step.
+
+**Found along the way:**
+- **Look-ahead in the first version of the indicators.** SMA, EMA and RSI read the full storage behind the replay's candle list instead of only its revealed candles, so on a replay started after looking at the whole chart, their lines ran into the hidden future. The browser check caught it (the chart library refused an update that went back in time). The first no-look-ahead test had missed it because it never checked where the lines ended; it does now, and fails on the old code. Nothing else reads that storage directly (searched).
+- With the indicators working, a step took 19 ms because all four were worked out again over every candle; the step-by-step engine brought the calculation to 0.01 ms.
+- Re-applying each indicator line's title on every step made the chart library redo its layout; it is now applied only when the title changes.
+- Real playback at 100× could not be timed: the browser slows timers in a window that is not on screen. The figures above are the app's own work per step.
+
+**How to check:** start a replay with a few trades and press Space at 100×: the candles keep up. Click "Indicators", tick all four: three lines over the candles and an RSI panel below. Step back with ←: the lines end where the candles end, never further right.
