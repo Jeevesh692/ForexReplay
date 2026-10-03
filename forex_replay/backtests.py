@@ -2,6 +2,7 @@
 
     strategies/<journal>/backtests/<id>.json   one file per backtest (resumable)
     strategies/<journal>/trades.csv            the journal: one row per closed trade
+    strategies/<journal>/screenshots/<name>.png  chart pictures attached to trades
 
 A backtest file holds what is needed to rebuild the run: where it started, the
 account settings, every action taken (orders, closes, stop moves) with the time
@@ -21,11 +22,14 @@ import threading
 from pathlib import Path
 
 from .config import JOURNALS_DIR, Instrument
-from .journal import TradeJournal, web_trade_to_row
+from .journal import TradeJournal, note_fields, web_trade_to_row
 
 FORMAT_VERSION = 1
 MAX_BYTES = 5_000_000
+MAX_IMAGE_BYTES = 5_000_000
 NAME = re.compile(r"^[A-Za-z0-9_-]{1,48}$")
+IMAGE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,80}\.png$")
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 _lock = threading.Lock()  # the server is threaded; one save at a time keeps files and the journal whole
 
@@ -98,13 +102,48 @@ def save(journal: str, backtest_id: str, data: dict, root: Path = JOURNALS_DIR) 
         symbol = str(data.get("symbol") or "EURUSD")
         log = TradeJournal(root / journal / "trades.csv", Instrument(symbol=symbol), run_id=backtest_id)
         added = 0
-        for trade in data["trades"]:
-            if trade.get("status") != "CLOSED":
-                continue
+        closed = [t for t in data["trades"] if t.get("status") == "CLOSED"]
+        for trade in closed:
             row = web_trade_to_row(trade, symbol=symbol, digits=data["digits"],
                                    pip_points=data["pipPoints"], run_id=backtest_id)
             added += log.log_row(row)
-    return {"ok": True, "journalAdded": added, "journal": str(log.path.relative_to(root.parent))}
+        updated = log.update_notes({str(t["id"]): note_fields(t) for t in closed})
+    return {"ok": True, "journalAdded": added, "journalUpdated": updated,
+            "journal": str(log.path.relative_to(root.parent))}
+
+
+def image_path(journal: str, name: str, root: Path = JOURNALS_DIR) -> Path:
+    check_name(journal, "A journal name")
+    if not isinstance(name, str) or not IMAGE_NAME.match(name):
+        raise BacktestError("A screenshot name may use only letters, digits, - and _, and must end in .png.")
+    return root / journal / "screenshots" / name
+
+
+def save_image(journal: str, name: str, data: bytes, root: Path = JOURNALS_DIR) -> dict:
+    """Store a PNG screenshot. Anything that is not a PNG is refused."""
+    path = image_path(journal, name, root)
+    if not data.startswith(PNG_SIGNATURE) or len(data) > MAX_IMAGE_BYTES:
+        raise BacktestError("A screenshot must be a PNG image of at most 5 MB.")
+    with _lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+    return {"ok": True, "path": str(path.relative_to(root.parent))}
+
+
+def load_image(journal: str, name: str, root: Path = JOURNALS_DIR) -> bytes:
+    path = image_path(journal, name, root)
+    if not path.exists():
+        raise FileNotFoundError(f"No screenshot {journal}/{name}.")
+    return path.read_bytes()
+
+
+def delete_image(journal: str, name: str, root: Path = JOURNALS_DIR) -> None:
+    path = image_path(journal, name, root)
+    with _lock:
+        if path.exists():
+            path.unlink()
 
 
 def delete(journal: str, backtest_id: str, root: Path = JOURNALS_DIR) -> None:

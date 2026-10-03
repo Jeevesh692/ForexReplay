@@ -19,15 +19,18 @@ const PICK_LABEL = { price: "entry price", stopLoss: "stop loss", takeProfit: "t
 export class TradingPanel {
   /**
    * @param {HTMLElement} root   the panel element
-   * @param {object} options { trading, m5, digits, onPickChange(label | null) }
+   * @param {object} options { trading, m5, digits, onPickChange(label | null), notes: TradeNotes, onPickTrade(id) }
    */
-  constructor(root, { trading, m5, digits, onPickChange }) {
+  constructor(root, { trading, m5, digits, onPickChange, notes = null, onPickTrade = () => {} }) {
     this.root = root;
     this.trading = trading;
     this.m5 = m5;
     this.digits = digits;
     this.scale = 10 ** digits;
     this.onPickChange = onPickChange;
+    this.notes = notes;
+    this.onPickTrade = onPickTrade;
+    this.pickedTrade = null; // the trade whose journal is open
     this.side = Side.BUY;
     this.type = "market";
     this.pickTarget = null; // which field the next chart click fills in
@@ -164,7 +167,11 @@ export class TradingPanel {
   // ----- actions ----------------------------------------------------------
   handleClick(event) {
     const target = event.target.closest("button");
-    if (!target) return;
+    if (!target) {
+      const row = event.target.closest("[data-journal]"); // a click on a trade (not on its buttons) opens its journal
+      if (row) this.onPickTrade(Number(row.dataset.journal));
+      return;
+    }
     if (target.dataset.side) {
       this.side = target.dataset.side;
       this.fillDefaults();
@@ -342,6 +349,19 @@ export class TradingPanel {
     return formatDateTime(this.m5.time[index]).split(" ").slice(1).join(" "); // drop the weekday to save space
   }
 
+  /** Small marks after a trade: it has a note or tags, and how many screenshots. */
+  marks(trade) {
+    if (!this.notes || !this.notes.has(trade.id)) return "";
+    const e = this.notes.get(trade.id);
+    const written = e.note.trim() || e.tags.length ? "&#9998;" : "";
+    const shots = e.screenshots.length ? ` &#128247;${e.screenshots.length}` : "";
+    return `<span class="marks" title="${e.tags.join(", ")}">${written}${shots}</span>`;
+  }
+
+  rowAttributes(trade) {
+    return ` data-journal="${trade.id}"${trade.id === this.pickedTrade ? ' class="picked"' : ""}`;
+  }
+
   setNumber(selector, text, value) {
     const node = this.root.querySelector(selector);
     if (!node) return;
@@ -368,8 +388,8 @@ export class TradingPanel {
     // While the replay plays, only the floating numbers change. Rebuilding the list on every candle
     // would replace the buttons under the mouse and swallow clicks, so the list is rebuilt only when
     // something structural changes, and the numbers are updated in place otherwise.
-    const key = JSON.stringify([blocked, active.map((trade) => [trade.id, trade.status, trade.orderType, trade.orderPrice,
-      trade.stopLoss, trade.takeProfit, trade.partials.length, t.account.units(trade)])]);
+    const key = JSON.stringify([blocked, this.pickedTrade, active.map((trade) => [trade.id, trade.status, trade.orderType, trade.orderPrice,
+      trade.stopLoss, trade.takeProfit, trade.partials.length, t.account.units(trade), this.marks(trade)])]);
     if (key === this.activeKey) {
       for (const trade of active) {
         if (trade.status !== Status.OPEN) continue;
@@ -385,8 +405,8 @@ export class TradingPanel {
         const levels = `SL ${this.price(trade.stopLoss)} · TP ${this.price(trade.takeProfit)}`;
         if (trade.status === Status.PENDING) {
           const at = trade.orderType === OrderType.MARKET ? "fills next candle" : `at ${this.price(trade.orderPrice)}`;
-          return `<li><div class="row"><span><span class="${tone}">#${trade.id} ${trade.side} ${trade.orderType}</span>` +
-            ` <span class="tag">${this.lots(trade)}</span></span>` +
+          return `<li${this.rowAttributes(trade)}><div class="row"><span><span class="${tone}">#${trade.id} ${trade.side} ${trade.orderType}</span>` +
+            ` <span class="tag">${this.lots(trade)}</span>${this.marks(trade)}</span>` +
             `<button class="plain small" data-cancel="${trade.id}"${off}>Cancel</button></div>` +
             `<div class="sub">${at} · ${levels} · risk ${formatMoney(t.account.riskMoney(trade))}</div></li>`;
         }
@@ -395,7 +415,7 @@ export class TradingPanel {
         const openLots = formatLots(t.account.openUnits(trade));
         const size = trade.partials.length ? `${openLots} of ${this.lots(trade)}` : this.lots(trade);
         const atBreakeven = trade.stopLoss === trade.entryPrice;
-        return `<li><div class="row"><span><span class="${tone}">#${trade.id} ${trade.side}</span> <span class="tag">${size}</span></span>` +
+        return `<li${this.rowAttributes(trade)}><div class="row"><span><span class="${tone}">#${trade.id} ${trade.side}</span> <span class="tag">${size}</span>${this.marks(trade)}</span>` +
           `<span class="${this.tone(floating)}" data-r="${trade.id}">${this.r(floating)}</span>` +
           `<span class="${this.tone(money)}" data-money="${trade.id}">${formatSignedMoney(money)}</span></div>` +
           `<div class="sub">in at ${this.price(trade.entryPrice)} · ${levels}</div>` +
@@ -417,7 +437,7 @@ export class TradingPanel {
       : closed.map((trade) => {
         const money = t.money(trade);
         const parts = trade.partials.length ? ` · ${trade.partials.length} partial${trade.partials.length > 1 ? "s" : ""}` : "";
-        return `<li><div class="row"><span>#${trade.id} ${trade.side} <span class="tag">${this.lots(trade)}</span></span>` +
+        return `<li${this.rowAttributes(trade)}><div class="row"><span>#${trade.id} ${trade.side} <span class="tag">${this.lots(trade)}</span>${this.marks(trade)}</span>` +
           `<span class="${this.tone(trade.resultR)}">${this.r(trade.resultR)}</span>` +
           `<span class="${this.tone(money)}">${formatSignedMoney(money)}</span></div>` +
           `<div class="sub">${this.reason(trade)}${parts} · ${this.tradeTime(trade.entryTime)} → ${this.tradeTime(trade.exitTime).split(", ")[1]}` +

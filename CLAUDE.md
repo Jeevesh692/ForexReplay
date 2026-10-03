@@ -33,7 +33,7 @@ node --test web/tests/*.test.mjs    # JavaScript tests (needs Node.js; check `no
 python -m forex_replay.golden       # regenerate the engine comparison fixture (only when engine rules change)
 ```
 
-Expected today: 57 Python tests, 95 JavaScript tests, all passing.
+Expected today: 61 Python tests, 100 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -60,6 +60,7 @@ Expected today: 57 Python tests, 95 JavaScript tests, all passing.
 | Trading | `web/js/broker.js` (engine), `web/js/trading.js` (clock to engine), `web/js/account.js` (money), `web/js/challenge.js` (prop-firm rules), `web/js/tradingpanel.js` (panel) |
 | Drawings | `web/js/drawings.js` (model, geometry), `web/js/drawinglayer.js` (paint, mouse, magnet, text box) |
 | Shortcuts | `web/js/shortcuts.js` (one table for keys and the help list) |
+| Journal | `web/js/tradenotes.js` (notes, tags), `web/js/journalpanel.js` (the box), `web/js/screenshots.js` (pictures), `forex_replay/journal.py` (CSV) |
 | Backtests | `web/js/backtest.js` (save, rebuild, check), `web/js/backtestpanel.js` (autosave, dialog), `forex_replay/backtests.py` (files, journal) |
 | Wiring | `web/js/main.js`, `web/index.html`, `web/css/app.css` |
 | Tests | `tests/`, `web/tests/` |

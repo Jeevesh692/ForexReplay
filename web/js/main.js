@@ -4,6 +4,9 @@ import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValuePer
 import { drawingsBefore, rebuild } from "./backtest.js";
 import { loadRules as loadChallengeRules } from "./challenge.js";
 import { Backtests } from "./backtestpanel.js";
+import { JournalPanel } from "./journalpanel.js";
+import { capture as captureChart, remove as removeScreenshot, upload as uploadScreenshot } from "./screenshots.js";
+import { TradeNotes } from "./tradenotes.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
 import {
@@ -238,6 +241,74 @@ async function boot() {
     if (panel) panel.render();
     drawTrades();
     if (clock.active && backtests) backtests.changed(); // saved shortly after (see backtestpanel.js)
+    autoScreenshots();
+  }
+
+  // ------------------------------------------------------------ journal: notes, tags, screenshots
+  let journalBox = null; // the journal box (created with the panel, below)
+  const notes = new TradeNotes({
+    onChange: () => {
+      if (panel) panel.render();
+      if (journalBox) journalBox.refresh();
+      if (clock.active && backtests) backtests.changed();
+    },
+  });
+  const shotsTaken = new Set(); // "3:entry", "3:exit": automatic screenshots already taken in this run
+  let shotQueue = Promise.resolve(); // uploads go one after another; leaving a replay waits for them
+
+  /** Picture of the chart for trade `id`, saved to the backtest's journal folder and listed on the trade. */
+  function takeScreenshot(id, kind) {
+    const bt = backtests && backtests.current;
+    const t = trading.broker.trades.find((trade) => trade.id === id);
+    if (!bt || !t) return;
+    const now = m5.time[clock.position - 1] + manifest.bar_seconds;
+    const caption = `${manifest.symbol} ${current} · #${id} ${t.side} · ${kind} · ${formatDateTime(now)} IST · ${bt.name}`;
+    const name = `${bt.id}-t${id}-${kind}${kind === "added" ? `-${Date.now().toString(36)}` : ""}.png`;
+    let picture;
+    try {
+      picture = captureChart(chart.chart, caption); // the picture is taken now; only the upload waits
+    } catch (err) {
+      panel.say(`Screenshot not taken: ${err.message}`, "bad");
+      return;
+    }
+    shotQueue = shotQueue
+      .then(async () => {
+        await uploadScreenshot(bt.journal, name, await picture);
+        if (backtests.current && backtests.current.id === bt.id) notes.addScreenshot(id, name);
+      })
+      .catch((err) => panel.say(`Screenshot not saved: ${err.message}`, "bad"));
+  }
+
+  /**
+   * At entry (when the order is placed) and at exit, unless switched off in the journal box.
+   * The engine hears about a new candle before the chart draws it, so the pictures are taken a
+   * moment later (a microtask: after the chart update, before the next replay tick), or the exit
+   * picture would miss the candle that hit the stop.
+   */
+  let pendingShots = [];
+  function autoScreenshots() {
+    if (!clock.active || resuming || !journalBox || !journalBox.autoScreenshots || !backtests || !backtests.current) return;
+    for (const t of trading.broker.trades) {
+      if (t.status === Status.CANCELLED) continue;
+      if (!shotsTaken.has(`${t.id}:entry`)) { shotsTaken.add(`${t.id}:entry`); pendingShots.push([t.id, "entry"]); }
+      if (t.status === Status.CLOSED && !shotsTaken.has(`${t.id}:exit`)) { shotsTaken.add(`${t.id}:exit`); pendingShots.push([t.id, "exit"]); }
+    }
+    if (pendingShots.length) {
+      queueMicrotask(() => {
+        const shots = pendingShots;
+        pendingShots = [];
+        for (const [id, kind] of shots) takeScreenshot(id, kind);
+      });
+    }
+  }
+
+  /** Trades that already exist when a run is opened get no automatic pictures (they had their moment). */
+  function markShotsTaken(trades) {
+    shotsTaken.clear();
+    for (const t of trades) {
+      shotsTaken.add(`${t.id}:entry`);
+      if (t.status === Status.CLOSED || t.status === Status.CANCELLED) shotsTaken.add(`${t.id}:exit`);
+    }
   }
 
   // ------------------------------------------------------------ backtests
@@ -441,6 +512,8 @@ async function boot() {
   clock.onChange((_, reason) => {
     if (reason === "start" && !resuming) { // a new replay is a new run: no trades carried over
       trading.reset();
+      shotsTaken.clear();
+      notes.load({});
       const startTime = m5.time[clock.position - 1];
       backtests.begin(startTime, manifest.symbol);
       // Drawings come along only if they sit wholly before the replay's "now" (no look-ahead).
@@ -473,6 +546,7 @@ async function boot() {
   // Leaving saves the backtest; open trades and orders stay open in it, ready to resume.
   ui.exit.addEventListener("click", async () => {
     clock.pause();
+    await shotQueue; // screenshots still uploading belong in this save
     const wasSaved = backtests.worthSaving;
     if (exitArmed) {
       backtests.abandon(); // second click after a failed save: leave without saving
@@ -494,22 +568,28 @@ async function boot() {
     trading.updateSettings(loadSettings()); // a resumed backtest brought its own settings; go back to yours
     panel.renderSettings();
     useChartDrawings();
+    notes.load({});
+    journalBox.pick(null);
   }
 
   /** Rebuild a saved backtest and open it at the point it had reached. Returns the rebuild's problems. */
   async function resumeBacktest(journal, id) {
     const saved = await loadJSON(`/api/backtests/${encodeURIComponent(journal)}/${encodeURIComponent(id)}`);
     const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits) });
+    await shotQueue;
     if (clock.active && !(await backtests.end())) {
       throw new Error("the replay on screen could not be saved, so it was left open.");
     }
+    markShotsTaken(result.trading.broker.trades);
     clock.pause();
     layer.setTool(null);
     setPicking(false);
     resuming = true;
     try { clock.start(result.position); } finally { resuming = false; }
+    notes.load(saved.notes || {});
     trading.adopt(result.trading);
     backtests.continueWith(saved);
+    journalBox.pick(null);
     drawings.load(saved.drawings);
     layer.select(null);
     layer.storeChanged();
@@ -525,7 +605,8 @@ async function boot() {
   ui.speed.addEventListener("change", () => clock.setSpeed(Number(ui.speed.value)));
 
   window.addEventListener("keydown", (event) => {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement ||
+        event.target instanceof HTMLTextAreaElement) return; // typing, not a shortcut
     if (document.querySelector("dialog[open]")) return;
     if (event.key === "Escape" && chart.cancelDrag()) return;
     if (event.key === "Escape" && clearArmed) { disarmClear(); return; }
@@ -558,11 +639,30 @@ async function boot() {
   panel = new TradingPanel($("trading-panel"), {
     trading, m5, digits: manifest.digits,
     onPickChange: (label) => setHint(label ? `Click the chart at the price for your ${label}. Press Esc to cancel.` : null),
+    notes,
+    onPickTrade: (id) => journalBox.pick(journalBox.id === id ? null : id),
+  });
+  journalBox = new JournalPanel($("journal-box"), {
+    notes,
+    describe: (id) => {
+      const t = clock.active ? trading.broker.trades.find((trade) => trade.id === id) : null;
+      if (!t) return null;
+      const state = t.status === Status.CLOSED ? formatR(t.resultR) : t.status.toLowerCase();
+      return `#${t.id} ${t.side} · ${state}`;
+    },
+    journal: () => backtests && backtests.current ? backtests.current.journal : null,
+    onScreenshot: (id) => takeScreenshot(id, "added"),
+    onRemoveScreenshot: (id, name) => {
+      const bt = backtests.current;
+      if (bt) removeScreenshot(bt.journal, name);
+      notes.removeScreenshot(id, name);
+    },
+    onPick: (id) => { panel.pickedTrade = id; panel.render(); },
   });
   backtests = new Backtests({
     dialog: $("backtests-dialog"),
     status: $("status-backtest"),
-    collect: () => ({ trading, drawings, m5, clock, manifest, timeframe: current }),
+    collect: () => ({ trading, drawings, notes, m5, clock, manifest, timeframe: current }),
     onResume: resumeBacktest,
   });
   $("backtests-open").addEventListener("click", () => { clock.pause(); backtests.open(); });
@@ -618,7 +718,7 @@ async function boot() {
 
   // Handy in the browser console and for automated checks.
   window.forexReplay = {
-    manifest, quality, m5, chart, clock, trading, panel, viewFor, setTimeframe, drawings, layer, backtests,
+    manifest, quality, m5, chart, clock, trading, panel, viewFor, setTimeframe, drawings, layer, backtests, notes, journalBox,
     get timeframe() { return current; },
     get view() { return view; },
   };

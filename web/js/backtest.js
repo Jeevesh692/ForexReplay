@@ -5,7 +5,8 @@
 //   * the account settings it started with,
 //   * every action taken, with the time of the live candle when it was taken,
 //   * how far the replay got, and the drawings,
-//   * the challenge rules, if the run was a prop-firm challenge (challenge.js).
+//   * the challenge rules, if the run was a prop-firm challenge (challenge.js),
+//   * what you wrote about each trade (tradenotes.js): notes are not actions and are not rebuilt.
 // Rebuilding feeds the same M5 candles to a fresh engine and repeats each action
 // at its candle. The engine is deterministic, so the result is the same run.
 //
@@ -112,7 +113,7 @@ export function resultOf(trading) {
  * Everything needed to save the run that is on screen.
  * `meta` = { id, name, journal, created, startTime }; `clock` must still be in the replay.
  */
-export function snapshot(meta, { trading, drawings, m5, clock, manifest, timeframe }) {
+export function snapshot(meta, { trading, drawings, notes = null, m5, clock, manifest, timeframe }) {
   return {
     version: FORMAT_VERSION,
     ...meta,
@@ -125,7 +126,9 @@ export function snapshot(meta, { trading, drawings, m5, clock, manifest, timefra
     challengeEnd: trading.challenge ? { outcome: trading.challenge.outcome, endTime: trading.challenge.endTime } : null,
     actions: trading.actions.map((a) => structuredClone(a)),
     drawings: drawings.toJSON(),
-    trades: trading.broker.trades.map((t) => tradeRecord(t, m5, trading.account)),
+    notes: notes ? notes.toJSON() : {},
+    // Each trade carries its note, tags and screenshot names too, for the journal CSV.
+    trades: trading.broker.trades.map((t) => ({ ...tradeRecord(t, m5, trading.account), ...(notes ? notes.get(t.id) : {}) })),
     result: resultOf(trading),
   };
 }

@@ -12,8 +12,9 @@ It also stores backtests for the app (see backtests.py):
     GET    /api/backtests/<journal>/<id>     one backtest
     PUT    /api/backtests/<journal>/<id>     save it, and add its closed trades to the journal
     DELETE /api/backtests/<journal>/<id>     remove it (its journal rows stay)
+    GET / PUT / DELETE /api/screenshots/<journal>/<name>.png   chart pictures for trades
 
-Writes must be sent as application/json. A web page on another site cannot
+Writes must be sent as application/json (screenshots as image/png). A web page on another site cannot
 send that to this server without the browser asking first, and the server
 never says yes, so only the app itself can write files.
 """
@@ -92,14 +93,51 @@ class Handler(SimpleHTTPRequestHandler):
             self._json({"backtests": backtests.list_backtests(self.journals_root)})
         elif route.startswith("/api/backtests/"):
             self._backtest("GET")
+        elif route.startswith("/api/screenshots/"):
+            self._screenshot("GET")
         else:
             super().do_GET()
 
     def do_PUT(self):  # noqa: N802
-        self._backtest("PUT")
+        if self.path.startswith("/api/screenshots/"):
+            self._screenshot("PUT")
+        else:
+            self._backtest("PUT")
 
     def do_DELETE(self):  # noqa: N802
-        self._backtest("DELETE")
+        if self.path.startswith("/api/screenshots/"):
+            self._screenshot("DELETE")
+        else:
+            self._backtest("DELETE")
+
+    def _screenshot(self, method: str) -> None:
+        parts = self.path.split("?")[0].split("/")  # ['', 'api', 'screenshots', journal, name]
+        if len(parts) != 5:
+            self._json({"error": "Not found."}, 404)
+            return
+        journal, name = parts[3], parts[4]
+        try:
+            if method == "GET":
+                body = backtests.load_image(journal, name, self.journals_root)
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif method == "DELETE":
+                backtests.delete_image(journal, name, self.journals_root)
+                self._json({"ok": True})
+            else:
+                if self.headers.get("Content-Type", "").split(";")[0].strip() != "image/png":
+                    raise backtests.BacktestError("Send the screenshot as image/png.")
+                length = int(self.headers.get("Content-Length") or 0)
+                if length <= 0 or length > backtests.MAX_IMAGE_BYTES:
+                    raise backtests.BacktestError("The screenshot is empty or too large.")
+                self._json(backtests.save_image(journal, name, self.rfile.read(length), self.journals_root))
+        except FileNotFoundError as err:
+            self._json({"error": str(err)}, 404)
+        except backtests.BacktestError as err:
+            self._json({"error": str(err)}, 400)
 
     def _backtest(self, method: str) -> None:
         parts = self.path.split("?")[0].split("/")  # ['', 'api', 'backtests', journal, id]

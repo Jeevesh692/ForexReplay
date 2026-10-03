@@ -57,4 +57,4 @@ The server accepts writes only as `application/json`. A page on another website 
 
 ## Not yet done
 
-Renaming a backtest, choosing a journal per backtest after it has started, and lots and dollars in the journal (the v1 columns have no place for them; day 10 adds notes, tags and screenshots and can widen the journal then). A backtest whose rebuild differs from its save still opens; there is no way yet to keep the old result side by side.
+Renaming a backtest, choosing a journal per backtest after it has started, and lots and dollars in the journal (added on day 10 with notes, tags and screenshots, [0011](0011-trade-journal.md)). A backtest whose rebuild differs from its save still opens; there is no way yet to keep the old result side by side.

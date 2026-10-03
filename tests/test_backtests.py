@@ -128,3 +128,79 @@ def test_server_saves_only_json_and_serves_the_list():
         finally:
             server.shutdown()
             server.server_close()
+
+
+def test_an_old_v1_journal_is_widened_and_keeps_its_rows():
+    from forex_replay.journal import V1_COLUMNS
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "test_journal" / "trades.csv"
+        path.parent.mkdir(parents=True)
+        old = dict.fromkeys(V1_COLUMNS, "")
+        old.update(trade_id="1", run_id="legacy-run-1", result_r="1.07")
+        with path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=V1_COLUMNS)
+            writer.writeheader()
+            writer.writerow(old)
+        backtests.save("test_journal", "bt-1", backtest([closed_trade(1)]), root)
+        rows = read_journal(root)
+        assert list(rows[0].keys()) == COLUMNS
+        assert (rows[0]["run_id"], rows[0]["result_r"], rows[0]["note"]) == ("legacy-run-1", "1.07", "")
+        assert rows[1]["run_id"] == "bt-1"
+
+
+def test_money_and_notes_reach_the_journal_and_notes_can_change_later():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        trade = closed_trade(1, lots=1.5, money=296.0, commission=6.0, note="Clean sweep of Asia high",
+                             tags=["A+ setup", "London"], screenshots=["bt-1-t1-exit.png"])
+        backtests.save("test_journal", "bt-1", backtest([trade]), root)
+        row = read_journal(root)[0]
+        assert (row["lots"], row["pnl_usd"], row["commission_usd"]) == ("1.5", "296.0", "6.0")
+        assert (row["note"], row["tags"], row["screenshots"]) == ("Clean sweep of Asia high", "A+ setup; London", "bt-1-t1-exit.png")
+
+        later = {**trade, "note": "Entered late", "tags": ["late entry"], "exitPrice": 1}  # a changed result is ignored
+        result = backtests.save("test_journal", "bt-1", backtest([later]), root)
+        assert (result["journalAdded"], result["journalUpdated"]) == (0, 1)
+        row = read_journal(root)[0]
+        assert (row["note"], row["tags"], row["exit_price"]) == ("Entered late", "late entry", "1.087")
+        assert backtests.save("test_journal", "bt-1", backtest([later]), root)["journalUpdated"] == 0
+
+
+def test_screenshots_must_be_png_with_a_safe_name():
+    png = b"\x89PNG\r\n\x1a\n" + b"rest of the image"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        backtests.save_image("test_journal", "bt-1-t1-exit.png", png, root)
+        assert backtests.load_image("test_journal", "bt-1-t1-exit.png", root) == png
+        with pytest.raises(backtests.BacktestError):
+            backtests.save_image("test_journal", "evil.png", b"<script>", root)
+        for name in ["../x.png", "a.svg", "a.png.exe", "", "a b.png"]:
+            with pytest.raises(backtests.BacktestError):
+                backtests.image_path("test_journal", name, root)
+        backtests.delete_image("test_journal", "bt-1-t1-exit.png", root)
+        with pytest.raises(FileNotFoundError):
+            backtests.load_image("test_journal", "bt-1-t1-exit.png", root)
+
+
+def test_server_takes_screenshots_only_as_png():
+    png = b"\x89PNG\r\n\x1a\n" + b"image"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        server = make_server(port=18795, root=root, journals_root=root / "strategies")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{server.server_address[1]}/api/screenshots/test_journal/bt-1-t1-entry.png"
+        try:
+            def put(content_type):
+                return urllib.request.urlopen(urllib.request.Request(url, data=png, method="PUT",
+                                                                     headers={"Content-Type": content_type}))
+            with pytest.raises(urllib.error.HTTPError) as refused:
+                put("text/plain")
+            assert refused.value.code == 400
+            with put("image/png") as r:
+                assert json.loads(r.read())["ok"] is True
+            with urllib.request.urlopen(url) as r:
+                assert r.headers["Content-Type"] == "image/png" and r.read() == png
+        finally:
+            server.shutdown()
+            server.server_close()

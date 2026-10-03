@@ -12,13 +12,19 @@ from .config import Instrument
 from .datapipe import utc_to_server
 from .sessions import session_of
 
-COLUMNS = [
+# v1's columns. A journal written before day 10 of v2 has exactly these.
+V1_COLUMNS = [
     "trade_id", "run_id", "symbol", "side", "order_type",
     "placed_time", "entry_time", "exit_time",
     "entry_price", "exit_price", "stop_loss", "take_profit",
     "risk_pips", "pnl_pips", "result_r", "planned_rr", "mfe_r", "mae_r",
     "exit_reason", "session", "weekday", "duration_min",
 ]
+# Added for the browser app: size and money, and what the trader wrote about the trade.
+# Tags and screenshots are lists joined with "; ". The v1 replay window leaves them empty.
+EXTRA_COLUMNS = ["lots", "pnl_usd", "commission_usd", "note", "tags", "screenshots"]
+COLUMNS = V1_COLUMNS + EXTRA_COLUMNS
+NOTE_COLUMNS = ["note", "tags", "screenshots"]  # the only fields that may change after a row is written
 TIME_COLUMNS = ["placed_time", "entry_time", "exit_time"]
 
 
@@ -58,7 +64,16 @@ def trade_to_row(trade: Trade, instrument: Instrument, run_id: str) -> dict:
         "session": session_of(trade.entry_time) if trade.entry_time is not None else "",
         "weekday": "" if trade.entry_time is None else pd.Timestamp(trade.entry_time).day_name(),
         "duration_min": rnd(duration, 0),
+        **{column: "" for column in EXTRA_COLUMNS},
     }
+
+
+def note_fields(trade: dict) -> dict:
+    """The note, tags and screenshots of a trade sent by the browser, as journal text."""
+    def joined(value):
+        return "; ".join(str(v) for v in value) if isinstance(value, list) else ""
+    note = trade.get("note") if isinstance(trade.get("note"), str) else ""
+    return {"note": note, "tags": joined(trade.get("tags")), "screenshots": joined(trade.get("screenshots"))}
 
 
 def web_trade_to_row(trade: dict, *, symbol: str, digits: int, pip_points: int, run_id: str) -> dict:
@@ -113,6 +128,10 @@ def web_trade_to_row(trade: dict, *, symbol: str, digits: int, pip_points: int, 
         "session": "" if entry is None else session_of(entry),
         "weekday": "" if entry is None else entry.day_name(),
         "duration_min": rnd(duration, 0),
+        "lots": rnd(trade.get("lots"), 2),
+        "pnl_usd": rnd(trade.get("money"), 2),
+        "commission_usd": rnd(trade.get("commission"), 2),
+        **note_fields(trade),
     }
 
 
@@ -121,6 +140,7 @@ class TradeJournal:
 
     Each trade is identified by (run_id, trade_id), so reloading a saved
     session and replaying forward again never logs the same trade twice.
+    A journal with only the v1 columns is widened to the new ones (empty) when opened.
     """
 
     def __init__(self, path: str | Path, instrument: Instrument, run_id: str):
@@ -135,10 +155,40 @@ class TradeJournal:
             return
         with self.path.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            if reader.fieldnames != COLUMNS:
-                raise ValueError(
-                    f"{self.path} has an unexpected header. Move it aside or start a new journal.")
-            self._logged = {(row["run_id"], row["trade_id"]) for row in reader}
+            header = reader.fieldnames
+            rows = list(reader)
+        if header == V1_COLUMNS:
+            self._rewrite([{**row, **{c: "" for c in EXTRA_COLUMNS}} for row in rows])
+        elif header != COLUMNS:
+            raise ValueError(
+                f"{self.path} has an unexpected header. Move it aside or start a new journal.")
+        self._logged = {(row["run_id"], row["trade_id"]) for row in rows}
+
+    def _rewrite(self, rows: list[dict]) -> None:
+        tmp = self.path.with_suffix(".tmp")
+        with tmp.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
+        tmp.replace(self.path)
+
+    def update_notes(self, notes: dict[str, dict]) -> int:
+        """Bring note, tags and screenshots of this run's rows up to date: {trade_id: fields}.
+
+        Results never change once a trade is closed, but what the trader wrote about it can.
+        Returns how many rows changed; the file is rewritten only if any did.
+        """
+        with self.path.open(newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        changed = 0
+        for row in rows:
+            fields = notes.get(row["trade_id"]) if row["run_id"] == self.run_id else None
+            if fields and any(row.get(c, "") != fields[c] for c in NOTE_COLUMNS):
+                row.update({c: fields[c] for c in NOTE_COLUMNS})
+                changed += 1
+        if changed:
+            self._rewrite(rows)
+        return changed
 
     def log(self, trade: Trade) -> bool:
         """Append a closed trade. Returns False if it was already in the journal."""

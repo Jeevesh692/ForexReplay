@@ -294,3 +294,50 @@ No console errors. The page's visual layout was not checked by eye.
 - The horizontal line's price label used the line's colour by accident of its role name; labels now follow the drawing's chosen colour on purpose.
 
 **How to check:** press Alt + R and click two points: the line carries on past the second. Click it, pick red and dashed in the bar above the chart. Press Ctrl + Z twice: it is blue and solid again. Turn on the magnet (the U-shaped button, or Alt + M) and draw a horizontal line near a candle: it sits exactly on that candle's high, low, open or close. Press Alt + N, click, type a note, press Enter. Press `?` for every shortcut.
+
+---
+
+## Day 10: Sun 4 Oct 2026 · trade journal: notes, tags, screenshots
+
+**Asked for (Jeevesh):** add basic indicators to day 13 together with speed and fixes; start day 10.
+
+**Built (Claude):**
+- **Plan:** day 13 is now "speed and fixes, plus basic indicators". Proposed set: SMA, EMA, RSI and VWAP, computed from revealed candles only; which ones exactly is still Jeevesh's call.
+- **Journal box** under the trade lists. Click any trade (open, pending or closed) to write a note, toggle tags or type your own, and see its screenshots (click one for full size, × removes it). Trades with a note show ✎, and 📷 with a count.
+- **Screenshots:** taken automatically when an order is placed and when it closes (a switch turns this off), and by hand with "Add screenshot". Each has a caption strip (symbol, timeframe, trade, entry or exit, time, backtest). They are saved as PNG files in `strategies/<journal>/screenshots/`. See [decision 0011](decisions/0011-trade-journal.md).
+- `web/js/tradenotes.js` keeps the notes and tags and tidies anything loaded. `web/js/journalpanel.js` is the box; `web/js/screenshots.js` takes and uploads pictures.
+- Notes are saved with the backtest and come back on Resume. They are not trading actions and never affect a rebuild.
+- **Journal CSV:** new columns `lots`, `pnl_usd`, `commission_usd`, `note`, `tags`, `screenshots`. Old journals are widened automatically, keeping every row, and a note written after a trade closed updates its row.
+- **Server:** `GET`, `PUT` and `DELETE /api/screenshots/<journal>/<name>.png`, accepting only real PNG files under safe names.
+
+**Tests:** 5 new JavaScript tests (100 in total) and 4 new Python tests (61 in total). They cover:
+- tag tidying, and damaged entries keeping only what is usable (an unsafe screenshot name like `../../etc/passwd` is dropped)
+- notes, tags and screenshots kept per trade, an emptied entry disappearing, and tag choices ordered by use
+- notes travelling in the backtest save and on each trade, without disturbing the rebuild
+- an old v1 journal widened with its rows kept
+- money and notes reaching the journal, and a later note updating the row while a changed result is ignored
+- screenshots refused unless they are PNG with a safe name, and the server refusing non-PNG uploads
+
+In the in-app browser (throwaway journal, deleted afterwards):
+- a market buy got an entry screenshot when placed and an exit screenshot when it closed
+- a click on its row opened the journal; a typed note, a chip tag and a typed tag were saved
+- the journal CSV row had the lots, -$104.00, $4.00 commission, the note, both tags and all three screenshot names
+- the saved pictures were decoded: 952 × 754 pixels with thousands of green and red candle pixels, about 50 KB each. Two were opened and looked at: the entry shows the stop and target lines, the exit shows the stop-out candle and the -1.00R marker
+- Space typed in the note box did not play the replay
+- leaving and resuming brought back the note, tag and both screenshots, with no new automatic pictures
+No console errors.
+
+**Decisions:**
+- Notes are metadata saved with the backtest, not engine actions ([0011](decisions/0011-trade-journal.md)).
+- Screenshots are files on disk next to the journal, not pictures inside the backtest file.
+- Automatic screenshots at placement and exit are on by default.
+- The journal CSV is widened in place rather than written to a new file, so v1 and v2 trades stay in one journal.
+- Notes may change a journal row after it is written; results may not.
+
+**Found along the way:**
+- The first exit screenshot showed the chart one candle too early: the engine hears about a candle before the chart draws it. Automatic pictures now wait until the chart has drawn it, and the second check showed the stop-out candle and the exit marker.
+- The keyboard shortcuts ignored typing in one-line boxes but not in the new multi-line note box, so Space while typing would have played the replay. Multi-line boxes are now ignored too.
+- Resume failed with "journal.pick is not a function": inside the resume code, the name `journal` already meant the journal folder name. The box's variable is now `journalBox`.
+- A note typed and then followed within 0.4 seconds by a tag click could have been wiped from the box before it was saved. The box now never redraws text that is still waiting to be saved.
+
+**How to check:** start a replay and buy at market. Let the trade close. Click it in "Closed": the journal box opens with two screenshots (entry and exit). Click one to see it full size. Type a note, click "A+ setup", type a tag of your own and press Enter. Leave with ✕, then Resume from Backtests: the note, tags and pictures are still there. Open `strategies/manual_backtests/trades.csv`: the last columns hold the lots, dollars, note, tags and screenshot names.

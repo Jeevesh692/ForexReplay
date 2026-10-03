@@ -205,6 +205,19 @@
     <h3 id="closed-title">Closed (0)</h3>
     <ul class="trade-list" id="closed-list"></ul>
 
+    <section class="journal" id="journal-box">
+      <h3>Journal <span class="muted" id="journal-title"></span></h3>
+      <p class="muted small" id="journal-empty">Click a trade above to write about it: a note, tags and screenshots.</p>
+      <div id="journal-editor" hidden>
+        <textarea id="journal-note" rows="3" placeholder="Why you took it, what you saw, what you would do differently"></textarea>
+        <div class="journal-tags" id="journal-tags"></div>
+        <input id="journal-tag-input" type="text" maxlength="24" autocomplete="off" placeholder="Your own tag, then Enter">
+        <div class="journal-shots" id="journal-shots"></div>
+        <button class="plain small" id="journal-shot" title="Save a picture of the chart as it is now with this trade">&#128247; Add screenshot</button>
+      </div>
+      <label class="check small"><input type="checkbox" id="journal-auto"> Screenshot each trade when placed and when closed</label>
+    </section>
+
     <details class="account-settings">
       <summary>Account settings</summary>
       <label class="field inline">
