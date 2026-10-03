@@ -19,5 +19,7 @@ def test_fixture_still_matches_the_python_engine():
 def test_fixture_covers_every_kind_of_order_and_exit():
     summary = load()["summary"]
     for key in ("stop_loss", "take_profit", "manual", "cancelled", "rejected_orders",
-                "limit_orders", "stop_orders", "market_orders"):
+                "limit_orders", "stop_orders", "market_orders",
+                "partial_closes", "moves_accepted", "moves_rejected"):
         assert summary[key] > 100, key
+    assert summary["stopped_in_profit"] > 25  # rarer: a stop moved past the entry and then hit

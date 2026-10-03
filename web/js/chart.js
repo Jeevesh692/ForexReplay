@@ -22,6 +22,7 @@ const COLOURS = {
 };
 
 const DEFAULT_VISIBLE_BARS = 160;
+const GRAB_PIXELS = 5; // how close the mouse must be to a line to drag it
 const RIGHT_GAP_BARS = 8;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -88,9 +89,14 @@ class SessionBands {
 export class ChartView {
   /**
    * @param {HTMLElement} container  element the chart fills
-   * @param {object} options  { lib, symbol, digits, onHover(barInfo | null) }
+   * @param {object} options  { lib, symbol, digits, onHover(barInfo | null), onClick(index, points),
+   *   onLineDrag(id, points) while a trade line is being dragged, onLineDrop(id, points | null) when it is let go
+   *   (null = cancelled) }
    */
-  constructor(container, { lib, symbol, digits, onHover, onClick }) {
+  constructor(container, { lib, symbol, digits, onHover, onClick, onLineDrag, onLineDrop }) {
+    this.container = container;
+    this.onLineDrag = onLineDrag || (() => {});
+    this.onLineDrop = onLineDrop || (() => {});
     this.lib = lib;
     this.symbol = symbol;
     this.digits = digits;
@@ -148,11 +154,31 @@ export class ChartView {
     });
     this.chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
 
+    // Keep the lines of active trades on screen: the price scale stretches to include them, unless a line
+    // is so far away (more than 1.5x the height of the candles on screen) that the candles would be squashed.
+    this.series.applyOptions({
+      autoscaleInfoProvider: (original) => {
+        const info = original();
+        if (!info || !info.priceRange || !this.lineSpecs || this.lineSpecs.length === 0) return info;
+        let { minValue, maxValue } = info.priceRange;
+        const reach = (maxValue - minValue) * 1.5;
+        const low = minValue - reach, high = maxValue + reach;
+        for (const spec of this.lineSpecs) {
+          const price = spec.price / 10 ** this.digits;
+          if (price < low || price > high) continue;
+          minValue = Math.min(minValue, price);
+          maxValue = Math.max(maxValue, price);
+        }
+        return { ...info, priceRange: { minValue, maxValue } };
+      },
+    });
+
     this.sessions = new SessionBands(this);
     this.series.attachPrimitive(this.sessions);
 
     this.chart.subscribeCrosshairMove((param) => this.handleCrosshair(param));
     this.chart.subscribeClick((param) => {
+      if (this.justDragged) return; // the click that ends a drag is not a click on the chart
       if (!this.candles || !param.point) return;
       const index = param.time === undefined ? null : indexAtOrBefore(this.candles, fromChartTime(param.time));
       const price = this.series.coordinateToPrice(param.point.y); // price under the mouse
@@ -160,14 +186,109 @@ export class ChartView {
     });
 
     this.priceLines = [];
+    this.lineSpecs = [];
+    this.drag = null; // { spec, line, startY, points, moved } while a line is being dragged
+    this.deferredLines = null;
+    this.justDragged = false;
     this.markers = lib.createSeriesMarkers(this.series, []);
+
+    // Dragging trade lines. The library has no draggable lines, so the mouse is watched here.
+    // Listening in the capture phase lets a drag start before the library begins to pan the chart.
+    container.addEventListener("mousedown", (event) => this.startDrag(event), true);
+    container.addEventListener("mousemove", (event) => {
+      if (!this.drag) container.classList.toggle("line-hover", !!this.lineAt(event));
+    });
+    container.addEventListener("mouseleave", () => { if (!this.drag) container.classList.remove("line-hover"); });
+    this.moveDrag = (event) => this.continueDrag(event);
+    this.endDrag = (event) => this.finishDrag(event);
+  }
+
+  // ----- dragging trade lines ------------------------------------------------
+  /** Mouse position inside the price pane, or null when it is over an axis. */
+  panePoint(event) {
+    const box = this.container.getBoundingClientRect();
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    const paneWidth = box.width - this.chart.priceScale("right").width();
+    const paneHeight = box.height - this.chart.timeScale().height();
+    return x >= 0 && x <= paneWidth && y >= 0 && y <= paneHeight ? { x, y } : null;
+  }
+
+  /** The draggable line under the mouse (the nearest within a few pixels), or null. */
+  lineAt(event) {
+    const point = this.panePoint(event);
+    if (!point) return null;
+    let best = null;
+    this.lineSpecs.forEach((spec, i) => {
+      if (!spec.draggable) return;
+      const y = this.series.priceToCoordinate(spec.price / 10 ** this.digits);
+      if (y === null) return;
+      const distance = Math.abs(y - point.y);
+      if (distance <= GRAB_PIXELS && (!best || distance < best.distance)) best = { spec, line: this.priceLines[i], distance };
+    });
+    return best;
+  }
+
+  startDrag(event) {
+    if (event.button !== 0 || this.drag) return;
+    const hit = this.lineAt(event);
+    if (!hit) return;
+    event.preventDefault();
+    event.stopPropagation(); // the chart must not start panning
+    this.drag = { spec: hit.spec, line: hit.line, startY: event.clientY, points: hit.spec.price, moved: false };
+    this.chart.applyOptions({ handleScroll: false, handleScale: false });
+    window.addEventListener("mousemove", this.moveDrag, true);
+    window.addEventListener("mouseup", this.endDrag, true);
+  }
+
+  continueDrag(event) {
+    const drag = this.drag;
+    if (!drag) return;
+    if (!drag.moved && Math.abs(event.clientY - drag.startY) < 3) return; // a click, not a drag (yet)
+    drag.moved = true;
+    const y = event.clientY - this.container.getBoundingClientRect().top;
+    const price = this.series.coordinateToPrice(y);
+    if (price === null) return;
+    drag.points = Math.round(price * 10 ** this.digits);
+    drag.line.applyOptions({ price: drag.points / 10 ** this.digits });
+    this.onLineDrag(drag.spec.id, drag.points);
+  }
+
+  finishDrag(event, cancelled = false) {
+    const drag = this.drag;
+    if (!drag) return;
+    this.drag = null;
+    window.removeEventListener("mousemove", this.moveDrag, true);
+    window.removeEventListener("mouseup", this.endDrag, true);
+    this.chart.applyOptions({ handleScroll: true, handleScale: true });
+    this.container.classList.remove("line-hover");
+    if (drag.moved) {
+      this.justDragged = true;
+      setTimeout(() => { this.justDragged = false; }, 0);
+    }
+    const lines = this.deferredLines || this.lineSpecs; // put every line back where the trades say it is
+    this.deferredLines = null;
+    this.setTradeLines(lines);
+    this.onLineDrop(drag.spec.id, drag.moved && !cancelled ? drag.points : null);
+  }
+
+  /** Abandon a drag in progress (Esc). Returns true if there was one. */
+  cancelDrag() {
+    if (!this.drag) return false;
+    this.finishDrag(null, true);
+    return true;
   }
 
   /**
    * Horizontal lines for active trades.
-   * lines = [{ price (points), colour, dashed, title }]
+   * lines = [{ id, price (points), colour, dashed, title, draggable }]
    */
   setTradeLines(lines) {
+    if (this.drag) { // do not pull the line out from under the mouse; redraw when the drag ends
+      this.deferredLines = lines;
+      return;
+    }
+    this.lineSpecs = lines;
     for (const line of this.priceLines) this.series.removePriceLine(line);
     this.priceLines = lines.map((line) => this.series.createPriceLine({
       price: line.price / 10 ** this.digits,

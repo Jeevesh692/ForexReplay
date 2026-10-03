@@ -94,6 +94,11 @@
 
   <aside class="panel" id="trading-panel">
     <h2>Trading</h2>
+    <dl class="account" id="account-strip">
+      <div><dt>Balance</dt><dd id="account-balance"></dd></div>
+      <div><dt title="Balance plus the floating result of open trades">Equity</dt><dd id="account-equity"></dd></div>
+      <div class="wide"><dt title="Change in equity since this replay started">This run</dt><dd id="account-run"></dd></div>
+    </dl>
     <p class="order-status" id="order-status">Start a replay to trade.</p>
 
     <div class="ticket">
@@ -124,21 +129,45 @@
           <button class="plain pick" data-pick="takeProfit" title="Click, then click the chart at the price you want">&#8982;</button></span>
         <small id="order-tp-note"></small>
       </label>
+      <div class="field">
+        <span>Size</span>
+        <div class="size-row">
+          <div class="segmented">
+            <button data-size="risk" title="Lot size is worked out so that a stop-out loses this % of your balance">Risk %</button>
+            <button data-size="lots" title="The same lot size every time">Lots</button>
+          </div>
+          <input id="order-size" type="number" inputmode="decimal" autocomplete="off" aria-label="Size">
+        </div>
+        <small id="order-size-note"></small>
+      </div>
 
       <button id="order-place" class="order-place buy" disabled>Buy at market</button>
       <p class="order-message" id="order-message"></p>
     </div>
 
-    <h3 id="active-title">Open and pending (0)</h3>
+    <h3 class="with-action"><span id="active-title">Open and pending (0)</span>
+      <button class="plain small" id="close-all" title="Close every open trade at the current price and cancel every pending order" hidden>Close all</button></h3>
     <ul class="trade-list" id="active-list"></ul>
     <h3 id="closed-title">Closed (0)</h3>
     <ul class="trade-list" id="closed-list"></ul>
 
-    <label class="field inline">
-      <span title="The broker's recorded spread for each candle is used when it is wider than this">Minimum spread (pips)</span>
-      <input id="order-spread" type="number" min="0" step="0.1" value="0">
-    </label>
-    <p class="muted small">Lot sizing, partial close and breakeven arrive on day 5.</p>
+    <details class="account-settings">
+      <summary>Account settings</summary>
+      <label class="field inline">
+        <span>Starting balance ($)</span>
+        <input id="set-balance" type="number" min="100" step="100">
+      </label>
+      <label class="field inline">
+        <span title="Round turn (in and out), charged when a trade opens">Commission ($ per lot)</span>
+        <input id="set-commission" type="number" min="0" step="0.5">
+      </label>
+      <label class="field inline">
+        <span title="The broker's recorded spread for each candle is used when it is wider than this">Minimum spread (pips)</span>
+        <input id="order-spread" type="number" min="0" step="0.1">
+      </label>
+      <p class="muted small">1 lot = 100,000 units, so a pip is $10 per lot. Sizes are in steps of 0.01 lots.
+        Saved in this browser.</p>
+    </details>
   </aside>
 
   <dialog id="sessions-dialog" class="dialog">

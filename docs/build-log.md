@@ -108,3 +108,36 @@ Plan: two weeks, 28 Sep to 11 Oct 2026 (day 1 started early, on 27 Sep).
 - The engine's rejection messages were written for programmers ("stop loss < entry < take profit"). They now read as plain sentences.
 
 **How to check:** click ⚙, load "ICT killzones", save, and the shading and colour key change. Start a replay, press Buy, then "Buy at market", then Shift + Right: the trade opens at the next candle's open and three lines appear. Press Space and watch it hit the stop or the target.
+
+---
+
+## Day 5: Sat 3 Oct 2026 · account in $, lot sizing, and managing open trades
+
+**Asked for (Jeevesh):** start day 5.
+
+**Built (Claude):**
+- `web/js/account.js` turns the engine's price results into money: lot size, profit and loss in $, commission, balance and equity. See [decision 0006](decisions/0006-account-and-trade-management.md).
+- **Size on the ticket:** "Risk %" works out the lots so a stop-out loses that share of the balance (rounded down to 0.01 lots), or "Lots" uses a fixed size. The ticket shows lots, $ at risk and commission before you place the order.
+- **Account strip** at the top of the panel: balance, equity, and the result of this run in $ and %.
+- **Managing a trade:** BE (stop to entry), close 25% or 50%, Close, and "Close all".
+- **Dragging:** stop-loss, take-profit and pending-entry lines can be dragged on the chart. A hint shows pips, R and $ while dragging; Esc cancels; an invalid position snaps back with the reason.
+- The engine (`broker.py` first, then `broker.js`) gained a frozen first stop, moving levels, and partial closes.
+- **Account settings** (starting balance, commission, minimum spread) in the panel, saved in the browser.
+- Partial closes are marked on the chart, and the price scale keeps the lines of active trades on screen.
+
+**Tests:** 19 new JavaScript tests (62 in total) and 7 new Python tests (52 in total). The recorded scenarios were regenerated with the new actions: 120 scenarios, 2,079 trades, 547 accepted moves, 353 refused moves, 146 partial closes; the JavaScript engine matches the Python engine on all of them. In the headless browser, a scripted session sized an order from risk, dragged a target and a stop, tried to drag a stop past the price, cancelled a drag with Esc, checked the chart still pans, used BE and both partial buttons, placed a limit order and dragged its entry and stop (it re-sized), clicked 50% and Close while the replay was playing at 100x, tried to act while viewing history, used Close all, and changed the settings and reloaded.
+
+**Decisions:**
+- Money is a separate layer on top of the engine; the engine stays in prices and R ([0006](decisions/0006-account-and-trade-management.md)).
+- R is always measured against the stop the trade opened with.
+- Size from risk is rounded down, never up.
+- A pending order sized from risk % is re-sized when its stop or entry moves.
+
+**Found along the way:**
+- The MT5 export records a spread of 0 on about 95% of candles. With the minimum spread at 0 and no commission, most trades cost nothing, which flatters results. Commission now defaults to $7 per lot; this is an assumption to replace with the real account's figures.
+- Manual closes used only the minimum spread, not the candle's recorded spread. Closing, placing and moving now all use the spread that applies at that moment.
+- The trade list was rebuilt on every candle, so at high replay speeds a click on "Close" could be swallowed because the button was replaced mid-click. The list is now rebuilt only when a trade changes; floating numbers are updated in place.
+- Stop and target lines could be off screen, because the price scale only fitted the candles. It now includes nearby trade lines.
+- The engine's rejection messages in Python were still written for programmers; they now match the JavaScript wording.
+
+**How to check:** start a replay. The ticket shows something like "1.00 lots · risk $100.00 + $7.00 commission". Press "Buy at market", then Shift + Right. Drag the red SL line up or down and watch the hint. Press 50%: the row says "0.50 of 1.00" and the balance goes up or down by what was banked. Press BE once the trade is in profit. Open "Account settings" at the bottom of the panel to change the starting balance, commission and minimum spread.

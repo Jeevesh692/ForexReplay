@@ -90,7 +90,7 @@ test("bad prices are refused with a clear message", () => {
 test("the wider of the minimum spread and the candle's recorded spread applies", () => {
   const m5 = market(12, { 4: [110000, 110010, 109990, 110000, 12], 5: [110000, 110010, 109990, 110000, 30] });
   const { clock, trading } = setup(m5);
-  trading.setMinSpread(20);
+  trading.updateSettings({ minSpreadPips: 2 });
   assert.equal(trading.spread, 20);      // candle 4 recorded 12, minimum 20
   const trade = trading.place({ side: Side.BUY, type: "market", stopLoss: 109900, takeProfit: 110300 });
   clock.advance(1);
@@ -106,5 +106,7 @@ test("flatten closes open trades at the current price and cancels pending orders
   trading.flatten();
   assert.equal(open.status, Status.CLOSED);
   assert.equal(pending.status, Status.CANCELLED);
-  assert.deepEqual(trading.summary(), { open: 0, pending: 0, closed: 1, wins: 0, losses: 0, totalR: 0 });
+  const { totalMoney, ...counts } = trading.summary();
+  assert.deepEqual(counts, { open: 0, pending: 0, closed: 1, wins: 0, losses: 0, totalR: 0 });
+  assert.equal(totalMoney, -7); // 1.00 lot at 1% risk, flat price: only the $7 commission
 });

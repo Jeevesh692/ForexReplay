@@ -381,3 +381,27 @@ button.primary {
 .session-table select { min-width: 112px; }
 .session-table input[type="time"] { min-width: 118px; }
 .dialog-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+
+/* ---------- account, sizing and trade actions (day 5) ---------- */
+.account { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 0 10px; }
+.account .wide { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; }
+.account div { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 5px 7px; min-width: 0; }
+.account dt { color: var(--muted); font-size: 11px; }
+.account dd { margin: 0; font-weight: 600; font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.size-row { display: flex; gap: 6px; align-items: stretch; }
+.size-row .segmented { flex: 1; margin: 0; }
+.size-row .segmented button { padding: 5px 6px; }
+.size-row input { width: 78px; }
+.field small.bad { color: var(--down); }
+.panel h3.with-action { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.trade-list .row .tag { color: var(--muted); font-weight: 400; }
+.trade-list .actions { display: flex; gap: 4px; margin-top: 5px; }
+.trade-list .actions button { flex: 1; padding: 3px 4px; }
+.trade-list .actions button:hover:not(:disabled) { border-color: var(--blue); color: #fff; }
+.trade-list .actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+.account-settings { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 10px; }
+.account-settings summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; }
+.account-settings .field.inline { margin-top: 10px; }
+.account-settings .field.inline input { width: 86px; }
+/* A stop-loss, take-profit or pending-entry line is under the mouse: it can be dragged. */
+.chart.line-hover, .chart.line-hover * { cursor: ns-resize !important; }

@@ -1,7 +1,8 @@
-// The trading panel on the right: order ticket, active trades, closed trades.
-// All logic lives in trading.js / broker.js; this file only reads the form,
-// calls them, and draws the result.
+// The trading panel on the right: account, order ticket, active trades, closed trades.
+// All logic lives in trading.js / broker.js / account.js; this file only reads
+// the form, calls them, and draws the result.
 
+import { formatLots, formatMoney, formatSignedMoney, saveSettings } from "./account.js";
 import { ExitReason, OrderType } from "./broker.js";
 import { InvalidOrder, Side, Status } from "./trading.js";
 import { formatDateTime } from "./time.js";
@@ -41,10 +42,20 @@ export class TradingPanel {
         this.renderTicket();
       }
     });
-    this.el("order-spread").addEventListener("change", (event) => {
-      const pips = Math.max(0, Number(event.target.value) || 0);
-      trading.setMinSpread(pips * trading.pipPoints);
+    // Settings: each input writes one account setting, which is saved in the browser.
+    const setting = (id, key) => this.el(id).addEventListener("change", (event) => {
+      saveSettings(trading.updateSettings({ [key]: event.target.value }));
+      this.renderSettings(); // show what was actually stored (a rejected value snaps back)
     });
+    setting("set-balance", "startingBalance");
+    setting("set-commission", "commissionPerLot");
+    setting("order-spread", "minSpreadPips");
+    this.el("order-size").addEventListener("change", (event) => {
+      const key = trading.account.settings.sizeMode === "risk" ? "riskPercent" : "fixedLots";
+      saveSettings(trading.updateSettings({ [key]: event.target.value }));
+      this.renderSettings();
+    });
+    this.renderSettings();
     this.render();
   }
 
@@ -57,6 +68,22 @@ export class TradingPanel {
   price(points) { return (points / this.scale).toFixed(this.digits); }
   pips(points) { return (points / this.trading.pipPoints).toFixed(1); }
   r(value) { return `${value >= 0 ? "+" : ""}${value.toFixed(2)}R`; }
+  tone(value) { return value >= 0 ? "up" : "down"; }
+
+  /** Put the stored settings into their inputs. */
+  renderSettings() {
+    const s = this.trading.account.settings;
+    this.el("set-balance").value = s.startingBalance;
+    this.el("set-commission").value = s.commissionPerLot;
+    this.el("order-spread").value = s.minSpreadPips;
+    const size = this.el("order-size");
+    const risk = s.sizeMode === "risk";
+    size.value = risk ? s.riskPercent : s.fixedLots.toFixed(2);
+    size.step = risk ? "0.25" : "0.01";
+    size.min = "0.01";
+    size.title = risk ? "% of your balance lost if the stop is hit" : "Lots (1 lot = 100,000 units)";
+    this.root.querySelectorAll("[data-size]").forEach((b) => b.classList.toggle("active", b.dataset.size === s.sizeMode));
+  }
 
   /** Sensible starting prices: stop 10 pips away, target 20 pips away. */
   fillDefaults() {
@@ -106,6 +133,20 @@ export class TradingPanel {
     } else if (target.dataset.type) {
       this.type = target.dataset.type;
       this.render();
+    } else if (target.dataset.size) {
+      saveSettings(this.trading.updateSettings({ sizeMode: target.dataset.size }));
+      this.renderSettings();
+      this.render();
+    } else if (target.id === "close-all") {
+      this.attempt(() => this.trading.closeAll());
+    } else if (target.dataset.breakeven) {
+      this.attempt(() => this.trading.breakeven(Number(target.dataset.breakeven)), "Stop moved to the entry price.");
+    } else if (target.dataset.partial) {
+      const [id, percent] = target.dataset.partial.split(":").map(Number);
+      this.attempt(() => {
+        const part = this.trading.partialClose(id, percent);
+        return `Closed ${formatLots(part.units)} lots of #${id} at the current price.`;
+      });
     } else if (target.dataset.pick) {
       this.setPick(this.pickTarget === target.dataset.pick ? null : target.dataset.pick);
     } else if (target.id === "order-place") {
@@ -117,11 +158,13 @@ export class TradingPanel {
     }
   }
 
-  attempt(action) {
+  /** Run an action from a button; show `done` (or what the action returns) on success, the reason on refusal. */
+  attempt(action, done = "") {
     try {
-      action();
-      this.say("");
+      const result = action();
+      this.say(typeof result === "string" ? result : done, "ok");
     } catch (err) {
+      if (!(err instanceof InvalidOrder)) throw err;
       this.say(err.message, "bad");
     }
   }
@@ -139,17 +182,33 @@ export class TradingPanel {
         ? "market order placed; it fills at the next candle's open"
         : `${trade.orderType.toLowerCase()} order placed at ${this.price(trade.orderPrice)}`;
       this.touched = false; // the next order starts again from prices around the market
-      this.say(`#${trade.id} ${trade.side} ${what}.`, "ok");
+      this.say(`#${trade.id} ${trade.side} ${this.lots(trade)} lots: ${what}.`, "ok");
     } catch (err) {
       if (!(err instanceof InvalidOrder)) throw err;
       this.say(err.message, "bad");
     }
   }
 
+  lots(trade) { return formatLots(this.trading.account.units(trade)); }
+
   // ----- drawing ----------------------------------------------------------
   render() {
+    this.renderAccount();
     this.renderTicket();
     this.renderTrades();
+  }
+
+  renderAccount() {
+    const t = this.trading;
+    const start = t.account.settings.startingBalance;
+    const equity = t.equity;
+    const run = equity - start;
+    this.el("account-balance").textContent = formatMoney(t.balance);
+    this.el("account-equity").textContent = formatMoney(equity);
+    const cell = this.el("account-run");
+    cell.textContent = `${formatSignedMoney(run)} (${run >= 0.005 ? "+" : ""}${(run / start * 100).toFixed(2)}%)`;
+    cell.className = Math.abs(run) < 0.005 ? "" : this.tone(run);
+    cell.title = cell.textContent;
   }
 
   renderTicket() {
@@ -175,6 +234,14 @@ export class TradingPanel {
     this.el("order-tp-note").textContent = Number.isFinite(reward) && risk > 0
       ? `${this.pips(reward)} pips · ${(reward / risk).toFixed(2)}R` : "";
 
+    const sizeNote = this.el("order-size-note");
+    const sized = blocked || !Number.isFinite(risk)
+      ? null : t.account.size(risk, t.balance);
+    sizeNote.className = sized && sized.error ? "bad" : "";
+    sizeNote.textContent = !sized ? "" : sized.error || `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}` +
+      (sized.riskPercent === null ? ` (${(sized.riskMoney / t.balance * 100).toFixed(2)}%)` : "") +
+      (sized.commission > 0 ? ` + ${formatMoney(sized.commission)} commission` : "");
+
     const button = this.el("order-place");
     button.disabled = !!blocked;
     button.textContent = `${this.side === Side.BUY ? "Buy" : "Sell"} ${this.type === "market" ? "at market" : "at price"}`;
@@ -185,37 +252,86 @@ export class TradingPanel {
     return formatDateTime(this.m5.time[index]).split(" ").slice(1).join(" "); // drop the weekday to save space
   }
 
+  setNumber(selector, text, value) {
+    const node = this.root.querySelector(selector);
+    if (!node) return;
+    node.textContent = text;
+    node.className = this.tone(value);
+  }
+
+  /** "stop loss", or what really happened if the stop had been moved. */
+  reason(trade) {
+    if (trade.exitReason === ExitReason.STOP_LOSS && trade.stopLoss !== trade.initialStop) {
+      return trade.stopLoss === trade.entryPrice ? "breakeven stop" : "moved stop";
+    }
+    return REASON_LABEL[trade.exitReason];
+  }
+
   renderTrades() {
     const t = this.trading;
+    const blocked = !!t.blockedReason;
+    const off = blocked ? " disabled" : "";
     const active = t.broker.trades.filter((trade) => trade.isActive);
     this.el("active-title").textContent = `Open and pending (${active.length})`;
-    this.el("active-list").innerHTML = active.length === 0
+    this.el("close-all").hidden = active.length === 0;
+    this.el("close-all").disabled = blocked;
+    // While the replay plays, only the floating numbers change. Rebuilding the list on every candle
+    // would replace the buttons under the mouse and swallow clicks, so the list is rebuilt only when
+    // something structural changes, and the numbers are updated in place otherwise.
+    const key = JSON.stringify([blocked, active.map((trade) => [trade.id, trade.status, trade.orderType, trade.orderPrice,
+      trade.stopLoss, trade.takeProfit, trade.partials.length, t.account.units(trade)])]);
+    if (key === this.activeKey) {
+      for (const trade of active) {
+        if (trade.status !== Status.OPEN) continue;
+        this.setNumber(`[data-r="${trade.id}"]`, this.r(t.floatingR(trade)), t.floatingR(trade));
+        this.setNumber(`[data-money="${trade.id}"]`, formatSignedMoney(t.money(trade)), t.money(trade));
+      }
+    } else {
+      this.activeKey = key;
+      this.el("active-list").innerHTML = active.length === 0
       ? '<li class="empty">No open trades or orders.</li>'
       : active.map((trade) => {
         const tone = trade.side === Side.BUY ? "up" : "down";
+        const levels = `SL ${this.price(trade.stopLoss)} · TP ${this.price(trade.takeProfit)}`;
         if (trade.status === Status.PENDING) {
           const at = trade.orderType === OrderType.MARKET ? "fills next candle" : `at ${this.price(trade.orderPrice)}`;
-          return `<li><div class="row"><span class="${tone}">#${trade.id} ${trade.side} ${trade.orderType}</span>` +
-            `<button class="plain small" data-cancel="${trade.id}">Cancel</button></div>` +
-            `<div class="sub">${at} · SL ${this.price(trade.stopLoss)} · TP ${this.price(trade.takeProfit)}</div></li>`;
+          return `<li><div class="row"><span><span class="${tone}">#${trade.id} ${trade.side} ${trade.orderType}</span>` +
+            ` <span class="tag">${this.lots(trade)}</span></span>` +
+            `<button class="plain small" data-cancel="${trade.id}"${off}>Cancel</button></div>` +
+            `<div class="sub">${at} · ${levels} · risk ${formatMoney(t.account.riskMoney(trade))}</div></li>`;
         }
         const floating = t.floatingR(trade);
-        return `<li><div class="row"><span class="${tone}">#${trade.id} ${trade.side} open</span>` +
-          `<span class="${floating >= 0 ? "up" : "down"}">${this.r(floating)}</span>` +
-          `<button class="plain small" data-close="${trade.id}">Close</button></div>` +
-          `<div class="sub">in at ${this.price(trade.entryPrice)} · SL ${this.price(trade.stopLoss)} · TP ${this.price(trade.takeProfit)}</div></li>`;
+        const money = t.money(trade);
+        const openLots = formatLots(t.account.openUnits(trade));
+        const size = trade.partials.length ? `${openLots} of ${this.lots(trade)}` : this.lots(trade);
+        const atBreakeven = trade.stopLoss === trade.entryPrice;
+        return `<li><div class="row"><span><span class="${tone}">#${trade.id} ${trade.side}</span> <span class="tag">${size}</span></span>` +
+          `<span class="${this.tone(floating)}" data-r="${trade.id}">${this.r(floating)}</span>` +
+          `<span class="${this.tone(money)}" data-money="${trade.id}">${formatSignedMoney(money)}</span></div>` +
+          `<div class="sub">in at ${this.price(trade.entryPrice)} · ${levels}</div>` +
+          `<div class="actions">` +
+          `<button class="plain small" data-breakeven="${trade.id}" title="Move the stop loss to the entry price"${blocked || atBreakeven ? " disabled" : ""}>BE</button>` +
+          `<button class="plain small" data-partial="${trade.id}:25" title="Close a quarter of what is open"${off}>25%</button>` +
+          `<button class="plain small" data-partial="${trade.id}:50" title="Close half of what is open"${off}>50%</button>` +
+          `<button class="plain small" data-close="${trade.id}" title="Close all of it at the current price"${off}>Close</button>` +
+          `</div></li>`;
       }).join("");
+    }
 
     const closed = t.broker.closedTrades.slice().reverse();
     const s = t.summary();
     this.el("closed-title").textContent = `Closed (${s.closed})` +
-      (s.closed ? ` · ${this.r(s.totalR)} · ${s.wins}W ${s.losses}L` : "");
+      (s.closed ? ` · ${this.r(s.totalR)} · ${formatSignedMoney(s.totalMoney)} · ${s.wins}W ${s.losses}L` : "");
     this.el("closed-list").innerHTML = closed.length === 0
       ? '<li class="empty">Closed trades appear here.</li>'
-      : closed.map((trade) =>
-        `<li><div class="row"><span>#${trade.id} ${trade.side}</span>` +
-        `<span class="${trade.resultR >= 0 ? "up" : "down"}">${this.r(trade.resultR)}</span></div>` +
-        `<div class="sub">${REASON_LABEL[trade.exitReason]} · ${this.tradeTime(trade.entryTime)} → ${this.tradeTime(trade.exitTime).split(", ")[1]}` +
-        ` · best ${this.r(trade.mfeR)}</div></li>`).join("");
+      : closed.map((trade) => {
+        const money = t.money(trade);
+        const parts = trade.partials.length ? ` · ${trade.partials.length} partial${trade.partials.length > 1 ? "s" : ""}` : "";
+        return `<li><div class="row"><span>#${trade.id} ${trade.side} <span class="tag">${this.lots(trade)}</span></span>` +
+          `<span class="${this.tone(trade.resultR)}">${this.r(trade.resultR)}</span>` +
+          `<span class="${this.tone(money)}">${formatSignedMoney(money)}</span></div>` +
+          `<div class="sub">${this.reason(trade)}${parts} · ${this.tradeTime(trade.entryTime)} → ${this.tradeTime(trade.exitTime).split(", ")[1]}` +
+          ` · best ${this.r(trade.mfeR)}</div></li>`;
+      }).join("");
   }
 }

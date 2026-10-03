@@ -146,3 +146,79 @@ def test_trade_round_trips_through_dict():
     b.process_candle(T1, 1.1000, 1.1005, 1.0995)
     copy = type(t).from_dict(t.to_dict())
     assert copy.to_dict() == t.to_dict()
+
+
+# ----- moving stops and partial closes (added for v2) -----------------------
+def opened_buy(b):
+    """A buy from 1.1000 with a 10-pip stop and a 30-pip target, already filled."""
+    trade = b.market_order(Side.BUY, 1.0990, 1.1030, T0, bid=1.1000)
+    b.process_candle(T1, 1.1000, 1.1012, 1.0998)
+    return trade
+
+
+def test_moving_the_stop_to_breakeven_does_not_change_what_1r_means():
+    b = broker()
+    trade = opened_buy(b)
+    b.modify(trade, bid=1.1010, stop_loss=1.1000)
+    assert trade.planned_risk == pytest.approx(0.0010)
+    b.process_candle(T2, 1.1010, 1.1011, 1.0995)
+    assert trade.exit_reason is ExitReason.STOP_LOSS
+    assert trade.result_r == pytest.approx(0.0)
+
+
+def test_a_stop_cannot_be_moved_past_the_current_price():
+    b = broker()
+    trade = opened_buy(b)
+    with pytest.raises(InvalidOrder):
+        b.modify(trade, bid=1.0998, stop_loss=1.1000)
+    with pytest.raises(InvalidOrder):
+        b.modify(trade, bid=1.1005, take_profit=1.1004)
+    assert (trade.stop_loss, trade.take_profit) == (1.0990, 1.1030)
+
+
+def test_moving_a_pending_order_changes_its_planned_risk_and_type():
+    b = broker()
+    trade = b.pending_order(Side.BUY, 1.0995, 1.0990, 1.1020, T0, bid=1.1000)
+    b.modify(trade, bid=1.1000, stop_loss=1.0985)
+    assert trade.planned_risk == pytest.approx(0.0010)
+    b.modify(trade, bid=1.1000, price=1.1005)
+    assert trade.order_type is OrderType.STOP
+    assert trade.planned_risk == pytest.approx(0.0020)
+
+
+def test_partial_close_gives_the_size_weighted_result():
+    b = broker()
+    trade = opened_buy(b)
+    b.partial_close(trade, 0.5, T1, bid=1.1010)          # half off at +1R
+    assert trade.status is Status.OPEN and trade.remaining == 0.5
+    b.process_candle(T2, 1.1010, 1.1031, 1.1009)          # the rest reaches +3R
+    assert trade.exit_reason is ExitReason.TAKE_PROFIT
+    assert trade.result_r == pytest.approx(2.0)
+
+
+def test_partial_close_must_leave_something_open():
+    b = broker()
+    trade = opened_buy(b)
+    with pytest.raises(InvalidOrder):
+        b.partial_close(trade, 1.0, T1, bid=1.1010)
+    assert trade.partials == []
+
+
+def test_a_partly_closed_trade_round_trips_through_dict():
+    from forex_replay.broker import Trade
+    b = broker()
+    trade = opened_buy(b)
+    b.partial_close(trade, 0.25, T1, bid=1.1010)
+    b.modify(trade, bid=1.1010, stop_loss=1.1000)
+    copy = Trade.from_dict(trade.to_dict())
+    assert copy == trade
+    assert copy.initial_stop == 1.0990 and copy.remaining == 0.75
+
+
+def test_trades_saved_before_v2_still_load():
+    from forex_replay.broker import Trade
+    old = opened_buy(broker()).to_dict()
+    for key in ("initial_stop", "remaining", "partials"):
+        del old[key]
+    trade = Trade.from_dict(old)
+    assert trade.initial_stop == trade.stop_loss and trade.remaining == 1.0 and trade.partials == []

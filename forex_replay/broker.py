@@ -15,8 +15,15 @@ Fill rules (all decided on closed candles, so nothing can see the future):
 * On the candle a limit/stop order fills, only the stop-loss can trigger,
   because the order of prices inside that candle is unknown. Market orders
   fill at the open, so the whole candle counts for them.
-* Result in R uses the planned risk: |planned entry - stop loss|. Slippage from
-  gaps therefore shows up as results worse than -1R, like in live trading.
+* Result in R uses the planned risk: |planned entry - initial stop loss|.
+  Slippage from gaps therefore shows up as results worse than -1R, like in live
+  trading. The initial stop is frozen when the trade opens, so moving the stop
+  later (to breakeven, or trailing it) never changes what 1R means.
+* Stop loss and take profit can be moved while a trade is active. The change
+  takes effect from the next candle. An open trade's stop must stay on the
+  losing side of the current price and its target on the winning side.
+* Part of an open trade can be closed at the current price. The result in R is
+  then the size-weighted average of every part.
 """
 
 from __future__ import annotations
@@ -81,21 +88,37 @@ class Trade:
     best_price: Optional[float] = None  # most favourable exit-side price while open
     worst_price: Optional[float] = None  # most adverse exit-side price while open
     tags: dict = field(default_factory=dict)
+    initial_stop: Optional[float] = None  # the stop that defines 1R; frozen once the trade is open
+    remaining: float = 1.0  # fraction of the original size still open
+    partials: list = field(default_factory=list)  # [{"time", "price", "fraction"}] parts closed early
+
+    def __post_init__(self):
+        if self.initial_stop is None:
+            self.initial_stop = self.stop_loss
 
     # ----- derived values -------------------------------------------------
     @property
     def planned_risk(self) -> float:
-        return abs(self.planned_entry - self.stop_loss)
+        return abs(self.planned_entry - self.initial_stop)
 
     @property
     def planned_reward_r(self) -> float:
         return abs(self.take_profit - self.planned_entry) / self.planned_risk
 
     @property
+    def realized(self) -> float:
+        """Price result of the parts closed early, weighted by their size."""
+        total = 0.0
+        for part in self.partials:
+            total += part["fraction"] * ((part["price"] - self.entry_price) * self.side.direction)
+        return total
+
+    @property
     def pnl(self) -> Optional[float]:
+        """Price result of the whole trade: every part weighted by its size."""
         if self.exit_price is None or self.entry_price is None:
             return None
-        return (self.exit_price - self.entry_price) * self.side.direction
+        return self.realized + self.remaining * ((self.exit_price - self.entry_price) * self.side.direction)
 
     @property
     def result_r(self) -> Optional[float]:
@@ -143,6 +166,9 @@ class Trade:
             "best_price": self.best_price,
             "worst_price": self.worst_price,
             "tags": self.tags,
+            "initial_stop": self.initial_stop,
+            "remaining": self.remaining,
+            "partials": [{**part, "time": ts(part["time"])} for part in self.partials],
         }
 
     @classmethod
@@ -168,6 +194,9 @@ class Trade:
             best_price=d.get("best_price"),
             worst_price=d.get("worst_price"),
             tags=d.get("tags") or {},
+            initial_stop=d.get("initial_stop"),
+            remaining=float(d.get("remaining", 1.0)),
+            partials=[{**part, "time": ts(part["time"])} for part in d.get("partials") or []],
         )
 
 
@@ -249,6 +278,54 @@ class Broker:
             raise ValueError(f"Trade {trade.id} is {trade.status.value}, only open trades can be closed")
         self._exit(trade, time, self.exit_quote(trade.side, bid), reason)
 
+    def partial_close(self, trade: Trade, fraction: float, time: pd.Timestamp, bid: float) -> None:
+        """Close part of an open trade at the current market price.
+        `fraction` is a share of the ORIGINAL size and must leave something open."""
+        if trade.status is not Status.OPEN:
+            raise ValueError(f"Trade {trade.id} is {trade.status.value}, only open trades can be partly closed")
+        if not 0 < fraction < trade.remaining:
+            raise InvalidOrder("A partial close must be more than nothing and less than what is still open.")
+        trade.partials.append({"time": time, "price": self.exit_quote(trade.side, bid), "fraction": fraction})
+        trade.remaining -= fraction
+
+    def modify(self, trade: Trade, bid: float, stop_loss: Optional[float] = None,
+               take_profit: Optional[float] = None, price: Optional[float] = None) -> None:
+        """Move the stop loss, take profit or (for a limit/stop order) the entry price.
+        Nothing changes if the new prices are not valid."""
+        if not trade.is_active:
+            raise ValueError(f"Trade {trade.id} is {trade.status.value}, only active trades can be changed")
+        stop_loss = trade.stop_loss if stop_loss is None else stop_loss
+        take_profit = trade.take_profit if take_profit is None else take_profit
+
+        if trade.status is Status.OPEN:
+            if price is not None:
+                raise InvalidOrder("The entry of an open trade cannot be moved.")
+            quote = self.exit_quote(trade.side, bid)
+            if trade.side is Side.BUY and not (stop_loss < quote < take_profit):
+                raise InvalidOrder("For an open buy, the stop loss must be below the current price and the take profit above it.")
+            if trade.side is Side.SELL and not (take_profit < quote < stop_loss):
+                raise InvalidOrder("For an open sell, the stop loss must be above the current price and the take profit below it.")
+            trade.stop_loss, trade.take_profit = stop_loss, take_profit
+            return
+
+        # Still pending: the plan can change freely, so the risk that defines 1R moves with it.
+        if trade.order_type is OrderType.MARKET:
+            if price is not None:
+                raise InvalidOrder("A market order has no entry price to move.")
+            self._validate(trade.side, trade.planned_entry, stop_loss, take_profit)
+        else:
+            price = trade.order_price if price is None else price
+            self._validate(trade.side, price, stop_loss, take_profit)
+            if price != trade.order_price:
+                quote = self.entry_quote(trade.side, bid)
+                if trade.side is Side.BUY:
+                    trade.order_type = OrderType.LIMIT if price <= quote else OrderType.STOP
+                else:
+                    trade.order_type = OrderType.LIMIT if price >= quote else OrderType.STOP
+                trade.order_price = trade.planned_entry = price
+        trade.stop_loss = trade.initial_stop = stop_loss
+        trade.take_profit = take_profit
+
     # ----- candle processing ---------------------------------------------
     def process_candle(self, time: pd.Timestamp, o: float, h: float, l: float) -> list[Trade]:
         """Resolve fills and exits for one new candle. Returns trades closed on it."""
@@ -285,13 +362,9 @@ class Broker:
     @staticmethod
     def _validate(side: Side, entry: float, stop_loss: float, take_profit: float) -> None:
         if side is Side.BUY and not (stop_loss < entry < take_profit):
-            raise InvalidOrder(
-                f"BUY needs stop loss < entry < take profit (got SL {stop_loss:.5f}, "
-                f"entry {entry:.5f}, TP {take_profit:.5f})")
+            raise InvalidOrder("A buy needs the stop loss below the entry and the take profit above it.")
         if side is Side.SELL and not (take_profit < entry < stop_loss):
-            raise InvalidOrder(
-                f"SELL needs take profit < entry < stop loss (got TP {take_profit:.5f}, "
-                f"entry {entry:.5f}, SL {stop_loss:.5f})")
+            raise InvalidOrder("A sell needs the stop loss above the entry and the take profit below it.")
 
     def _try_fill(self, trade: Trade, time, o: float, h: float, l: float) -> bool:
         s = self.spread

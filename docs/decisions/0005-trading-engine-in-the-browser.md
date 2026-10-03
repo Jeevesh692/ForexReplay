@@ -37,6 +37,10 @@ The port matched on the first run. Both engines work in whole points (1.08500 â†
 
 The session list (name, timezone, start, end, colour, on/off) is edited in the app and saved in the browser. Two presets ship: standard sessions and ICT killzones. Each row shows its hours in India time for the date being viewed, so the effect of a timezone choice is visible before saving.
 
+## Update, 3 Oct 2026
+
+Day 5 added moving stops, partial closes and a frozen first stop to both engines, and regenerated the recorded scenarios (now 120 scenarios, 2,079 trades). See [decision 0006](0006-account-and-trade-management.md).
+
 ## Not yet done
 
-Account balance in $, lot sizing from risk %, partial close, breakeven and dragging lines on the chart come on day 5. Trades are kept in memory for the current replay; saving them to the journal comes with backtest sessions on day 7.
+Account balance in $, lot sizing from risk %, partial close, breakeven and dragging lines on the chart came on day 5. Trades are kept in memory for the current replay; saving them to the journal comes with backtest sessions on day 7.

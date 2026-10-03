@@ -14,11 +14,18 @@
 //  * On the candle a limit/stop order fills, only the stop loss can trigger,
 //    because the order of prices inside that candle is unknown. Market orders
 //    fill at the open, so the whole candle counts for them.
-//  * R uses the planned risk |planned entry - stop loss|, so slippage from a
-//    gap shows up as a result worse than -1R, as it would live.
+//  * R uses the planned risk |planned entry - initial stop loss|, so slippage
+//    from a gap shows up as a result worse than -1R, as it would live. The
+//    initial stop is frozen when the trade opens, so moving the stop later
+//    (to breakeven, or trailing it) never changes what 1R means.
+//  * Stop loss and take profit can be moved while a trade is active. The change
+//    takes effect from the next candle. An open trade's stop must stay on the
+//    losing side of the current price and its target on the winning side.
+//  * Part of an open trade can be closed at the current price. The result in R
+//    is then the size-weighted average of every part.
 //
-// web/tests/broker.test.mjs replays 100 scenarios recorded from the Python
-// engine and requires identical results.
+// web/tests/broker.test.mjs replays scenarios recorded from the Python engine
+// and requires identical results.
 
 export const Side = Object.freeze({ BUY: "BUY", SELL: "SELL" });
 export const OrderType = Object.freeze({ MARKET: "MARKET", LIMIT: "LIMIT", STOP: "STOP" });
@@ -48,14 +55,25 @@ export class Trade {
     this.bestPrice = null; // most favourable exit-side price while open
     this.worstPrice = null; // most adverse exit-side price while open
     this.filledAtOpen = false;
+    this.initialStop = stopLoss; // the stop that defines 1R; frozen once the trade is open
+    this.remaining = 1; // fraction of the original size still open
+    this.partials = []; // [{ time, price, fraction }] parts closed early
   }
 
-  get plannedRisk() { return Math.abs(this.plannedEntry - this.stopLoss); }
+  get plannedRisk() { return Math.abs(this.plannedEntry - this.initialStop); }
   get plannedRewardR() { return Math.abs(this.takeProfit - this.plannedEntry) / this.plannedRisk; }
 
+  /** Price result (points) of the parts closed early, weighted by their size. */
+  get realized() {
+    let total = 0;
+    for (const part of this.partials) total += part.fraction * ((part.price - this.entryPrice) * direction(this.side));
+    return total;
+  }
+
+  /** Price result (points) of the whole trade: every part weighted by its size. */
   get pnl() {
     if (this.exitPrice === null || this.entryPrice === null) return null;
-    return (this.exitPrice - this.entryPrice) * direction(this.side);
+    return this.realized + this.remaining * ((this.exitPrice - this.entryPrice) * direction(this.side));
   }
 
   get resultR() {
@@ -75,11 +93,11 @@ export class Trade {
     return Math.max(0, ((this.entryPrice - this.worstPrice) * direction(this.side)) / this.plannedRisk);
   }
 
-  /** Profit or loss in points if closed at `bid` now (for open trades). */
+  /** Profit or loss in points if what is still open were closed at `bid` now, plus the parts already closed. */
   floatingPoints(bid, spread = 0) {
     if (this.status !== Status.OPEN) return null;
     const exit = this.side === Side.BUY ? bid : bid + spread;
-    return (exit - this.entryPrice) * direction(this.side);
+    return this.realized + this.remaining * ((exit - this.entryPrice) * direction(this.side));
   }
 
   get isActive() { return this.status === Status.PENDING || this.status === Status.OPEN; }
@@ -106,9 +124,10 @@ export class Broker {
   exitQuote(side, bid, spread = this.spread) { return side === Side.BUY ? bid : bid + spread; }
 
   // ----- order entry ------------------------------------------------------
+  // `spread` is the spread right now; it defaults to the configured minimum.
   /** Queue a market order; it fills at the next candle's open. */
-  marketOrder(side, stopLoss, takeProfit, time, bid) {
-    const expected = this.entryQuote(side, bid);
+  marketOrder(side, stopLoss, takeProfit, time, bid, spread = this.spread) {
+    const expected = this.entryQuote(side, bid, spread);
     Broker.validate(side, expected, stopLoss, takeProfit);
     return this.add(new Trade({
       id: this.nextId++, side, orderType: OrderType.MARKET, stopLoss, takeProfit,
@@ -117,12 +136,9 @@ export class Broker {
   }
 
   /** Place a limit or stop order; the type is inferred from the current price. */
-  pendingOrder(side, price, stopLoss, takeProfit, time, bid) {
+  pendingOrder(side, price, stopLoss, takeProfit, time, bid, spread = this.spread) {
     Broker.validate(side, price, stopLoss, takeProfit);
-    const quote = this.entryQuote(side, bid);
-    const orderType = side === Side.BUY
-      ? (price <= quote ? OrderType.LIMIT : OrderType.STOP)
-      : (price >= quote ? OrderType.LIMIT : OrderType.STOP);
+    const orderType = this.pendingType(side, price, bid, spread);
     return this.add(new Trade({
       id: this.nextId++, side, orderType, stopLoss, takeProfit,
       placedTime: time, plannedEntry: price, orderPrice: price,
@@ -137,11 +153,64 @@ export class Broker {
   }
 
   /** Close an open trade at the current market price. */
-  close(trade, time, bid, reason = ExitReason.MANUAL) {
+  close(trade, time, bid, reason = ExitReason.MANUAL, spread = this.spread) {
     if (trade.status !== Status.OPEN) {
       throw new Error(`Trade ${trade.id} is ${trade.status}, only open trades can be closed`);
     }
-    this.exit(trade, time, this.exitQuote(trade.side, bid), reason);
+    this.exit(trade, time, this.exitQuote(trade.side, bid, spread), reason);
+  }
+
+  /**
+   * Close part of an open trade at the current market price.
+   * `fraction` is a share of the ORIGINAL size and must leave something open.
+   */
+  partialClose(trade, fraction, time, bid, spread = this.spread) {
+    if (trade.status !== Status.OPEN) {
+      throw new Error(`Trade ${trade.id} is ${trade.status}, only open trades can be partly closed`);
+    }
+    if (!(fraction > 0 && fraction < trade.remaining)) {
+      throw new InvalidOrder("A partial close must be more than nothing and less than what is still open.");
+    }
+    trade.partials.push({ time, price: this.exitQuote(trade.side, bid, spread), fraction });
+    trade.remaining -= fraction;
+  }
+
+  /**
+   * Move the stop loss, take profit or (for a limit/stop order) the entry price.
+   * changes = { stopLoss?, takeProfit?, price? }. Nothing changes if the new prices are not valid.
+   */
+  modify(trade, bid, { stopLoss = trade.stopLoss, takeProfit = trade.takeProfit, price = null } = {}, spread = this.spread) {
+    if (!trade.isActive) {
+      throw new Error(`Trade ${trade.id} is ${trade.status}, only active trades can be changed`);
+    }
+    if (trade.status === Status.OPEN) {
+      if (price !== null) throw new InvalidOrder("The entry of an open trade cannot be moved.");
+      const quote = this.exitQuote(trade.side, bid, spread);
+      if (trade.side === Side.BUY && !(stopLoss < quote && quote < takeProfit)) {
+        throw new InvalidOrder("For an open buy, the stop loss must be below the current price and the take profit above it.");
+      }
+      if (trade.side === Side.SELL && !(takeProfit < quote && quote < stopLoss)) {
+        throw new InvalidOrder("For an open sell, the stop loss must be above the current price and the take profit below it.");
+      }
+      trade.stopLoss = stopLoss;
+      trade.takeProfit = takeProfit;
+      return;
+    }
+
+    // Still pending: the plan can change freely, so the risk that defines 1R moves with it.
+    if (trade.orderType === OrderType.MARKET) {
+      if (price !== null) throw new InvalidOrder("A market order has no entry price to move.");
+      Broker.validate(trade.side, trade.plannedEntry, stopLoss, takeProfit);
+    } else {
+      if (price === null) price = trade.orderPrice;
+      Broker.validate(trade.side, price, stopLoss, takeProfit);
+      if (price !== trade.orderPrice) {
+        trade.orderType = this.pendingType(trade.side, price, bid, spread);
+        trade.orderPrice = trade.plannedEntry = price;
+      }
+    }
+    trade.stopLoss = trade.initialStop = stopLoss;
+    trade.takeProfit = takeProfit;
   }
 
   // ----- candle processing ------------------------------------------------
@@ -173,6 +242,13 @@ export class Broker {
   add(trade) {
     this.trades.push(trade);
     return trade;
+  }
+
+  /** Limit or stop? An order at a better price than the market is a limit; at a worse price, a stop. */
+  pendingType(side, price, bid, spread = this.spread) {
+    const quote = this.entryQuote(side, bid, spread);
+    if (side === Side.BUY) return price <= quote ? OrderType.LIMIT : OrderType.STOP;
+    return price >= quote ? OrderType.LIMIT : OrderType.STOP;
   }
 
   static validate(side, entry, stopLoss, takeProfit) {

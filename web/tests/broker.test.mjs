@@ -32,7 +32,20 @@ function replay(scenario) {
       } else {
         const trade = broker.trades.find((t) => t.id === action.trade);
         if (action.action === "close") broker.close(trade, i, c);
-        else broker.cancel(trade);
+        else if (action.action === "cancel") broker.cancel(trade);
+        else {
+          try {
+            if (action.action === "partial") broker.partialClose(trade, action.fraction, i, c);
+            else {
+              const { stop_loss: stopLoss, take_profit: takeProfit, price } = action.change;
+              broker.modify(trade, c, { stopLoss, takeProfit, price: price ?? null });
+            }
+            rejected.push(false);
+          } catch (err) {
+            if (!(err instanceof InvalidOrder)) throw err;
+            rejected.push(true);
+          }
+        }
       }
     }
   });
@@ -45,6 +58,8 @@ const record = (t) => ({
   placed_index: t.placedTime, entry_index: t.entryTime, entry_price: t.entryPrice,
   exit_index: t.exitTime, exit_price: t.exitPrice, exit_reason: t.exitReason,
   best_price: t.bestPrice, worst_price: t.worstPrice,
+  initial_stop: t.initialStop, remaining: t.remaining,
+  partials: t.partials.map((p) => ({ index: p.time, price: p.price, fraction: p.fraction })),
 });
 
 test(`matches the Python engine on ${fixture.summary.scenarios} recorded scenarios (${fixture.summary.trades} trades)`, () => {
@@ -71,9 +86,11 @@ test(`matches the Python engine on ${fixture.summary.scenarios} recorded scenari
 
 test("the fixture covers every kind of order and exit", () => {
   const s = fixture.summary;
-  for (const key of ["stop_loss", "take_profit", "manual", "cancelled", "rejected_orders", "limit_orders", "stop_orders", "market_orders"]) {
+  for (const key of ["stop_loss", "take_profit", "manual", "cancelled", "rejected_orders", "limit_orders", "stop_orders", "market_orders",
+    "partial_closes", "moves_accepted", "moves_rejected"]) {
     assert.ok(s[key] > 100, `${key}: ${s[key]}`);
   }
+  assert.ok(s.stopped_in_profit > 25, `stopped_in_profit: ${s.stopped_in_profit}`); // rarer: a stop moved past the entry, then hit
 });
 
 test("a market order fills at the next candle's open, not at the price when placed", () => {
@@ -117,4 +134,59 @@ test("invalid orders are rejected and leave nothing behind", () => {
   assert.throws(() => broker.pendingOrder(Side.BUY, 110000, 110100, 110200, 0, 110050), InvalidOrder);
   assert.throws(() => broker.marketOrder(Side.SELL, 109900, 109800, 0, 110000), InvalidOrder);
   assert.equal(broker.trades.length, 0);
+});
+
+test("moving the stop to breakeven does not change what 1R means", () => {
+  const broker = new Broker();
+  const trade = broker.marketOrder(Side.BUY, 109900, 110300, 0, 110000); // 100 points of risk
+  broker.processCandle(1, 110000, 110120, 109990);
+  broker.modify(trade, 110100, { stopLoss: 110000 }); // price is at 110100: stop to the entry
+  assert.equal(trade.plannedRisk, 100);
+  broker.processCandle(2, 110100, 110110, 109990); // comes back through the entry
+  assert.equal(trade.exitReason, ExitReason.STOP_LOSS);
+  assert.equal(trade.exitPrice, 110000);
+  assert.equal(trade.resultR, 0);
+});
+
+test("a stop cannot be moved to the wrong side of the current price", () => {
+  const broker = new Broker();
+  const trade = broker.marketOrder(Side.BUY, 109900, 110300, 0, 110000);
+  broker.processCandle(1, 110000, 110020, 109990);
+  assert.throws(() => broker.modify(trade, 109980, { stopLoss: 110000 }), InvalidOrder); // price is below the entry
+  assert.throws(() => broker.modify(trade, 110050, { takeProfit: 110040 }), InvalidOrder);
+  assert.equal(trade.stopLoss, 109900);
+  assert.equal(trade.takeProfit, 110300);
+});
+
+test("moving a pending order's stop changes its planned risk; moving its entry can turn a limit into a stop", () => {
+  const broker = new Broker();
+  const trade = broker.pendingOrder(Side.BUY, 109950, 109900, 110200, 0, 110000); // buy limit, 50 points of risk
+  assert.equal(trade.orderType, OrderType.LIMIT);
+  broker.modify(trade, 110000, { stopLoss: 109850 });
+  assert.equal(trade.plannedRisk, 100);
+  broker.modify(trade, 110000, { price: 110050 });
+  assert.equal(trade.orderType, OrderType.STOP);
+  assert.equal(trade.plannedRisk, 200);
+});
+
+test("a partial close banks part of the result; R is the size-weighted average", () => {
+  const broker = new Broker();
+  const trade = broker.marketOrder(Side.BUY, 109900, 110300, 0, 110000); // 100 points of risk, target +3R
+  broker.processCandle(1, 110000, 110110, 109990);
+  broker.partialClose(trade, 0.5, 1, 110100); // half off at +1R
+  assert.equal(trade.remaining, 0.5);
+  assert.equal(trade.status, Status.OPEN);
+  broker.processCandle(2, 110100, 110310, 110090); // the rest reaches the target at +3R
+  assert.equal(trade.exitReason, ExitReason.TAKE_PROFIT);
+  assert.equal(trade.resultR, 2); // 0.5 x 1R + 0.5 x 3R
+  assert.throws(() => broker.partialClose(trade, 0.1, 2, 110300), /only open trades/);
+});
+
+test("a partial close must leave something open", () => {
+  const broker = new Broker();
+  const trade = broker.marketOrder(Side.SELL, 110100, 109700, 0, 110000);
+  broker.processCandle(1, 110000, 110010, 109990);
+  assert.throws(() => broker.partialClose(trade, 1, 1, 110000), InvalidOrder);
+  assert.throws(() => broker.partialClose(trade, 0, 1, 110000), InvalidOrder);
+  assert.equal(trade.partials.length, 0);
 });

@@ -1,5 +1,6 @@
 // App start-up: load data, build the chart, wire the top bar and the replay.
 
+import { formatLots, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
 import { ChartView } from "./chart.js";
 import { loadJSON, loadSymbol } from "./data.js";
 import { renderDataView } from "./dataview.js";
@@ -8,7 +9,7 @@ import { ReplayClock, SPEEDS } from "./replay.js";
 import { loadSavedSessions, renderSessionKey, setupSessionSettings } from "./sessionsettings.js";
 import { formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
 import { TIMEFRAMES, TimeframeView } from "./timeframes.js";
-import { Side, Status, Trading } from "./trading.js";
+import { InvalidOrder, Side, Status, Trading } from "./trading.js";
 import { TradingPanel } from "./tradingpanel.js";
 
 const $ = (id) => document.getElementById(id);
@@ -131,18 +132,51 @@ async function boot() {
         panel.receivePrice(price); // filling in a price field from the chart
       }
     },
+    onLineDrag: (id, price) => setHint(describeMove(id, price)),
+    onLineDrop: (id, price) => {
+      setHint(null);
+      if (price === null) return;
+      const [kind, tradeId] = id.split(":");
+      try {
+        trading.modifyTrade(Number(tradeId), { [LINE_FIELD[kind]]: price });
+        panel.say(`${LINE_NAME[kind]} of #${tradeId} moved to ${(price / 10 ** manifest.digits).toFixed(manifest.digits)}.`, "ok");
+      } catch (err) {
+        if (!(err instanceof InvalidOrder)) throw err;
+        panel.say(err.message, "bad"); // the line has already snapped back
+      }
+    },
   });
 
   // ------------------------------------------------------------ trading
   const UP = "#26a69a", DOWN = "#ef5350", PENDING = "#ffb74d", ENTRY = "#d1d4dc";
-  const trading = new Trading({ m5, clock, pipPoints: manifest.pip_points, onChange: () => refreshTrading() });
+  const trading = new Trading({
+    m5, clock, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits),
+    settings: loadSettings(), onChange: () => refreshTrading(),
+  });
   const formatR = (r) => `${r >= 0 ? "+" : ""}${r.toFixed(2)}R`;
+  const LINE_FIELD = { sl: "stopLoss", tp: "takeProfit", entry: "price" };
+  const LINE_NAME = { sl: "Stop loss", tp: "Take profit", entry: "Entry" };
+
+  /** Shown while a line is being dragged: where it is now, and what that means in pips, R and dollars. */
+  function describeMove(id, price) {
+    const [kind, tradeId] = id.split(":");
+    const t = trading.broker.trades.find((trade) => trade.id === Number(tradeId));
+    if (!t) return null;
+    const text = `${LINE_NAME[kind]} #${t.id} → ${(price / 10 ** manifest.digits).toFixed(manifest.digits)}`;
+    if (kind === "entry") return `${text} · let go to move the order, Esc to cancel`;
+    const entry = t.entryPrice ?? t.plannedEntry;
+    const points = (price - entry) * (t.side === Side.BUY ? 1 : -1);
+    const money = t.status === Status.OPEN
+      ? ` · ${formatSignedMoney(trading.account.money(trading.account.openUnits(t), points))} on what is open` : "";
+    return `${text} · ${(points / manifest.pip_points).toFixed(1)} pips from entry (${formatR(points / t.plannedRisk)})${money}`;
+  }
 
   /** Lines for active trades and entry/exit markers for the timeframe on screen. */
   function drawTrades() {
     const lines = [];
     const markers = [];
     const shown = view.display.length;
+    const draggable = !trading.blockedReason; // lines can be moved only when orders can be placed
     for (const t of trading.broker.trades) {
       if (t.status === Status.CANCELLED) continue;
       const buy = t.side === Side.BUY;
@@ -150,17 +184,26 @@ async function boot() {
         const pending = t.status === Status.PENDING;
         if (!(pending && t.orderType === OrderType.MARKET)) {
           lines.push({
+            id: `entry:${t.id}`, draggable: draggable && pending,
             price: pending ? t.orderPrice : t.entryPrice, colour: pending ? PENDING : ENTRY, dashed: pending,
-            title: `#${t.id} ${t.side}${pending ? ` ${t.orderType}` : ""}`,
+            title: `#${t.id} ${t.side}${pending ? ` ${t.orderType}` : ""} ${formatLots(trading.account.openUnits(t))}`,
           });
         }
-        lines.push({ price: t.stopLoss, colour: DOWN, dashed: true, title: `SL #${t.id}` });
-        lines.push({ price: t.takeProfit, colour: UP, dashed: true, title: `TP #${t.id}` });
+        lines.push({ id: `sl:${t.id}`, draggable, price: t.stopLoss, colour: DOWN, dashed: true, title: `SL #${t.id}` });
+        lines.push({ id: `tp:${t.id}`, draggable, price: t.takeProfit, colour: UP, dashed: true, title: `TP #${t.id}` });
       }
       if (t.entryTime !== null && view.bucketOf[t.entryTime] < shown) {
         markers.push({
           time: view.full.time[view.bucketOf[t.entryTime]], above: !buy, colour: buy ? UP : DOWN,
           shape: buy ? "arrowUp" : "arrowDown", text: `#${t.id}`,
+        });
+      }
+      for (const part of t.partials) { // a small dot where part of the trade was closed
+        if (view.bucketOf[part.time] >= shown) continue;
+        const gain = (part.price - t.entryPrice) * (buy ? 1 : -1);
+        markers.push({
+          time: view.full.time[view.bucketOf[part.time]], above: buy, colour: gain >= 0 ? UP : DOWN,
+          shape: "circle", text: `#${t.id} part`,
         });
       }
       if (t.exitTime !== null && view.bucketOf[t.exitTime] < shown) {
@@ -277,6 +320,7 @@ async function boot() {
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
     if (document.querySelector("dialog[open]")) return;
+    if (event.key === "Escape" && chart.cancelDrag()) return;
     if (event.key === "Escape" && picking) { setPicking(false); return; }
     if (event.key === "Escape" && panel.pickTarget) { panel.setPick(null); return; }
     if (!clock.active) return;
