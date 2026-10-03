@@ -10,12 +10,16 @@ const STRIP = 26;
 export const screenshotUrl = (journal, name) =>
   `/api/screenshots/${encodeURIComponent(journal)}/${encodeURIComponent(name)}`;
 
-/** A PNG of the chart with a caption strip on top. Resolves to a Blob. */
-export function capture(chartApi, caption) {
-  const shot = chartApi.takeScreenshot();
+/**
+ * A PNG of the chart (or of two charts side by side, with a 2px gap) with a caption strip on top.
+ * `charts` is one chart or a list of them. Resolves to a Blob.
+ */
+export function capture(charts, caption) {
+  const shots = (Array.isArray(charts) ? charts : [charts]).map((c) => c.takeScreenshot());
+  const GAP = 2;
   const canvas = document.createElement("canvas");
-  canvas.width = shot.width;
-  canvas.height = shot.height + STRIP;
+  canvas.width = shots.reduce((w, s) => w + s.width, 0) + GAP * (shots.length - 1);
+  canvas.height = Math.max(...shots.map((s) => s.height)) + STRIP;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#1e222d";
   ctx.fillRect(0, 0, canvas.width, STRIP);
@@ -23,7 +27,13 @@ export function capture(chartApi, caption) {
   ctx.font = '13px -apple-system, "Segoe UI", Roboto, sans-serif';
   ctx.textBaseline = "middle";
   ctx.fillText(caption, 10, STRIP / 2);
-  ctx.drawImage(shot, 0, STRIP);
+  ctx.fillStyle = "#1e222d"; // the gap between charts shows as the strip colour
+  ctx.fillRect(0, STRIP, canvas.width, canvas.height - STRIP);
+  let x = 0;
+  for (const shot of shots) {
+    ctx.drawImage(shot, x, STRIP);
+    x += shot.width + GAP;
+  }
   return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("the browser made no picture"))), "image/png"));
 }
 

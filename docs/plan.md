@@ -2,7 +2,7 @@
 
 Goal: a browser app that covers about 70% of what TradingView replay or FX Replay offers, for testing Jeevesh's own strategies on EURUSD. A very cheap paid version is a far-future idea, not part of this plan.
 
-Day 11 was finished on 4 Oct 2026. The build log's plan runs 28 Sep to 11 Oct, which puts day 11 on 8 Oct, so the work is ahead of schedule (this file used to say three days behind; see the day-7 checkpoint in the build log).
+Day 12 was finished on 4 Oct 2026. The build log's plan runs 28 Sep to 11 Oct, which puts day 12 on 9 Oct, so the work is ahead of schedule (this file used to say three days behind; see the day-7 checkpoint in the build log).
 
 | Day | Scope | Status |
 |---|---|---|
@@ -17,13 +17,13 @@ Day 11 was finished on 4 Oct 2026. The build log's plan runs 28 Sep to 11 Oct, w
 | 9 | More drawings and keyboard shortcuts (rays, text, colours, snapping, undo) | done |
 | 10 | Journal: notes, tags, screenshots per trade | done |
 | 11 | Analytics page | done |
-| 12 | AI trade review, or two charts side by side | next (choice needed) |
-| 13 | Speed and fixes, plus basic indicators (proposed: SMA, EMA, RSI, VWAP; computed from revealed candles only) | |
+| 12 | Two charts side by side (chosen over AI trade review on 4 Oct) | done |
+| 13 | Speed and fixes, plus basic indicators (proposed: SMA, EMA, RSI, VWAP; computed from revealed candles only) | next |
 | 14 | Release, README, CV bullet | |
 
 ## Open decisions (Jeevesh has not answered these)
 
-- **Day 12:** AI trade review or two charts. Decide by day 11. AI review needs an Anthropic API key.
+- **Day 12:** decided on 4 Oct: two charts. AI trade review is not in this plan.
 - **Commission:** is $4 per lot the full round turn, or per side?
 - **Intrabar data:** a friend who scalps with 4-pip stops asked for candles that form live. Options discussed on 3 Oct: (a) fake movement from M5, rejected as dishonest; (b) M1 data, about one day; (c) tick data, about three to four days, best after day 14. Recommendation given: M1 now, ticks later. On 3 Oct Jeevesh chose to keep the original plan and not do this yet. Needs a fresh MT5 export, and the MT5 login had expired.
 - **commit-bot** (a tool that makes artificial commits to fill the GitHub activity graph): advised against; never chosen.

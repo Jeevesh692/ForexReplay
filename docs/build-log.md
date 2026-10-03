@@ -383,3 +383,48 @@ In the in-app browser:
 - A test script ran past the browser tool's time limit, because every simulated candle redraws the chart. It was left to finish rather than run again.
 
 **How to check:** click "Analytics" in the top bar. Pick a journal; the tiles, the equity curve and the tables fill in. Choose a tag in the filter row and every number changes to just those trades. Compare with `python -m forex_replay report strategies/<journal>/trades.csv`: the same numbers.
+
+---
+
+## Day 12: Sun 4 Oct 2026 · two charts side by side
+
+**Asked for (Jeevesh):** two charts side by side (not AI trade review); start day 12.
+
+**Built (Claude):**
+- **"2 charts"** button in the top bar. The second chart sits on the right with its own timeframe menu (H4 to start), on the same replay clock. See [decision 0013](decisions/0013-two-charts.md).
+- **Shared drawings:** draw on either chart and the drawing appears on both. `web/js/layergroup.js` makes the two drawing layers act as one: one tool, one selection, one undo history, one magnet.
+- Trade lines and markers on both charts, draggable on either. Ticket prices and the replay start can be picked on either.
+- **Crosshair sync:** hovering one chart puts the other's crosshair and legend on the candle containing the same moment.
+- Journal screenshots capture both charts side by side.
+- Session shading, "Go to", "Latest" and End apply to both charts.
+- `web/js/chart.js` gained the crosshair hooks; `web/js/main.js` now treats each chart as a "pane" with its own timeframe and view.
+
+**Tests:** 5 new JavaScript tests (110 in total; Python stays at 64). They cover:
+- a tool waiting on both charts and switching off on both after one draws
+- one selection across both charts
+- Esc dropping a tool, then a selection
+- magnet and colour defaults reaching both charts
+- a removed chart taking no part
+- two views of the same timeframe on one clock both hearing every candle, with the forming candle on M15 and H1 showing the newest close and nothing later
+
+In the in-app browser:
+- **Replay:** the split showed M15 and H4 at equal widths. With the clock running, the H4 chart had 1,671 of its 1,734 candles, and its forming candle closed at exactly the newest M5 close.
+- **Trades:** a market buy's entry, stop and target lines were on both charts.
+- **Drawing:** a horizontal line drawn on H4 sat at the same price on M15. The tool switched off on both, and selecting the line on M15 cleared the H4 selection.
+- **Crosshair, with real mouse hovers:** M15 at 14:15 put H4 on its 10:30 candle (the 4-hour candle containing 14:15), H4 at 06:30 put M15 on 06:30, and moving away put both back on the newest candle.
+- **Layout and timeframe:** switching to one chart and back during a replay brought the H4 chart up to the clock with the trade lines; switching it to D1 and back worked.
+- **Screenshot:** the automatic entry screenshot held both charts, captioned "EURUSD M15 + H4", and was looked at.
+- No console errors.
+
+**Decisions:**
+- The second chart is a full companion (drawing, dragging lines, picking prices), not a picture ([0013](decisions/0013-two-charts.md)).
+- Drawings are shared between the charts because they are stored in time and price; nothing is converted.
+- The main chart leads: timeframe buttons, replay steps and the backtest's timeframe follow it.
+- Each chart has its own TimeframeView.
+
+**Found along the way:**
+- The second chart's crosshair moved to the right candle, but its legend stayed on the newest candle. The chart library sends no hover event for a crosshair placed by code, so the legend is now updated directly.
+- A first check of the crosshair used simulated mouse moves, which the chart library ignores; it proved nothing. The check was redone with real mouse hovers in the in-app browser.
+- The new two-chart screenshot code first filled the gap between charts with the text colour; caught while reading the change, before it ran.
+
+**How to check:** click "2 charts" in the top bar. Pick H4 in the right chart's menu. Start a replay on the left chart and press Space: both charts move together, and the H4 candle forms as the M15 candles arrive. Draw a horizontal line on H4: it appears on M15 at the same price. Hover over M15: the H4 crosshair jumps to the 4-hour candle that contains it.

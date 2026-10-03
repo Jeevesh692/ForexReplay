@@ -28,6 +28,7 @@
     <button class="plain" id="latest" title="Jump to the newest candle on the chart">Latest &#8677;</button>
     <button class="plain toggle" id="sessions-toggle" title="Show or hide session shading (M5 to H1)">Sessions</button>
     <button class="plain" id="sessions-settings" title="Session settings: names, timezones, hours, colours" aria-label="Session settings">&#9881;</button>
+    <button class="plain toggle" id="layout-toggle" title="Two charts side by side, on the same replay clock">&#9707; 2 charts</button>
     <div class="spacer"></div>
     <div class="clock" id="clock"></div>
     <button class="plain replay-start" id="replay-toggle" title="Start a replay: click here, then click the candle to start from">&#9198; Replay</button>
@@ -104,6 +105,13 @@
         <button class="plain small" id="draw-delete" title="Delete this drawing (Delete key)">Delete</button>
       </div>
       <div class="chart" id="chart"></div>
+      <div class="pane-side" id="pane-side" hidden>
+        <div class="pane-head">
+          <select id="side-tf" aria-label="Timeframe of the second chart" title="Timeframe of the second chart"></select>
+          <div class="legend side-legend" id="legend-side"></div>
+        </div>
+        <div class="chart" id="chart2"></div>
+      </div>
     </section>
 
     <section class="view analytics" id="analytics-view" hidden>

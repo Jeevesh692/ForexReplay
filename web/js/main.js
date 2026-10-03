@@ -10,6 +10,7 @@ import { capture as captureChart, remove as removeScreenshot, upload as uploadSc
 import { TradeNotes } from "./tradenotes.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
+import { LayerGroup } from "./layergroup.js";
 import {
   DrawingStore, LINE_STYLES, loadSaved as loadSavedDrawings, PALETTE, positionStats, save as saveDrawings, TOOLS,
 } from "./drawings.js";
@@ -29,6 +30,8 @@ const number = (n) => n.toLocaleString("en-IN");
 const KEY_TIMEFRAME = "forexreplay.timeframe";
 const KEY_SESSIONS = "forexreplay.sessions";
 const KEY_MAGNET = "forexreplay.magnet";
+const KEY_LAYOUT = "forexreplay.layout";
+const KEY_SIDE_TF = "forexreplay.sidetimeframe";
 const KEY_DRAW_STYLES = "forexreplay.drawstyles";
 
 function remember(key, value) {
@@ -45,8 +48,7 @@ function showError(message) {
 }
 
 /** Legend in the chart's top-left corner, like TradingView's O H L C line. */
-function renderLegend(symbol, timeframeId, digits, info, forming) {
-  const el = $("legend");
+function renderLegend(el, symbol, timeframeId, digits, info, forming) {
   if (!info) {
     el.textContent = `${symbol} · ${timeframeId}`;
     return;
@@ -131,17 +133,32 @@ async function boot() {
     hint.textContent = text || "";
   };
 
-  const chart = new ChartView($("chart"), {
+  // Each chart on screen is a "pane": its chart, its timeframe and its view of the one replay clock.
+  // The main pane is the one the timeframe buttons, the replay steps and the backtest's timeframe follow.
+  // The side pane (two charts side by side) has its own timeframe and its own TimeframeView, even when
+  // both show the same timeframe, so each chart is told about every candle the clock reveals.
+  let layoutTwo = recall(KEY_LAYOUT, "one") === "two";
+  const mainPane = { id: "main", legend: $("legend"), get tf() { return current; }, get view() { return view; }, chart: null, layer: null };
+  const sideTf = recall(KEY_SIDE_TF, "H4");
+  const sidePane = { id: "side", legend: $("legend-side"), tf: TIMEFRAMES.some((t) => t.id === sideTf) ? sideTf : "H4", view: null, chart: null, layer: null };
+  const panes = () => (layoutTwo && sidePane.chart ? [mainPane, sidePane] : [mainPane]);
+
+  const chartOptions = (pane) => ({
     lib,
     symbol: manifest.symbol,
     digits: manifest.digits,
-    onHover: (info) => renderLegend(manifest.symbol, current, manifest.digits, info,
-      info && info.index === view.display.length - 1 && view.isForming()),
+    onHover: (info) => renderLegend(pane.legend, manifest.symbol, pane.tf, manifest.digits, info,
+      info && info.index === pane.view.display.length - 1 && pane.view.isForming()),
+    onCrosshairTime: (time) => { // the other chart puts its crosshair on the same moment
+      const other = pane === mainPane ? sidePane : mainPane;
+      if (!layoutTwo || !other.chart) return;
+      if (time === null) other.chart.hideCrosshair(); else other.chart.showCrosshairAt(time);
+    },
     onClick: (index, price) => {
       if (picking) {
         if (index === null) return;
         setPicking(false);
-        clock.start(view.endOf(index)); // the clicked candle is the last one shown
+        clock.start(pane.view.endOf(index)); // the clicked candle is the last one shown, on whichever chart
       } else if (panel && price !== null) {
         panel.receivePrice(price); // filling in a price field from the chart
       }
@@ -160,6 +177,8 @@ async function boot() {
       }
     },
   });
+  const chart = new ChartView($("chart"), chartOptions(mainPane));
+  mainPane.chart = chart;
 
   // ------------------------------------------------------------ trading
   const UP = "#26a69a", DOWN = "#ef5350", PENDING = "#ffb74d", ENTRY = "#d1d4dc";
@@ -185,15 +204,12 @@ async function boot() {
     return `${text} · ${(points / manifest.pip_points).toFixed(1)} pips from entry (${formatR(points / t.plannedRisk)})${money}`;
   }
 
-  /** Lines for active trades and entry/exit markers for the timeframe on screen. */
+  /** Lines for active trades on every chart, and entry/exit markers on each chart's own candles. */
   function drawTrades() {
     const lines = [];
-    const markers = [];
-    const shown = view.display.length;
     const draggable = !trading.blockedReason; // lines can be moved only when orders can be placed
     for (const t of trading.broker.trades) {
       if (t.status === Status.CANCELLED) continue;
-      const buy = t.side === Side.BUY;
       if (t.isActive) {
         const pending = t.status === Status.PENDING;
         if (!(pending && t.orderType === OrderType.MARKET)) {
@@ -206,6 +222,20 @@ async function boot() {
         lines.push({ id: `sl:${t.id}`, draggable, price: t.stopLoss, colour: DOWN, dashed: true, title: `SL #${t.id}` });
         lines.push({ id: `tp:${t.id}`, draggable, price: t.takeProfit, colour: UP, dashed: true, title: `TP #${t.id}` });
       }
+    }
+    for (const p of panes()) {
+      p.chart.setTradeLines(lines);
+      p.chart.setTradeMarkers(markersFor(p.view));
+    }
+  }
+
+  /** Entry, partial-close and exit markers, placed on the candles of `view`'s timeframe. */
+  function markersFor(view) {
+    const markers = [];
+    const shown = view.display.length;
+    for (const t of trading.broker.trades) {
+      if (t.status === Status.CANCELLED) continue;
+      const buy = t.side === Side.BUY;
       if (t.entryTime !== null && view.bucketOf[t.entryTime] < shown) {
         markers.push({
           time: view.full.time[view.bucketOf[t.entryTime]], above: !buy, colour: buy ? UP : DOWN,
@@ -227,8 +257,7 @@ async function boot() {
         });
       }
     }
-    chart.setTradeLines(lines);
-    chart.setTradeMarkers(markers);
+    return markers;
   }
 
   let challengeOutcome = null; // to notice the moment a challenge passes or fails
@@ -263,11 +292,12 @@ async function boot() {
     const t = trading.broker.trades.find((trade) => trade.id === id);
     if (!bt || !t) return;
     const now = m5.time[clock.position - 1] + manifest.bar_seconds;
-    const caption = `${manifest.symbol} ${current} · #${id} ${t.side} · ${kind} · ${formatDateTime(now)} IST · ${bt.name}`;
+    const tfs = panes().map((p) => p.tf).join(" + ");
+    const caption = `${manifest.symbol} ${tfs} · #${id} ${t.side} · ${kind} · ${formatDateTime(now)} IST · ${bt.name}`;
     const name = `${bt.id}-t${id}-${kind}${kind === "added" ? `-${Date.now().toString(36)}` : ""}.png`;
     let picture;
     try {
-      picture = captureChart(chart.chart, caption); // the picture is taken now; only the upload waits
+      picture = captureChart(panes().map((p) => p.chart.chart), caption); // taken now; only the upload waits
     } catch (err) {
       panel.say(`Screenshot not taken: ${err.message}`, "bad");
       return;
@@ -366,13 +396,18 @@ async function boot() {
     return sized.error ? "" : `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}`;
   }
 
-  const layer = new DrawingLayer(chart, {
-    store: drawings,
-    pipPoints: manifest.pip_points,
-    note: positionNote,
-    editor: $("text-editor"),
-    styleDefaults,
-    onStyleDefaults: (map) => remember(KEY_DRAW_STYLES, JSON.stringify(map)),
+  // One drawing layer per chart, all on the same drawings, acting as one (see layergroup.js).
+  const addLayer = (paneChart) => {
+    const cb = layer.callbacks();
+    const l = new DrawingLayer(paneChart, {
+      store: drawings, pipPoints: manifest.pip_points, note: positionNote, editor: $("text-editor"),
+      styleDefaults, onStyleDefaults: (map) => remember(KEY_DRAW_STYLES, JSON.stringify(map)),
+      onSelect: cb.onSelect, onToolChange: cb.onToolChange,
+    });
+    cb.bind(l);
+    return layer.add(l);
+  };
+  const layer = new LayerGroup({
     onToolChange: (tool) => {
       toolButtons.forEach((b) => b.classList.toggle("active", b.dataset.tool === (tool || "")));
       const how = tool === "text" ? "click where the note goes, then type and press Enter"
@@ -397,6 +432,7 @@ async function boot() {
       drawBar.styles.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lineStyle === (d.style || "solid")));
     },
   });
+  mainPane.layer = addLayer(chart);
   drawings.load(loadSavedDrawings(manifest.symbol));
   layer.redraw();
   renderUndo();
@@ -474,6 +510,48 @@ async function boot() {
   });
   setTimeframe(current, { keepPlace: false });
 
+  // ------------------------------------------------------------ second chart
+  const layoutButton = $("layout-toggle");
+  const sideSelect = $("side-tf");
+  sideSelect.innerHTML = TIMEFRAMES.map((t) => `<option value="${t.id}">${t.id}</option>`).join("");
+
+  /** The side chart's timeframe. It starts at the same moment as the main chart's right edge. */
+  function setSideTimeframe(tf) {
+    sidePane.tf = tf;
+    sidePane.view = new TimeframeView(m5, tf);
+    sidePane.view.setPosition(clock.position);
+    sideSelect.value = tf;
+    remember(KEY_SIDE_TF, tf);
+    const keepTime = chart.latestVisible() ? null : chart.rightEdgeTime();
+    sidePane.chart.setCandles(tf, sidePane.view.display, { keepTime });
+    drawTrades();
+    layer.redraw();
+  }
+  sideSelect.addEventListener("change", () => setSideTimeframe(sideSelect.value));
+
+  /** One chart, or two side by side. The second chart is made the first time it is wanted. */
+  function setLayout(two) {
+    layoutTwo = two;
+    remember(KEY_LAYOUT, two ? "two" : "one");
+    layoutButton.classList.toggle("active", two);
+    $("chart-view").classList.toggle("split", two);
+    $("pane-side").hidden = !two;
+    if (two) {
+      if (!sidePane.chart) {
+        sidePane.chart = new ChartView($("chart2"), chartOptions(sidePane));
+        sidePane.chart.setSessionsVisible(sessionsOn);
+      }
+      if (!sidePane.layer) sidePane.layer = addLayer(sidePane.chart);
+      setSideTimeframe(sidePane.tf);
+    } else if (sidePane.layer) {
+      sidePane.layer.select(null);
+      layer.remove(sidePane.layer); // a hidden chart takes no part in drawing
+      sidePane.layer.setTool(null);
+      sidePane.layer = null;
+    }
+  }
+  layoutButton.addEventListener("click", () => setLayout(!layoutTwo));
+
   // ------------------------------------------------------------ replay
   const ui = {
     toggle: $("replay-toggle"), controls: $("replay-controls"), back: $("replay-back"),
@@ -523,27 +601,34 @@ async function boot() {
       layer.storeChanged();
     }
     if (exitArmed && reason !== "stop") { exitArmed = false; setHint(null); }
-    const follow = chart.latestVisible();
-    const change = view.setPosition(clock.position);
-    if (reason === "start") {
-      chart.setCandles(current, view.display, { bars: chart.visibleBarCount() }); // replay edge at the right
-    } else if (reason === "stop") {
-      chart.setCandles(current, view.display, { keepTime: chart.rightEdgeTime(), bars: chart.visibleBarCount() });
-    } else if (change.reset) {
-      chart.setCandles(current, view.display, { preserveView: true });
-      if (follow) chart.goToLatest();
-    } else if (change.to >= change.from) {
-      chart.updateBars(change.from, change.to);
-    }
+    for (const p of panes()) updatePane(p, reason);
     renderReplayUi();
     refreshTrading();
   });
+
+  /** Bring one chart up to the replay clock: only what changed, or everything after a start, stop or jump. */
+  function updatePane(p, reason) {
+    const c = p.chart, v = p.view;
+    const follow = c.latestVisible();
+    const change = v.setPosition(clock.position);
+    if (reason === "start") {
+      c.setCandles(p.tf, v.display, { bars: c.visibleBarCount() }); // replay edge at the right
+    } else if (reason === "stop") {
+      c.setCandles(p.tf, v.display, { keepTime: c.rightEdgeTime(), bars: c.visibleBarCount() });
+    } else if (change.reset) {
+      c.setCandles(p.tf, v.display, { preserveView: true });
+      if (follow) c.goToLatest();
+    } else if (change.to >= change.from) {
+      c.updateBars(change.from, change.to);
+    }
+  }
+  const allToLatest = () => { for (const p of panes()) p.chart.goToLatest(); };
 
   ui.toggle.addEventListener("click", () => setPicking(!picking));
   ui.play.addEventListener("click", () => clock.toggle());
   ui.forward.addEventListener("click", () => clock.stepForward(view));
   ui.back.addEventListener("click", () => clock.stepBack(view));
-  ui.live.addEventListener("click", () => { clock.backToLive(); chart.goToLatest(); });
+  ui.live.addEventListener("click", () => { clock.backToLive(); allToLatest(); });
   // Leaving saves the backtest; open trades and orders stay open in it, ready to resume.
   ui.exit.addEventListener("click", async () => {
     clock.pause();
@@ -609,7 +694,7 @@ async function boot() {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement ||
         event.target instanceof HTMLTextAreaElement) return; // typing, not a shortcut
     if (document.querySelector("dialog[open]")) return;
-    if (event.key === "Escape" && chart.cancelDrag()) return;
+    if (event.key === "Escape" && panes().some((p) => p.chart.cancelDrag())) return;
     if (event.key === "Escape" && clearArmed) { disarmClear(); return; }
     if (event.key === "Escape" && layer.cancel()) return;
     if ((event.key === "Delete" || event.key === "Backspace") && layer.deleteSelected()) { event.preventDefault(); return; }
@@ -635,7 +720,7 @@ async function boot() {
     if (event.key === " ") { event.preventDefault(); clock.toggle(); }
     else if (event.key === "ArrowRight") { event.preventDefault(); event.shiftKey ? clock.advance(1) : clock.stepForward(view); }
     else if (event.key === "ArrowLeft") { event.preventDefault(); clock.stepBack(view); }
-    else if (event.key === "End") { clock.backToLive(); chart.goToLatest(); }
+    else if (event.key === "End") { clock.backToLive(); allToLatest(); }
   });
   panel = new TradingPanel($("trading-panel"), {
     trading, m5, digits: manifest.digits,
@@ -675,7 +760,7 @@ async function boot() {
   const sessionsButton = $("sessions-toggle");
   let sessionsOn = recall(KEY_SESSIONS, "on") === "on";
   const applySessions = () => {
-    chart.setSessionsVisible(sessionsOn);
+    for (const c of [chart, sidePane.chart]) if (c) c.setSessionsVisible(sessionsOn);
     sessionsButton.classList.toggle("active", sessionsOn);
     $("session-key").hidden = !sessionsOn;
   };
@@ -690,7 +775,7 @@ async function boot() {
     // India-time preview for the date you are looking at: the replay time, or the newest candle.
     referenceTime: () => m5.time[clock.position - 1],
     onSaved: () => {
-      chart.refreshSessions();
+      for (const c of [chart, sidePane.chart]) if (c) c.refreshSessions();
       renderSessionKey($("session-key"));
     },
   });
@@ -702,9 +787,10 @@ async function boot() {
   goto.max = toIndiaInput(manifest.last);
   goto.addEventListener("change", () => {
     const when = parseIndiaInput(goto.value);
-    if (when !== null) chart.goTo(when);
+    if (when !== null) for (const p of panes()) p.chart.goTo(when);
   });
-  $("latest").addEventListener("click", () => chart.goToLatest());
+  $("latest").addEventListener("click", allToLatest);
+  setLayout(layoutTwo); // after the sessions are set up: the side chart copies their visibility
 
   // ------------------------------------------------------------ tabs
   const tabViews = { chart: $("chart-view"), analytics: $("analytics-view"), data: $("data-view") };
@@ -726,6 +812,7 @@ async function boot() {
   // Handy in the browser console and for automated checks.
   window.forexReplay = {
     manifest, quality, m5, chart, clock, trading, panel, viewFor, setTimeframe, drawings, layer, backtests, notes, journalBox,
+    sidePane, setLayout, setSideTimeframe,
     get timeframe() { return current; },
     get view() { return view; },
   };

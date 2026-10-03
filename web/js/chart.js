@@ -91,9 +91,9 @@ export class ChartView {
    * @param {HTMLElement} container  element the chart fills
    * @param {object} options  { lib, symbol, digits, onHover(barInfo | null), onClick(index, points),
    *   onLineDrag(id, points) while a trade line is being dragged, onLineDrop(id, points | null) when it is let go
-   *   (null = cancelled) }
+   *   (null = cancelled), onCrosshairTime(utc | null) when the mouse moves over this chart (for the other chart) }
    */
-  constructor(container, { lib, symbol, digits, onHover, onClick, onLineDrag, onLineDrop }) {
+  constructor(container, { lib, symbol, digits, onHover, onClick, onLineDrag, onLineDrop, onCrosshairTime }) {
     this.container = container;
     this.onLineDrag = onLineDrag || (() => {});
     this.onLineDrop = onLineDrop || (() => {});
@@ -102,6 +102,8 @@ export class ChartView {
     this.digits = digits;
     this.onHover = onHover || (() => {});
     this.onClick = onClick || (() => {});
+    this.onCrosshairTime = onCrosshairTime || (() => {});
+    this.mouseInside = false; // only the chart under the mouse tells the other where its crosshair is
     this.candles = null; // Candles of the timeframe on screen
     this.timeframe = null;
 
@@ -199,7 +201,12 @@ export class ChartView {
     container.addEventListener("mousemove", (event) => {
       if (!this.drag) container.classList.toggle("line-hover", !!this.lineAt(event));
     });
-    container.addEventListener("mouseleave", () => { if (!this.drag) container.classList.remove("line-hover"); });
+    container.addEventListener("mouseleave", () => {
+      if (!this.drag) container.classList.remove("line-hover");
+      this.mouseInside = false;
+      this.onCrosshairTime(null);
+    });
+    container.addEventListener("mouseenter", () => { this.mouseInside = true; });
     this.moveDrag = (event) => this.continueDrag(event);
     this.endDrag = (event) => this.finishDrag(event);
   }
@@ -379,9 +386,29 @@ export class ChartView {
   handleCrosshair(param) {
     if (!this.candles || param.time === undefined) {
       this.onHover(this.barInfo(this.candles ? this.candles.length - 1 : -1)); // fall back to the latest candle
+      if (this.mouseInside) this.onCrosshairTime(null);
       return;
     }
     this.onHover(this.barInfo(indexAtOrBefore(this.candles, fromChartTime(param.time))));
+    if (this.mouseInside) this.onCrosshairTime(fromChartTime(param.time));
+  }
+
+  /**
+   * Put the crosshair on the candle containing `utcSeconds` (the other chart is hovering that moment).
+   * On a higher timeframe that is the candle the moment falls in; past the last candle, the last one.
+   */
+  showCrosshairAt(utcSeconds) {
+    if (!this.candles || this.candles.length === 0 || this.mouseInside) return;
+    const i = indexAtOrBefore(this.candles, utcSeconds);
+    if (i < 0) { this.hideCrosshair(); return; }
+    this.chart.setCrosshairPosition(this.candles.price(this.candles.close[i]), toChartTime(this.candles.time[i]), this.series);
+    this.onHover(this.barInfo(i)); // the library sends no hover event for a crosshair placed by code
+  }
+
+  hideCrosshair() {
+    if (this.mouseInside || !this.candles) return;
+    this.chart.clearCrosshairPosition();
+    this.onHover(this.barInfo(this.candles.length - 1)); // back to the newest candle, as when the mouse leaves
   }
 
   /** UTC time of the candle at the right edge of the screen (used to keep your place). */

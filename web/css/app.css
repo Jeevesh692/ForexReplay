@@ -557,3 +557,18 @@ button.primary {
 .trades-table .nowrap { white-space: nowrap; }
 .view .up { color: var(--up); }
 .view .down { color: var(--down); }
+
+/* ---------- day 12: two charts side by side ---------- */
+.chart-view.split #chart { right: 50%; }
+.chart-view.split #legend { right: calc(50% + 80px); }
+.pane-side { position: absolute; top: 0; bottom: 0; left: 50%; right: 0; border-left: 2px solid var(--border); }
+.pane-side[hidden] { display: none; }
+.pane-side .pane-head {
+  position: absolute; z-index: 5; top: 6px; left: 10px; right: 80px;
+  display: flex; align-items: baseline; gap: 10px; pointer-events: none;
+}
+.pane-side .pane-head select {
+  pointer-events: auto; background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 4px; font-size: 12px;
+}
+.pane-side .legend { position: static; right: auto; }
