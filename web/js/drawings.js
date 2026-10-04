@@ -12,9 +12,26 @@ import { indexAtOrBefore } from "./timeframes.js";
 
 export const STORAGE_PREFIX = "forexreplay.drawings.";
 
-/** Fibonacci retracement levels. 0.618 to 0.79 is the "optimal trade entry" (OTE) zone, with 0.705 in the middle. */
+/**
+ * Fibonacci retracement levels, as each new drawing starts. 0.618 to 0.79 is the "optimal trade entry"
+ * (OTE) zone, with 0.705 in the middle. Each drawing can carry its own `levels` (and `ote: false` to hide
+ * the zone); below 0 and above 1 are extensions (for example -0.27 or 1.618).
+ */
 export const FIB_LEVELS = [0, 0.382, 0.5, 0.618, 0.705, 0.79, 1];
 export const OTE = [0.618, 0.79];
+export const FIB_LIMITS = { min: -5, max: 10, count: 24 };
+
+/** A list of Fibonacci levels made safe: numbers between -5 and 10, 4 decimals, no repeats, sorted, at most 24. Null if none is left. */
+export function cleanFibLevels(raw) {
+  if (!Array.isArray(raw)) return null;
+  const levels = [...new Set(raw.map(Number)
+    .filter((v) => Number.isFinite(v) && v >= FIB_LIMITS.min && v <= FIB_LIMITS.max)
+    .map((v) => Math.round(v * 10000) / 10000))].sort((a, b) => a - b).slice(0, FIB_LIMITS.count);
+  return levels.length ? levels : null;
+}
+
+/** The levels a Fibonacci drawing shows: its own, or the standard set. */
+export const fibLevelsOf = (d) => d.levels || FIB_LEVELS;
 
 /**
  * How many clicks each tool needs, its name in the app, and whether it takes a colour and
@@ -270,11 +287,12 @@ export function layout(d, proj) {
     const left = Math.min(X(a.time), X(b.time));
     const right = Math.max(proj.width, left); // levels run to the right edge of the chart
     out.lines.push({ x1: X(a.time), y1: Y(a.price), x2: X(b.time), y2: Y(b.price), role: "guide" });
-    box(left, Y(fibPrice(d, OTE[0])), right, Y(fibPrice(d, OTE[1])), "ote");
-    for (const level of FIB_LEVELS) {
+    const ote = d.ote !== false;
+    if (ote) box(left, Y(fibPrice(d, OTE[0])), right, Y(fibPrice(d, OTE[1])), "ote");
+    for (const level of fibLevelsOf(d)) {
       const price = fibPrice(d, level);
       const y = Y(price);
-      out.lines.push({ x1: left, y1: y, x2: right, y2: y, role: OTE[0] <= level && level <= OTE[1] ? "ote" : "level" });
+      out.lines.push({ x1: left, y1: y, x2: right, y2: y, role: ote && OTE[0] <= level && level <= OTE[1] ? "ote" : "level" });
       out.labels.push({ x: left + 4, y: y - 4, text: `${level} (${proj.formatPrice(price)})`, align: "left", role: "level" });
     }
   } else if (isPosition(d.type)) {
@@ -364,6 +382,11 @@ export function cleanDrawing(raw) {
   if (TOOLS[raw.type].styled) { // an unknown colour or style is dropped, not the drawing
     if (PALETTE.includes(raw.color)) d.color = raw.color;
     if (LINE_STYLES.includes(raw.style) && raw.type !== "text") d.style = raw.style;
+  }
+  if (raw.type === "fib") { // its own levels and OTE choice, if it has them; anything odd falls back to the standard set
+    const levels = cleanFibLevels(raw.levels);
+    if (levels) d.levels = levels;
+    if (raw.ote === false) d.ote = false;
   }
   if (isPosition(raw.type)) {
     const direction = raw.type === "long" ? 1 : -1;

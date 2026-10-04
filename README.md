@@ -23,8 +23,8 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 - **Prop-firm challenge mode:** profit target, daily loss limit and maximum loss, checked on every M5 candle at its worst price, with days starting at 17:00 New York.
 
 **Drawing and analysis**
-- Trendline, ray, horizontal line and ray, vertical line, rectangle, Fibonacci with the OTE zone (0.618 to 0.79), long/short position tool, text notes. Drawings have colours, line styles, a magnet to candle prices, undo, and TradingView-style Alt shortcuts.
-- Indicators: SMA, EMA, daily VWAP and RSI, worked out only from revealed candles.
+- Trendline, ray, horizontal line and ray, vertical line, rectangle, Fibonacci with the OTE zone (0.618 to 0.79) and your own levels and extensions, long/short position tool, text notes. Drawings have colours, line styles, a magnet to candle prices, undo, and TradingView-style Alt shortcuts.
+- Indicators: SMA, EMA, daily VWAP, RSI, ATR and ADR (with today's ADR levels), worked out only from revealed candles.
 
 **Backtests, journal and analytics**
 - Every replay is a backtest, saved as you go and resumable later. It is saved as the actions you took and rebuilt by replaying them, then checked trade by trade against the save.
@@ -52,8 +52,8 @@ Then click **Replay**, click the candle to start from, and press **Space**. Pres
 ## How it is tested
 
 ```bash
-pip install pytest && python -m pytest    # 66 Python tests
-node --test web/tests/*.test.mjs          # 122 JavaScript tests (Node.js, no packages)
+pip install pytest && python -m pytest    # 67 Python tests
+node --test web/tests/*.test.mjs          # 126 JavaScript tests (Node.js, no packages)
 ```
 
 The browser app repeats three pieces of logic that already existed in Python. Each copy is held to the Python original by a recorded comparison file, so the two can never drift apart:

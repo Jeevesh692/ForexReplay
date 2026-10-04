@@ -102,6 +102,7 @@
           <button class="plain small" data-line-style="dotted" title="Dotted line">&#8943;</button>
         </span>
         <button class="plain small" id="draw-edit-text" title="Change the text (or double-click the note)" hidden>Edit text</button>
+        <button class="plain small" id="draw-fib-levels" title="Choose this Fibonacci's levels" hidden>Levels</button>
         <span class="draw-levels" id="draw-levels" hidden>
           <label title="Stop loss price: type it, then Enter">SL <input id="draw-stop" inputmode="decimal" autocomplete="off"></label>
           <label title="Take profit price: type it, then Enter">TP <input id="draw-target" inputmode="decimal" autocomplete="off"></label>
@@ -352,9 +353,42 @@
       <tr><td><label class="check"><input type="checkbox" data-ind="rsi"> <i class="swatch" style="background:#2962ff"></i> RSI</label></td>
         <td><label>Period <input type="number" data-period="rsi" min="2" max="500" step="1"></label></td>
         <td class="muted">relative strength index (Wilder), in a panel under the chart, lines at 70 and 30</td></tr>
+      <tr><td><label class="check"><input type="checkbox" data-ind="atr"> <i class="swatch" style="background:#00a7b8"></i> ATR</label></td>
+        <td><label>Period <input type="number" data-period="atr" min="2" max="500" step="1"></label></td>
+        <td class="muted">average true range (Wilder) in pips, on the chart's own timeframe, in a panel under the chart</td></tr>
+      <tr><td><label class="check"><input type="checkbox" data-ind="adr"> <i class="swatch" style="background:#868993"></i> ADR</label></td>
+        <td><label>Days <input type="number" data-period="adr" min="2" max="500" step="1"></label></td>
+        <td class="muted">average daily range in pips (the last completed days, never today), shown in the legend.
+          <label class="check inline-check"><input type="checkbox" data-levels="adr"> show today's ADR levels</label>
+          (today's low + ADR and high &minus; ADR, as the day develops; not on D1)</td></tr>
     </tbody></table>
     <div class="dialog-actions"><span class="spacer"></span>
       <button type="button" class="plain bordered" id="indicators-close">Close</button></div>
+  </dialog>
+
+  <dialog id="fib-dialog" class="dialog fib-dialog">
+    <h2>Fibonacci levels</h2>
+    <p class="muted">0 is where the move ended (your second click), 1 where it started. Below 0 and above 1 are
+      extensions: &minus;0.27 or &minus;0.618 go beyond the end of the move, 1.272 or 1.618 beyond its start.
+      Untick a level (or press &times;) to leave it out.</p>
+    <div class="fib-presets">
+      <button type="button" class="plain bordered small" data-fib-preset="standard">Standard + OTE</button>
+      <button type="button" class="plain bordered small" data-fib-preset="classic">Classic (0.236 … 1)</button>
+      <button type="button" class="plain bordered small" data-fib-preset="extensions">With extensions</button>
+    </div>
+    <table class="grid fib-table"><thead><tr><th>Show</th><th>Level</th><th></th></tr></thead><tbody id="fib-rows"></tbody></table>
+    <div class="fib-add">
+      <input id="fib-new" type="number" step="any" placeholder="e.g. 1.272" aria-label="New level">
+      <button type="button" class="plain bordered small" id="fib-add">+ Add level</button>
+      <label class="check"><input type="checkbox" id="fib-ote"> Shade the OTE zone (0.618 to 0.79)</label>
+    </div>
+    <p class="order-message bad" id="fib-message"></p>
+    <div class="dialog-actions">
+      <button type="button" class="plain bordered" id="fib-default" title="New Fibonacci drawings will start with these levels">Save as default</button>
+      <span class="spacer"></span>
+      <button type="button" class="plain bordered" id="fib-cancel">Cancel</button>
+      <button type="button" class="primary" id="fib-apply">Apply</button>
+    </div>
   </dialog>
 
   <dialog id="shortcuts-dialog" class="dialog">

@@ -600,3 +600,14 @@ button.primary {
   width: 100%; box-sizing: border-box; background: var(--panel-2); color: var(--text); border: 1px solid var(--blue);
   border-radius: 3px; padding: 1px 4px; font: inherit; font-weight: 600;
 }
+.indicator-table .inline-check { display: inline-flex; font-weight: 400; color: var(--text); margin: 2px 0; }
+
+/* ---------- Fibonacci levels dialog ---------- */
+.fib-dialog { width: min(460px, calc(100vw - 32px)); }
+.fib-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.fib-table td { vertical-align: middle; padding: 3px 6px; }
+.fib-table input[type="number"], .fib-add input[type="number"] {
+  width: 110px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
+}
+.fib-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.fib-add .check { display: flex; align-items: center; gap: 6px; color: var(--muted); }

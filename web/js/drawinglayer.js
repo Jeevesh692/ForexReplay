@@ -74,6 +74,7 @@ export class DrawingLayer {
     this.paneHeight = 0;
     this.magnet = false;
     this.styleDefaults = styleDefaults;
+    this.fibDefaults = null; // { levels, ote } that new Fibonacci drawings start with (null: the standard set)
     this.onStyleDefaults = onStyleDefaults || (() => {});
     this.editor = editor;
     this.editing = null; // { id } or { draft } while a text note is being typed
@@ -296,6 +297,7 @@ export class DrawingLayer {
             barsAhead: (time, bars) => logicalToTime(v.candles, this.tfSeconds, timeToLogical(v.candles, this.tfSeconds, time) + bars),
           }),
           ...(TOOLS[this.tool].styled ? this.styleDefaults[this.tool] : {}),
+          ...(this.tool === "fib" && this.fibDefaults ? structuredClone(this.fibDefaults) : {}),
         };
         if (this.tool === "text") {
           const draft = this.draft;

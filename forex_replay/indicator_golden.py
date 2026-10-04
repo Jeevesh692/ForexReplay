@@ -61,6 +61,38 @@ def rsi(values, n):
     return out
 
 
+def atr(highs, lows, closes, n):
+    """Wilder's average true range, started from the simple average of the first n true ranges."""
+    tr = [highs[0] - lows[0]] + [max(h - l, abs(h - pc), abs(l - pc))
+                                 for h, l, pc in zip(highs[1:], lows[1:], closes[:-1])]
+    out = [None] * len(tr)
+    if len(tr) < n:
+        return out
+    out[n - 1] = sum(tr[:n]) / n
+    for i in range(n, len(tr)):
+        out[i] = (out[i - 1] * (n - 1) + tr[i]) / n
+    return out
+
+
+def adr(times, highs, lows, n):
+    """Average daily range of the last n completed server days, and the day's low + ADR and high - ADR so far."""
+    days = utc_to_server(pd.to_datetime(times, unit="s", utc=True)).date
+    ranges, out_adr, out_high, out_low = [], [], [], []
+    day, hi, lo = None, None, None
+    for d, h, l in zip(days, highs, lows):
+        if d != day:
+            if day is not None:
+                ranges.append(hi - lo)
+            day, hi, lo = d, h, l
+        hi, lo = max(hi, h), min(lo, l)
+        if len(ranges) >= n:
+            a = sum(ranges[-n:]) / n
+            out_adr.append(a); out_high.append(lo + a); out_low.append(hi - a)
+        else:
+            out_adr.append(None); out_high.append(None); out_low.append(None)
+    return out_adr, out_high, out_low
+
+
 def vwap(times, highs, lows, closes, volumes):
     # A new day starts at the broker server's midnight (New York 17:00), the date of server time.
     days = utc_to_server(pd.to_datetime(times, unit="s", utc=True)).date
@@ -75,14 +107,14 @@ def vwap(times, highs, lows, closes, volumes):
     return out
 
 
-def candles(rng: random.Random) -> dict:
+def candles(rng: random.Random, count: int = CANDLES, step: int = 300) -> dict:
     t0 = 1772668800 - 3 * 3600  # Wed 4 Mar 2026 21:00 UTC: a few hours before a server midnight
     rows = {"time": [], "open": [], "high": [], "low": [], "close": [], "volume": []}
     price = 110_000
-    for i in range(CANDLES):
+    for i in range(count):
         o = price + rng.randint(-5, 5)
         c = o + rng.randint(-40, 40)
-        rows["time"].append(t0 + i * 300)
+        rows["time"].append(t0 + i * step)
         rows["open"].append(o)
         rows["high"].append(max(o, c) + rng.randint(0, 20))
         rows["low"].append(min(o, c) - rng.randint(0, 20))
@@ -99,7 +131,15 @@ def build(seed: int = SEED) -> dict:
     expected["vwap"] = vwap(rows["time"], rows["high"], rows["low"], closes, rows["volume"])
     flat = closes[:30] + [closes[29]] * 20  # no losses at all for a while: RSI must be 100, not a division by zero
     expected["rsi14_rising"] = rsi(sorted(flat), 14)
-    return {"seed": seed, "candles": rows, "rising": sorted(flat), "expected": expected}
+    # ATR and ADR on hourly candles over about two months, so ADR has many completed days to average.
+    hourly = candles(random.Random(seed + 1), count=1500, step=3600)
+    for n in (7, 14):
+        expected[f"atr{n}"] = atr(rows["high"], rows["low"], closes, n)
+        expected[f"atr{n}_hourly"] = atr(hourly["high"], hourly["low"], hourly["close"], n)
+    for n in (5, 14):
+        a, hi, lo = adr(hourly["time"], hourly["high"], hourly["low"], n)
+        expected[f"adr{n}"], expected[f"adr{n}_high"], expected[f"adr{n}_low"] = a, hi, lo
+    return {"seed": seed, "candles": rows, "hourly": hourly, "rising": sorted(flat), "expected": expected}
 
 
 def write_fixture(path: Path = FIXTURE) -> dict:

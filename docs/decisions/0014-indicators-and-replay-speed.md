@@ -25,6 +25,10 @@ On day 13 the browser check found that SMA, EMA and RSI were reading the full st
 
 Colours were checked for colour-blind separation and contrast on the chart background: SMA teal, EMA purple, VWAP amber, RSI blue. Lines on the candles are 1 px so the candles stay readable; RSI is 2 px in its own panel.
 
+## ATR and ADR (v2.0.3)
+
+ATR: Wilder's average true range over n candles of the chart's timeframe, started from the simple average of the first n true ranges, shown in pips in its own panel. ADR: the mean high − low of the last n *completed* broker-server days, never including today, shown in the legend in pips, with optional levels for today (low so far + ADR, high so far − ADR) on intraday charts. Both are held to the plain-Python reference like the others. Trading days are identified by their broker-clock date (`serverDate`), not by a start time in UTC, which differed either side of a US clock change.
+
 ## Replay speed
 
 Measured in the in-app browser: the time per M5 candle of the replay, with 40 closed trades, one open trade and 21,000 M15 candles on the chart.

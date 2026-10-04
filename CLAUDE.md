@@ -36,7 +36,7 @@ python -m forex_replay.stats_golden # regenerate the statistics comparison fixtu
 python -m forex_replay.indicator_golden # regenerate the indicator reference values (only when an indicator definition changes)
 ```
 
-Expected today: 66 Python tests, 122 JavaScript tests, all passing.
+Expected today: 67 Python tests, 126 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 

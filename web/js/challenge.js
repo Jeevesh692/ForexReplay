@@ -24,9 +24,8 @@
 //
 // This file knows dollars only through numbers it is given; trading.js feeds it.
 
-import { bucketStart } from "./timeframes.js";
+import { serverDate } from "./timeframes.js";
 
-const DAY = 86400;
 export const STORAGE_KEY = "forexreplay.challenge";
 
 export const DEFAULT_RULES = Object.freeze({ enabled: false, targetPercent: 8, dailyPercent: 5, maxPercent: 10 });
@@ -59,8 +58,8 @@ export function saveRules(rules) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rules)); } catch { /* private mode: not saved */ }
 }
 
-/** The broker-server day a UTC time belongs to (UTC seconds of that day's start). */
-export const serverDay = (utcSeconds) => bucketStart(utcSeconds, DAY);
+/** The broker-server day a UTC time belongs to (a day number on the server clock). */
+export const serverDay = (utcSeconds) => serverDate(utcSeconds);
 
 /** Exit reason written on trades closed because the challenge failed (a label only; no engine rule uses it). */
 export const CHALLENGE_EXIT = "CHALLENGE_STOP";

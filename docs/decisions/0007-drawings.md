@@ -48,6 +48,8 @@ Drawings are saved in the browser (`forexreplay.drawings.EURUSD`) on every chang
 
 A position placed at the newest candle runs past the right edge of the chart. Its stop, target and width handles and its labels are now placed on the part you can see, and the stop and target can also be typed (see the build log, "After v2.0.0").
 
+Each Fibonacci can carry its own levels (any number from −5 to 10, up to 24, extensions included) and switch its OTE shading off, set from its **Levels** box; "Save as default" sets what new ones start with (v2.0.3).
+
 ## Not yet done
 
 Colours and line styles, rays, text notes, snapping, undo and keyboard shortcuts came on day 9 ([0010](0010-drawing-styles-magnet-undo-shortcuts.md)); extended lines did not. (Since day 7, a replay's drawings are saved with its backtest; see [0008](0008-backtests-saved-as-actions.md).)

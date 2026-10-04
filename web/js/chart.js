@@ -23,7 +23,11 @@ const COLOURS = {
 };
 
 // Indicator colours: checked for colour-blind separation and contrast on the chart background (day 13).
-export const INDICATOR_COLOURS = { sma: "#00a7b8", ema: "#9c4fd6", vwap: "#c27c0e", rsi: "#2962ff" };
+export const INDICATOR_COLOURS = {
+  sma: "#00a7b8", ema: "#9c4fd6", vwap: "#c27c0e", rsi: "#2962ff",
+  atr: "#00a7b8", adr: "#868993", adrHigh: "#868993", adrLow: "#868993", // ATR has a panel to itself; ADR levels are quiet grey
+};
+const SUB_PANES = ["rsi", "atr"]; // panels under the chart, in this order
 
 const DEFAULT_VISIBLE_BARS = 160;
 const GRAB_PIXELS = 5; // how close the mouse must be to a line to drag it
@@ -428,11 +432,15 @@ export class ChartView {
     this.onHover(this.barInfo(this.candles.length - 1)); // the legend shows the new set straight away
   }
 
+  get pipPoints() { return 10 ** (this.digits - 4); } // EURUSD: 10 points to a pip
+
   indicatorPoint(line, i) {
     const v = line.values[i];
     const time = toChartTime(this.candles.time[i]);
     if (!Number.isFinite(v)) return { time }; // not worked out yet: a gap in the line
-    return { time, value: line.pane === "rsi" ? v : v / 10 ** this.digits };
+    if (line.pane === "rsi") return { time, value: v };
+    if (line.pane === "atr") return { time, value: v / this.pipPoints }; // ATR is shown in pips
+    return { time, value: v / 10 ** this.digits };
   }
 
   /**
@@ -440,28 +448,41 @@ export class ChartView {
    * are sent to the chart (a replay step); otherwise every point (new candles or new settings).
    */
   drawIndicators(from = null, to = null) {
-    const lines = this.indicatorEngine.compute(this.candles, this.indicatorSettings, from);
-    this.indicatorLines = lines;
+    let lines = this.indicatorEngine.compute(this.candles, this.indicatorSettings, from);
+    // ADR levels are for intraday charts: on D1 a day is one candle, so they say nothing (lines and legend alike).
+    if (this.timeframe === "D1") lines = lines.filter((l) => l.id !== "adrHigh" && l.id !== "adrLow");
+    this.indicatorLines = lines; // the legend shows every value, ADR included
+    lines = lines.filter((l) => l.pane !== "legend"); // ADR itself is a number in the legend, not a line
+    // Panels under the chart are numbered in order. When the set changes (RSI switched off while ATR stays),
+    // the panel lines are made again so each lands in the right panel.
+    const panes = SUB_PANES.filter((p) => lines.some((l) => l.pane === p));
+    const paneKey = panes.join(",");
     const wanted = new Set(lines.map((l) => l.id));
     for (const [id, series] of this.indicatorSeries) {
-      if (!wanted.has(id)) { this.chart.removeSeries(series); this.indicatorSeries.delete(id); }
+      const inPanel = SUB_PANES.includes(id);
+      if (!wanted.has(id) || (inPanel && paneKey !== this.paneKey)) { this.chart.removeSeries(series); this.indicatorSeries.delete(id); }
     }
+    this.paneKey = paneKey;
     for (const line of lines) {
       let series = this.indicatorSeries.get(line.id);
       const fresh = !series;
       if (fresh) {
-        const rsiPane = line.pane === "rsi";
+        const panel = SUB_PANES.includes(line.pane);
+        const level = line.id === "adrHigh" || line.id === "adrLow";
         series = this.chart.addSeries(this.lib.LineSeries, {
-          color: INDICATOR_COLOURS[line.id], lineWidth: rsiPane ? 2 : 1, priceLineVisible: false,
+          color: INDICATOR_COLOURS[line.id], lineWidth: panel ? 2 : 1, priceLineVisible: false,
+          lineStyle: level ? this.lib.LineStyle.Dashed : this.lib.LineStyle.Solid,
           crosshairMarkerVisible: false, lastValueVisible: true, title: line.label,
-          priceFormat: rsiPane ? { type: "price", precision: 1, minMove: 0.1 } : { type: "price", precision: this.digits, minMove: 1 / 10 ** this.digits },
-          autoscaleInfoProvider: rsiPane ? () => ({ priceRange: { minValue: 0, maxValue: 100 } }) : undefined,
-        }, rsiPane ? 1 : 0);
-        if (rsiPane) {
-          for (const level of [70, 30]) {
-            series.createPriceLine({ price: level, color: "#4a4e5a", lineWidth: 1, lineStyle: this.lib.LineStyle.Dashed, axisLabelVisible: true, title: "" });
+          priceFormat: panel ? { type: "price", precision: 1, minMove: 0.1 } : { type: "price", precision: this.digits, minMove: 1 / 10 ** this.digits },
+          autoscaleInfoProvider: line.pane === "rsi" ? () => ({ priceRange: { minValue: 0, maxValue: 100 } }) : undefined,
+        }, panel ? panes.indexOf(line.pane) + 1 : 0);
+        if (line.pane === "rsi") {
+          for (const value of [70, 30]) {
+            series.createPriceLine({ price: value, color: "#4a4e5a", lineWidth: 1, lineStyle: this.lib.LineStyle.Dashed, axisLabelVisible: true, title: "" });
           }
-          const pane = this.chart.panes()[1];
+        }
+        if (panel) {
+          const pane = this.chart.panes()[panes.indexOf(line.pane) + 1];
           if (pane) pane.setHeight(110);
         }
         this.indicatorSeries.set(line.id, series);
@@ -479,7 +500,9 @@ export class ChartView {
   indicatorValues(i) {
     return this.indicatorLines.map((l) => ({
       id: l.id, label: l.label, colour: INDICATOR_COLOURS[l.id],
-      text: !Number.isFinite(l.values[i]) ? "–" : l.pane === "rsi" ? l.values[i].toFixed(1) : (l.values[i] / 10 ** this.digits).toFixed(this.digits),
+      text: !Number.isFinite(l.values[i]) ? "–" : l.pane === "rsi" ? l.values[i].toFixed(1)
+        : l.id === "atr" || l.id === "adr" ? `${(l.values[i] / this.pipPoints).toFixed(1)} pips`
+          : (l.values[i] / 10 ** this.digits).toFixed(this.digits),
     }));
   }
 

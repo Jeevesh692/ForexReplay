@@ -16,6 +16,7 @@ export class LayerGroup {
     this.onToolChange = onToolChange;
     this.tool = null;
     this.magnet = false;
+    this.fibDefaults = null;
     this.quiet = false; // true while the group itself is changing its layers, so their callbacks do not echo back
   }
 
@@ -32,6 +33,7 @@ export class LayerGroup {
   add(layer) {
     this.layers.push(layer);
     layer.setMagnet(this.magnet);
+    layer.fibDefaults = this.fibDefaults;
     if (this.layers.length > 1) layer.styleDefaults = this.layers[0].styleDefaults;
     return layer;
   }
@@ -89,6 +91,12 @@ export class LayerGroup {
 
   storeChanged() { for (const l of this.layers) l.storeChanged(); }
   redraw() { for (const l of this.layers) l.redraw(); }
+
+  /** The levels new Fibonacci drawings start with, on every chart. */
+  setFibDefaults(defaults) {
+    this.fibDefaults = defaults;
+    for (const l of this.layers) l.fibDefaults = defaults;
+  }
 
   setMagnet(on) {
     this.magnet = !!on;

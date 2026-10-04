@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { Candles } from "../js/data.js";
 import {
-  cleanDrawing, createDrawing, distanceToSegment, DrawingStore, FIB_LEVELS, fibPrice, handles, hit, layout,
+  cleanDrawing, cleanFibLevels, createDrawing, distanceToSegment, DrawingStore, FIB_LEVELS, fibPrice, handles, hit, layout,
   logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, positionLevel, positionStats, snapPrice, timeToLogical, TOOLS, UNDO_LIMIT,
 } from "../js/drawings.js";
 import { SHORTCUTS, shortcutFor } from "../js/shortcuts.js";
@@ -325,4 +325,31 @@ test("a magnet never folds a position's stop or target onto its entry", () => {
   assert.equal(positionLevel(short, "target", 110040, 110000), 110000); // the target cannot snap above a short's entry
   assert.equal(positionLevel(short, "target", 110020, 110000), 110020); // below the entry is fine
   assert.equal(positionLevel(long, "entry", 109980, 109940), 109980);   // other handles snap as usual
+});
+
+test("a Fibonacci can have its own levels, extensions included, and hide the OTE zone", () => {
+  const c = candles(40);
+  const p = [{ time: c.time[5], price: 110000 }, { time: c.time[15], price: 110100 }]; // move up: 1 at 110000, 0 at 110100
+  const fib = { type: "fib", points: p, levels: [-0.27, 0, 0.5, 1, 1.618] };
+  const shape = layout(fib, screen(c));
+  const texts = shape.labels.map((l) => l.text.split(" ")[0]);
+  assert.deepEqual(texts, ["-0.27", "0", "0.5", "1", "1.618"]);
+  assert.equal(fibPrice(fib, -0.27), 110127);                // beyond the end of the move
+  assert.equal(fibPrice(fib, 1.618), 109938);                // beyond its start
+  assert.ok(shape.boxes.some((b) => b.role === "ote"));      // the zone is shaded by default
+  const plain = layout({ ...fib, ote: false }, screen(c));
+  assert.ok(!plain.boxes.some((b) => b.role === "ote"));
+  assert.ok(plain.lines.every((l) => l.role !== "ote"));
+  // A Fibonacci without its own levels shows the standard set (drawings saved before this change).
+  assert.equal(layout({ type: "fib", points: p }, screen(c)).labels.length, FIB_LEVELS.length);
+});
+
+test("Fibonacci levels from a save are made safe; damaged ones fall back to the standard set", () => {
+  assert.deepEqual(cleanFibLevels([1.618, "0.5", 0.5, 99, -7, NaN, 0.70500001, 0]), [0, 0.5, 0.705, 1.618]);
+  assert.equal(cleanFibLevels([]), null);
+  assert.equal(cleanFibLevels("0.5"), null);
+  assert.equal(cleanFibLevels(Array.from({ length: 40 }, (_, i) => i / 10)).length, 24);
+  const p = [{ time: T0, price: 110000 }, { time: T0 + 300, price: 110100 }];
+  assert.deepEqual(cleanDrawing({ type: "fib", points: p, levels: [0.5, 1.272], ote: false }), { type: "fib", points: p, levels: [0.5, 1.272], ote: false });
+  assert.deepEqual(cleanDrawing({ type: "fib", points: p, levels: ["x"], ote: "no" }), { type: "fib", points: p });
 });

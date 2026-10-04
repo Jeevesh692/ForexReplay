@@ -13,7 +13,8 @@ import { DrawingLayer } from "./drawinglayer.js";
 import { cleanIndicators, STORAGE_KEY as KEY_INDICATORS } from "./indicators.js";
 import { LayerGroup } from "./layergroup.js";
 import {
-  DrawingStore, LINE_STYLES, loadSaved as loadSavedDrawings, moveHandle, PALETTE, positionStats, save as saveDrawings, TOOLS,
+  cleanFibLevels, DrawingStore, FIB_LEVELS, fibLevelsOf, LINE_STYLES, loadSaved as loadSavedDrawings, moveHandle, PALETTE,
+  positionStats, save as saveDrawings, TOOLS,
 } from "./drawings.js";
 import { OTHER_KEYS, SHORTCUTS, shortcutFor } from "./shortcuts.js";
 import { loadJSON, loadSymbol } from "./data.js";
@@ -34,6 +35,7 @@ const KEY_MAGNET = "forexreplay.magnet";
 const KEY_LAYOUT = "forexreplay.layout";
 const KEY_SIDE_TF = "forexreplay.sidetimeframe";
 const KEY_DRAW_STYLES = "forexreplay.drawstyles";
+const KEY_FIB_DEFAULTS = "forexreplay.fibdefaults";
 
 function remember(key, value) {
   try { localStorage.setItem(key, value); } catch { /* private mode: ignore */ }
@@ -392,7 +394,7 @@ async function boot() {
   const drawBar = {
     box: $("draw-bar"), text: $("draw-bar-text"), ticket: $("draw-to-ticket"), remove: $("draw-delete"),
     colours: $("draw-colours"), styles: $("draw-styles"), editText: $("draw-edit-text"),
-    levels: $("draw-levels"), stop: $("draw-stop"), target: $("draw-target"),
+    levels: $("draw-levels"), stop: $("draw-stop"), target: $("draw-target"), fibLevels: $("draw-fib-levels"),
   };
   drawBar.colours.innerHTML = PALETTE.map((c) => `<button data-colour="${c}" style="background:${c}" title="Colour"></button>`).join("");
   let styleDefaults = {};
@@ -455,6 +457,7 @@ async function boot() {
       drawBar.colours.hidden = !styled;
       drawBar.styles.hidden = !styled || d.type === "text";
       drawBar.editText.hidden = d.type !== "text";
+      drawBar.fibLevels.hidden = d.type !== "fib";
       drawBar.colours.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.colour === (d.color || PALETTE[0])));
       drawBar.styles.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lineStyle === (d.style || "solid")));
     },
@@ -473,6 +476,93 @@ async function boot() {
     if (b) layer.restyle({ style: b.dataset.lineStyle });
   });
   drawBar.editText.addEventListener("click", () => { if (layer.selected) layer.editText({ id: layer.selected.id }); });
+  // ------------------------------------------------------------ Fibonacci levels
+  // Each Fibonacci drawing carries its own levels; "Save as default" sets what new ones start with.
+  const FIB_PRESETS = {
+    standard: FIB_LEVELS,
+    classic: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1],
+    extensions: [-2, -1, -0.618, -0.27, ...FIB_LEVELS, 1.272, 1.618],
+  };
+  const fibDialog = $("fib-dialog");
+  let fibDraft = null; // { id, rows: [{ level, on }], ote } while the dialog is open
+  const loadFibDefaults = () => {
+    try {
+      const raw = JSON.parse(recall(KEY_FIB_DEFAULTS, "null"));
+      const levels = raw && cleanFibLevels(raw.levels);
+      return levels ? { levels, ote: raw.ote !== false } : null;
+    } catch { return null; }
+  };
+  layer.setFibDefaults(loadFibDefaults());
+
+  function renderFibRows() {
+    $("fib-rows").innerHTML = fibDraft.rows.map((r, i) => `<tr data-row="${i}">
+      <td><input type="checkbox" data-fib-on${r.on ? " checked" : ""}></td>
+      <td><input type="number" step="any" data-fib-level value="${r.level}"></td>
+      <td><button type="button" class="plain small" data-fib-remove title="Remove this level">&times;</button></td></tr>`).join("");
+    $("fib-ote").checked = fibDraft.ote;
+  }
+  /** The levels as typed and ticked, made safe; null (with a message) when nothing usable is left. */
+  function fibLevelsFromDraft() {
+    const levels = cleanFibLevels(fibDraft.rows.filter((r) => r.on).map((r) => r.level));
+    $("fib-message").textContent = levels ? "" : "Keep at least one level, between -5 and 10.";
+    return levels;
+  }
+  drawBar.fibLevels.addEventListener("click", () => {
+    const d = layer.selected;
+    if (!d || d.type !== "fib") return;
+    fibDraft = { id: d.id, rows: fibLevelsOf(d).map((level) => ({ level, on: true })), ote: d.ote !== false };
+    $("fib-message").textContent = "";
+    renderFibRows();
+    fibDialog.showModal();
+  });
+  fibDialog.addEventListener("input", (event) => {
+    const row = event.target.closest("[data-row]");
+    if (!row || !fibDraft) return;
+    const r = fibDraft.rows[Number(row.dataset.row)];
+    if (event.target.matches("[data-fib-on]")) r.on = event.target.checked;
+    if (event.target.matches("[data-fib-level]")) r.level = Number(event.target.value);
+  });
+  fibDialog.addEventListener("click", (event) => {
+    if (!fibDraft) return;
+    const remove = event.target.closest("[data-fib-remove]");
+    if (remove) { fibDraft.rows.splice(Number(remove.closest("[data-row]").dataset.row), 1); renderFibRows(); }
+    const preset = event.target.closest("[data-fib-preset]");
+    if (preset) { fibDraft.rows = FIB_PRESETS[preset.dataset.fibPreset].map((level) => ({ level, on: true })); renderFibRows(); }
+  });
+  $("fib-ote").addEventListener("change", (event) => { if (fibDraft) fibDraft.ote = event.target.checked; });
+  $("fib-add").addEventListener("click", () => {
+    const input = $("fib-new");
+    const value = Number(input.value);
+    if (input.value.trim() === "" || !cleanFibLevels([value])) { $("fib-message").textContent = "Type a level between -5 and 10, for example 1.272."; return; }
+    fibDraft.rows.push({ level: value, on: true });
+    fibDraft.rows.sort((a, b) => a.level - b.level);
+    input.value = "";
+    $("fib-message").textContent = "";
+    renderFibRows();
+  });
+  $("fib-new").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); $("fib-add").click(); } });
+  $("fib-cancel").addEventListener("click", () => { fibDraft = null; fibDialog.close(); });
+  $("fib-apply").addEventListener("click", () => {
+    const levels = fibLevelsFromDraft();
+    const d = fibDraft && drawings.get(fibDraft.id);
+    if (!levels || !d) return;
+    const { id, ote, ...rest } = d;
+    drawings.update(id, { ...rest, levels, ...(fibDraft.ote ? {} : { ote: false }) }); // one undo step
+    layer.select(id);
+    fibDraft = null;
+    fibDialog.close();
+  });
+  $("fib-default").addEventListener("click", () => {
+    const levels = fibLevelsFromDraft();
+    if (!levels) return;
+    const defaults = { levels, ote: fibDraft.ote };
+    remember(KEY_FIB_DEFAULTS, JSON.stringify(defaults));
+    layer.setFibDefaults(defaults);
+    $("fib-message").textContent = "";
+    setHint("New Fibonacci drawings will start with these levels.");
+    setTimeout(() => setHint(null), 1800);
+  });
+
   // Typed stop and target for a long/short position. They go through the same rules as dragging
   // (stop below entry below target for a long), so a price on the wrong side stops one point short.
   for (const [input, key] of [[drawBar.stop, "stop"], [drawBar.target, "target"]]) {
@@ -607,6 +697,8 @@ async function boot() {
       indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked = s.on;
       const period = indicatorsDialog.querySelector(`[data-period="${key}"]`);
       if (period) period.value = s.period;
+      const levels = indicatorsDialog.querySelector(`[data-levels="${key}"]`);
+      if (levels) levels.checked = s.levels;
     }
     indicatorsButton.classList.toggle("active", Object.values(indicators).some((s) => s.on));
   }
@@ -614,7 +706,11 @@ async function boot() {
     const raw = {};
     for (const key of Object.keys(indicators)) {
       const period = indicatorsDialog.querySelector(`[data-period="${key}"]`);
-      raw[key] = { on: indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked, ...(period ? { period: period.value } : {}) };
+      const levels = indicatorsDialog.querySelector(`[data-levels="${key}"]`);
+      raw[key] = {
+        on: indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked,
+        ...(period ? { period: period.value } : {}), ...(levels ? { levels: levels.checked } : {}),
+      };
     }
     indicators = cleanIndicators(raw);
     remember(KEY_INDICATORS, JSON.stringify(indicators));

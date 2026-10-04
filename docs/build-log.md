@@ -576,3 +576,48 @@ In the in-app browser, with the real mouse and the magnet on:
 **Decisions:** the strong magnet of [0010](decisions/0010-drawing-styles-magnet-undo-shortcuts.md) is replaced by a weak one (12 pixels), and position levels never cross their entry because of the magnet.
 
 **How to check:** turn the magnet on (the U button). Place a long below some candles and drag its red handle a little: the red zone stays. Do the same with a short's green handle.
+
+---
+
+## After v2.0.2: Sun 4 Oct 2026 · ATR and ADR, and your own Fibonacci levels (v2.0.3)
+
+**Asked for (Jeevesh):** "Add the setting to calculate ADR or ATR or whatever, and give me the control to add more or reduce the number of levels in Fibonacci."
+
+**Built (Claude):**
+- **ATR** in the Indicators box: average true range (Wilder) over N candles of the chart's own timeframe, in pips, in a panel under the chart. The panels are kept in order (RSI, then ATR) when one is switched off.
+- **ADR** in the Indicators box: average daily range over the last N **completed** broker-server days, in pips, shown in the legend. Today is never part of its own average.
+- **ADR levels** (optional): today's low + ADR and today's high − ADR, from the candles revealed so far, as quiet grey dashed lines. They move as the day develops, and are not shown on D1.
+- **Fibonacci levels per drawing:** select a Fibonacci, click **Levels**, then:
+  - tick or untick levels, change them, remove them with ×, or add your own; extensions are allowed (−0.27 or −0.618 beyond the end of the move, 1.272 or 1.618 beyond its start)
+  - pick a preset (standard with OTE, classic 0.236 to 1, with extensions)
+  - turn the OTE shading on or off
+- **"Save as default"** makes new Fibonacci drawings start with your levels. Levels are saved with the drawing and can be undone. A saved file with odd levels falls back to the standard set.
+- **Broker day:** trading days are now identified by their date on the broker clock (`serverDate`), for VWAP, ADR and challenge mode.
+
+**Tests:** 4 new JavaScript tests (126 in total) and 1 new Python test (67 in total).
+- **ATR and ADR** must match a plain-Python reference: ADR over 1,500 hourly candles (about two months, across the US clock change), ATR on M5 and hourly candles.
+- **Today stays out:** ADR keeps the same value all through a day, however wide that day becomes.
+- **Hand checks:** the Python reference gives the right answers on numbers you can check by hand.
+- **Step by step:** the step-by-step engine equals the full calculation through a random replay with ATR and ADR switched on.
+- **Fibonacci:** custom levels including extensions, the OTE zone switched off, old drawings without levels showing the standard set, and damaged levels cleaned.
+- **Checking the tests can fail:** letting today's range into its own ADR made two tests fail; the change was undone.
+
+In the in-app browser:
+- **ADR value:** on M15 it was 41.443 pips, equal to the average of the last 14 completed daily candles worked out separately.
+- **ATR panel:** RSI and ATR each got a panel; with RSI switched off, ATR moved up and no empty panel was left. ADR levels switched off cleanly and were absent on D1.
+- **Fibonacci, through the real mouse handlers:**
+  - a new one showed the standard 7 levels, and the Levels button opened the box
+  - the extensions preset gave 13 levels; unticking −2 left it out
+  - adding 1.272, which was already there, did not double it; 2.618 was added
+  - the OTE shading was switched off
+  - level 50 was refused with a message
+  - "Save as default" made the next Fibonacci start with the same 13 levels
+  - undo worked
+- **Screenshot:** it showed the extended Fibonacci, the ADR levels, the ATR panel and the legend values.
+- No console errors.
+
+**Found along the way:**
+- The first JavaScript ADR found one more completed day than Python on the weekend the US clocks changed (8 Mar 2026). The day was identified by its start in UTC, worked out with the clock offset of the moment, so the same broker day got two different starts either side of the change. Real EURUSD data has no candles then (the market is shut), so charts were not affected, but the test data runs through weekends. Days are now identified by their broker-clock date.
+- On D1, the legend still listed the ADR levels whose lines were hidden; it no longer does.
+
+**How to check:** Indicators → tick ATR and ADR (and "show today's ADR levels"). Draw a Fibonacci, click it, click Levels, choose "With extensions", add 2.618, press Apply.

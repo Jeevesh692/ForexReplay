@@ -55,6 +55,16 @@ export function serverOffsetSeconds(utcSeconds) {
   return utcSeconds >= start && utcSeconds < end ? 3 * 3600 : 2 * 3600;
 }
 
+/**
+ * The broker-server date of a moment, as a day number (days since 1970 on the server clock).
+ * Use this to ask "same trading day?". bucketStart(t, 86400) gives a day's start in UTC, which
+ * works out differently on either side of a US clock change; on that Sunday (market closed in
+ * real data) the same date could get two different starts. Found when testing ADR (after v2.0.2).
+ */
+export function serverDate(utcSeconds) {
+  return Math.floor((utcSeconds + serverOffsetSeconds(utcSeconds)) / 86400);
+}
+
 /** Start (UTC seconds) of the timeframe candle that contains this M5 candle. */
 export function bucketStart(utcSeconds, tfSeconds) {
   const offset = serverOffsetSeconds(utcSeconds);

@@ -4,14 +4,16 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { Candles } from "../js/data.js";
-import { cleanIndicators, computeIndicators, ema, IndicatorEngine, rsi, sma, vwap } from "../js/indicators.js";
+import { adr, atr, cleanIndicators, computeIndicators, ema, IndicatorEngine, rsi, sma, vwap } from "../js/indicators.js";
 import { ReplayClock } from "../js/replay.js";
-import { TimeframeView } from "../js/timeframes.js";
+import { serverDate, TimeframeView } from "../js/timeframes.js";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/indicators_golden.json", import.meta.url), "utf-8"));
 const c = fixture.candles;
 const rows = c.time.map((t, i) => [t, c.open[i], c.high[i], c.low[i], c.close[i], c.volume[i], 0]);
 const candles = Candles.fromBuffer(new Int32Array(rows.flat()).buffer);
+const h = fixture.hourly;
+const hourly = Candles.fromBuffer(new Int32Array(h.time.map((t, i) => [t, h.open[i], h.high[i], h.low[i], h.close[i], h.volume[i], 0]).flat()).buffer);
 
 function same(actual, expected, label) {
   assert.equal(actual.length, expected.length, label);
@@ -28,6 +30,29 @@ test("SMA, EMA, RSI and daily VWAP match the Python reference on 900 candles ove
   for (const n of [7, 14]) same(rsi(closes, n), fixture.expected[`rsi${n}`], `rsi${n}`);
   same(vwap(candles), fixture.expected.vwap, "vwap");
   same(rsi(fixture.rising, 14), fixture.expected.rsi14_rising, "rsi with no losses");
+});
+
+test("ATR and ADR match the Python reference, ADR over two months of hourly candles", () => {
+  for (const n of [7, 14]) {
+    same(atr(candles, n), fixture.expected[`atr${n}`], `atr${n}`);
+    same(atr(hourly, n), fixture.expected[`atr${n}_hourly`], `atr${n} hourly`);
+  }
+  for (const n of [5, 14]) {
+    const a = adr(hourly, n);
+    same(a.adr, fixture.expected[`adr${n}`], `adr${n}`);
+    same(a.high, fixture.expected[`adr${n}_high`], `adr${n} high`);
+    same(a.low, fixture.expected[`adr${n}_low`], `adr${n} low`);
+  }
+  assert.ok(fixture.expected.adr14.filter((v) => v !== null).length > 1000, "ADR must be checked on many candles");
+});
+
+test("today is never part of its own ADR", () => {
+  const a = adr(hourly, 5);
+  // Within one day the ADR stays the same, however wide that day becomes.
+  for (let i = 1; i < hourly.length; i++) {
+    const sameDay = serverDate(hourly.time[i]) === serverDate(hourly.time[i - 1]);
+    if (sameDay && Number.isFinite(a.adr[i])) assert.equal(a.adr[i], a.adr[i - 1]);
+  }
 });
 
 test("VWAP starts again at the broker's midnight", () => {
@@ -59,12 +84,20 @@ test("indicators on a replay see only revealed candles: hiding the future change
 
 test("settings: defaults, sensible periods only", () => {
   const s = cleanIndicators({ sma: { on: true, period: "30" }, ema: { on: "yes", period: 1 }, rsi: { period: 9999 }, vwap: null });
-  assert.deepEqual(s, { sma: { on: true, period: 30 }, ema: { on: false, period: 50 }, vwap: { on: false }, rsi: { on: false, period: 14 } });
+  assert.deepEqual(s, {
+    sma: { on: true, period: 30 }, ema: { on: false, period: 50 }, vwap: { on: false }, rsi: { on: false, period: 14 },
+    atr: { on: false, period: 14 }, adr: { on: false, period: 14, levels: true },
+  });
+  assert.equal(cleanIndicators({ adr: { on: true, levels: false } }).adr.levels, false);
+  assert.equal(cleanIndicators({ adr: { on: true, levels: "no" } }).adr.levels, true); // only a real true/false counts
   assert.deepEqual(computeIndicators(candles, cleanIndicators(null)), []);
 });
 
 test("the step-by-step engine always equals the full calculation, through a random replay", () => {
-  const settings = cleanIndicators({ sma: { on: true, period: 20 }, ema: { on: true, period: 9 }, vwap: { on: true }, rsi: { on: true, period: 14 } });
+  const settings = cleanIndicators({
+    sma: { on: true, period: 20 }, ema: { on: true, period: 9 }, vwap: { on: true }, rsi: { on: true, period: 14 },
+    atr: { on: true, period: 14 }, adr: { on: true, period: 2, levels: true },
+  });
   let seed = 11; const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   for (const tf of ["M5", "M15", "H1"]) {
     const view = new TimeframeView(candles, tf);
