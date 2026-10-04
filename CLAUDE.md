@@ -36,7 +36,7 @@ python -m forex_replay.stats_golden # regenerate the statistics comparison fixtu
 python -m forex_replay.indicator_golden # regenerate the indicator reference values (only when an indicator definition changes)
 ```
 
-Expected today: 67 Python tests, 126 JavaScript tests, all passing.
+Expected today: 67 Python tests, 130 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -63,7 +63,7 @@ Expected today: 67 Python tests, 126 JavaScript tests, all passing.
 | Indicators | `web/js/indicators.js` (SMA, EMA, RSI, VWAP and the step-by-step engine), `forex_replay/indicator_golden.py` |
 | Two charts | `web/js/layergroup.js` (both charts' drawing layers as one); panes in `web/js/main.js` |
 | Sessions | `web/js/sessions.js`, `web/js/sessionsettings.js` |
-| Trading | `web/js/broker.js` (engine), `web/js/trading.js` (clock to engine), `web/js/account.js` (money), `web/js/challenge.js` (prop-firm rules), `web/js/tradingpanel.js` (panel) |
+| Trading | `web/js/broker.js` (engine), `web/js/trading.js` (clock to engine), `web/js/account.js` (money), `web/js/challenge.js` (prop-firm rules), `web/js/adrplan.js` + `web/js/adrpanel.js` (ADR plan: thresholds as multiples of ADR10), `web/js/tradingpanel.js` (panel) |
 | Drawings | `web/js/drawings.js` (model, geometry), `web/js/drawinglayer.js` (paint, mouse, magnet, text box) |
 | Shortcuts | `web/js/shortcuts.js` (one table for keys and the help list) |
 | Journal | `web/js/tradenotes.js` (notes, tags), `web/js/journalpanel.js` (the box), `web/js/screenshots.js` (pictures), `forex_replay/journal.py` (CSV) |

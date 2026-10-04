@@ -3,6 +3,7 @@
 import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
 import { drawingsBefore, rebuild } from "./backtest.js";
 import { loadRules as loadChallengeRules } from "./challenge.js";
+import { AdrPanel } from "./adrpanel.js";
 import { AnalyticsView } from "./analyticsview.js";
 import { Backtests } from "./backtestpanel.js";
 import { JournalPanel } from "./journalpanel.js";
@@ -271,6 +272,7 @@ async function boot() {
     return markers;
   }
 
+  let adrPanel = null; // the ADR plan card (created with the panel, below)
   let challengeOutcome = null; // to notice the moment a challenge passes or fails
   let refreshQueued = false;
   /**
@@ -291,6 +293,7 @@ async function boot() {
       panel.say(`Challenge ${c.outcome === "PASSED" ? "passed" : "failed"}: ${c.reason}.`, c.outcome === "PASSED" ? "ok" : "bad");
     }
     challengeOutcome = c ? c.outcome : null;
+    if (adrPanel) adrPanel.render();
     if (panel) panel.render();
     drawTrades();
     if (clock.active && backtests) backtests.changed(); // saved shortly after (see backtestpanel.js)
@@ -897,7 +900,10 @@ async function boot() {
     onPickChange: (label) => setHint(label ? `Click the chart at the price for your ${label}. Press Esc to cancel.` : null),
     notes,
     onPickTrade: (id) => journalBox.pick(journalBox.id === id ? null : id),
+    planCheck: (order) => (adrPanel ? adrPanel.check(order) : []),
   });
+  // The ADR plan: today's ADR and the plan's thresholds, for the replay's day (or the newest day outside a replay).
+  adrPanel = new AdrPanel($("adr-plan"), { m5, nowIndex: () => clock.position - 1, pipPoints: manifest.pip_points });
   journalBox = new JournalPanel($("journal-box"), {
     notes,
     describe: (id) => {

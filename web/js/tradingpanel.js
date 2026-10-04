@@ -19,9 +19,10 @@ const PICK_LABEL = { price: "entry price", stopLoss: "stop loss", takeProfit: "t
 export class TradingPanel {
   /**
    * @param {HTMLElement} root   the panel element
-   * @param {object} options { trading, m5, digits, onPickChange(label | null), notes: TradeNotes, onPickTrade(id) }
+   * @param {object} options { trading, m5, digits, onPickChange(label | null), notes: TradeNotes, onPickTrade(id),
+   *   planCheck({ entry, stopLoss, takeProfit }) -> warnings from the ADR plan }
    */
-  constructor(root, { trading, m5, digits, onPickChange, notes = null, onPickTrade = () => {} }) {
+  constructor(root, { trading, m5, digits, onPickChange, notes = null, onPickTrade = () => {}, planCheck = null }) {
     this.root = root;
     this.trading = trading;
     this.m5 = m5;
@@ -30,6 +31,7 @@ export class TradingPanel {
     this.onPickChange = onPickChange;
     this.notes = notes;
     this.onPickTrade = onPickTrade;
+    this.planCheck = planCheck;
     this.pickedTrade = null; // the trade whose journal is open
     this.side = Side.BUY;
     this.type = "market";
@@ -368,6 +370,13 @@ export class TradingPanel {
     sizeNote.textContent = !sized ? "" : sized.error || `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}` +
       (sized.riskPercent === null ? ` (${(sized.riskMoney / t.balance * 100).toFixed(2)}%)` : "") +
       (sized.commission > 0 ? ` + ${formatMoney(sized.commission)} commission` : "");
+
+    // The ADR plan advises (a stop under minStop, reward/risk under the floor); it never blocks the order.
+    const planNote = this.el("order-plan-note");
+    const warnings = this.planCheck && !blocked && Number.isFinite(risk) && Number.isFinite(reward)
+      ? this.planCheck({ entry, stopLoss: sl, takeProfit: tp }) : [];
+    planNote.textContent = warnings.map((w) => `⚠ ${w}`).join(" ");
+    planNote.hidden = warnings.length === 0;
 
     const button = this.el("order-place");
     button.disabled = !!blocked;

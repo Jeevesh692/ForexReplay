@@ -611,3 +611,21 @@ button.primary {
 }
 .fib-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .fib-add .check { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+
+/* ---------- ADR plan card ---------- */
+.adr-plan { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; margin: 0 0 10px; }
+.adr-plan summary { cursor: pointer; font-size: 12px; }
+.adr-plan .muted.small { margin: 4px 0; }
+.adr-table td { padding: 2px 3px; font-size: 11.5px; vertical-align: middle; }
+.adr-table input[type="text"] { width: 100%; min-width: 0; box-sizing: border-box; background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 3px; padding: 1px 3px; font: inherit; }
+.adr-table input[type="text"]:hover, .adr-table input[type="text"]:focus { border-color: var(--border); background: var(--panel-2); }
+.adr-table input[type="number"], .adr-controls input { width: 52px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 3px; font: inherit; }
+.adr-table .adr-pips { white-space: nowrap; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.adr-controls { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+.plan-note { display: block; color: var(--warn); margin-top: 3px; }
+.plan-note[hidden] { display: none; }
+.adr-row { padding: 3px 0; border-top: 1px solid var(--border); font-size: 11.5px; }
+.adr-row:first-child { border-top: 0; }
+.adr-row .adr-name { display: block; padding: 1px 3px; }
+.adr-line { display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+.adr-line .plain.small { margin-left: auto; }

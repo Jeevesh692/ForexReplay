@@ -621,3 +621,43 @@ In the in-app browser:
 - On D1, the legend still listed the ADR levels whose lines were hidden; it no longer does.
 
 **How to check:** Indicators → tick ATR and ADR (and "show today's ADR levels"). Draw a Fibonacci, click it, click Levels, choose "With extensions", add 2.618, press Apply.
+
+---
+
+## After v2.0.3: Sun 4 Oct 2026 · the ADR plan: ADR as a unit of measurement (v2.0.4)
+
+**Asked for (Jeevesh):** "I was talking about using ADR like this", with his table. ADR10 is the average high − low of the last 10 completed daily candles (New York 17:00 close), worked out once before the session. It is a unit of measurement, not a signal. His thresholds are multiples of it:
+
+| | Meaning | × ADR10 |
+|---|---|---|
+| p | minimum sweep penetration | 0.02 |
+| Pmax | maximum sweep penetration (beyond it: a breakout) | 0.30 |
+| b | stop / target buffer | 0.02 |
+| minStop | skip a trade with a smaller stop | 0.08 |
+| Displacement size | 1m · 5m · 15m · H1 | 0.04 · 0.08 · 0.15 · 0.25 |
+| FVG minimum | 1m/5m · 15m | 0.01 · 0.02 |
+| R:R floor | for structural targets | 1.5 (a ratio) |
+
+**Built (Claude):**
+- **An ADR plan card** in the trading panel. It shows ADR10 for today and every threshold in pips, plus which days it was worked out from. It is fixed for the whole day.
+- During a replay "today" is the replay's day, and only days the replay has passed are averaged. The app's daily candle already closes at 17:00 New York (decision 0003), so the convention matches.
+- **Editable:** every multiplier, every name, the number of ADR days, and the R:R floor. Rows can be added or removed; "Reset" goes back to the table above. The plan is saved in the browser.
+- **Order ticket warnings:** a stop smaller than minStop, or reward:risk under the floor, gets a warning under the size line. It never blocks the order.
+- `web/js/adrplan.js` holds the plan and the arithmetic; `web/js/adrpanel.js` is the card.
+
+**Tests:** 4 new JavaScript tests (130 in total; Python stays at 67).
+- **ADR:** the mean of the 10 completed days before today, equal to averaging the chart's own last 10 completed D1 candles, unchanged through the day, and no number until 10 days have completed.
+- **The worked example:** ADR10 of 70 pips gives p 1.4, Pmax 21, b 1.4, minStop 5.6 and 5m displacement 5.6 pips.
+- **Warnings and storage:** the order warnings, and a damaged plan from storage made safe.
+
+In the in-app browser:
+- **ADR value:** outside a replay ADR10 was 46.0 pips (11 Sep, from the days 28 Aug to 10 Sep), equal to the last 10 completed daily candles worked out separately.
+- **Thresholds:** p 0.9, Pmax 13.8 and minStop 3.7 pips.
+- **In a replay:** the card showed the replay's day (13 Aug: 51.6 pips) and stayed fixed while the day went on.
+- **Ticket warnings:** a 3-pip stop with a 4-pip target showed both warnings; a 12-pip stop with a 30-pip target showed none.
+- **Editing:** changing minStop to 0.2 updated it and was saved; Reset brought the table back.
+- No console errors.
+
+**Found along the way:** in a first screenshot the names were cut off in the narrow panel ("p · minim…"). Each threshold now takes two lines: the name, then "0.02 × ADR = 0.9 pips". The longest name (Pmax) is still clipped at this panel width; clicking it shows the whole text.
+
+**How to check:** look at "ADR plan" in the trading panel. Start a replay: it shows that day's ADR10 and thresholds. Type a stop smaller than minStop in the ticket: a warning appears under the size.

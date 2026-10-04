@@ -209,6 +209,16 @@
         <p class="muted small" id="challenge-detail"></p>
       </div>
     </section>
+    <details class="adr-plan" id="adr-plan" open>
+      <summary><b>ADR plan</b> <span class="muted" id="adr-summary"></span></summary>
+      <p class="muted small" id="adr-asof"></p>
+      <div class="adr-table" id="adr-rows"></div>
+      <div class="adr-controls">
+        <label>ADR days <input id="adr-period" type="number" min="2" max="100" step="1"></label>
+        <button class="plain bordered small" id="adr-add" type="button">+ Row</button>
+        <button class="plain small" id="adr-reset" type="button" title="Back to your original table">Reset</button>
+      </div>
+    </details>
     <p class="order-status" id="order-status">Start a replay to trade.</p>
 
     <div class="ticket">
@@ -249,6 +259,7 @@
           <input id="order-size" type="number" inputmode="decimal" autocomplete="off" aria-label="Size">
         </div>
         <small id="order-size-note"></small>
+        <small class="plan-note" id="order-plan-note" hidden></small>
       </div>
 
       <button id="order-place" class="order-place buy" disabled>Buy at market</button>
