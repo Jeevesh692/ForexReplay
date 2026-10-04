@@ -5,6 +5,7 @@
     python -m forex_replay report   strategies/impulse_candle/trades.csv [--plot equity.png]
     python -m forex_replay app      (v2 browser app)
     python -m forex_replay data     (rebuild the app's market data from MT5 exports)
+    python -m forex_replay site     (build the app as a static website, for free hosting)
 """
 
 from __future__ import annotations
@@ -92,6 +93,13 @@ def cmd_data(args) -> None:
     print(summary(manifest, report))
 
 
+def cmd_site(args) -> None:
+    from .site import build_site
+
+    result = build_site(Path(args.out))
+    print(f"Website written to {result['out']}: {result['files']} files, {result['bytes'] / 1e6:.1f} MB")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m forex_replay",
                                      description="Forex bar-replay simulator and backtester")
@@ -135,6 +143,10 @@ def build_parser() -> argparse.ArgumentParser:
     data = sub.add_parser("data", help="v2: rebuild market data from the MT5 exports in data/")
     data.add_argument("--start", default="2025-08-01", help="first UTC date to keep")
     data.set_defaults(func=cmd_data)
+
+    site = sub.add_parser("site", help="v2: build the app as a static website (backtests saved in the browser)")
+    site.add_argument("--out", default="_site", help="folder to write the website into")
+    site.set_defaults(func=cmd_site)
     return parser
 
 

@@ -25,3 +25,6 @@ node_modules/
 # Saved backtests from the browser app (personal working files)
 strategies/*/backtests/
 strategies/*/screenshots/bt-*.png
+
+# The static website build (python -m forex_replay site)
+_site/

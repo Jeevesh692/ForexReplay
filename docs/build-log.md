@@ -661,3 +661,41 @@ In the in-app browser:
 **Found along the way:** in a first screenshot the names were cut off in the narrow panel ("p · minim…"). Each threshold now takes two lines: the name, then "0.02 × ADR = 0.9 pips". The longest name (Pmax) is still clipped at this panel width; clicking it shows the whole text.
 
 **How to check:** look at "ADR plan" in the trading panel. Start a replay: it shows that day's ADR10 and thresholds. Type a stop smaller than minStop in the ticket: a warning appears under the size.
+
+---
+
+## After v2.0.4: Sun 4 Oct 2026 · an online version, shared by link (v2.0.5)
+
+**Asked for (Jeevesh):** "Push this website through GitHub for free." Then: "Only those who can access its link will be able to use it." Choices made: anyone with the link (not email codes), and the repository stays public.
+
+**What was decided:** GitHub Pages on a free account is public, at a predictable address, so it cannot be "link only". The site goes on **Cloudflare Pages** (free) at a hard-to-guess address that is not written in the repository, and asks search engines not to list it. See [decision 0015](decisions/0015-online-version.md).
+
+**Built (Claude):**
+- `web/js/store.js`: one set of calls for backtests, journals and screenshots, with two stores.
+  - The desktop app keeps files on disk through its server, exactly as before.
+  - The online version keeps backtests in the visitor's browser and builds the analytics journal from them, in the same columns as `trades.csv`.
+  - Screenshots are not kept online; their controls are hidden, with a note.
+- The backtests panel, the analytics page, the journal box and resume now go through the store instead of calling the server directly.
+- `python -m forex_replay site`: builds the static website with the market data, the chart library, `site.json` (which tells the app it is online) and the search-engine opt-out.
+- `requirements-site.txt` (pandas and numpy only), for a quicker build on Cloudflare.
+- Online, the status bar says "online · backtests are saved in this browser", and the Backtests dialog explains where they are kept.
+
+**Tests:** 4 new JavaScript tests (134 in total) and 1 new Python test (68 in total).
+- **Browser store:** saving, listing, opening and deleting; counting newly closed trades; listing journals; a damaged store reading as empty; a full store saying so in plain words.
+- **Journal rows:** online rows match what the server writes (broker-clock times, session, weekday, pips, duration), and the analytics page reads them the same way.
+- **Where it runs:** the app works out which store to use from `site.json`.
+- **The site build:** it copies the app without its tests, adds the opt-out and `site.json`, builds again over an earlier build, and refuses to wipe a folder that is not a build or to build inside `web/`.
+
+In the in-app browser:
+- **The website, served by a plain file server with no Python app behind it (as Cloudflare will serve it):**
+  - it loaded 82,569 candles
+  - a replay with two trades was saved in the browser, listed in Backtests, and resumed ("every trade matches the save") with its note
+  - the analytics page showed both trades (+0.50R) with the tag and the note
+  - the screenshot controls were hidden
+- **The desktop app** still saved a backtest to disk through its server, and did not touch browser storage.
+
+**Found along the way:**
+- The first online load crashed at start-up: hiding the screenshot switch replaced its label's text, which deleted the switch itself before it was used. The switch is now hidden and a note added beside it (and a CSS rule that kept showing hidden labels was fixed). It was caught in the test of the website before anything was published.
+- Building the website inside the OneDrive folder failed: OneDrive had turned the earlier build's `css` folder into a read-only synced placeholder that could not be deleted. The build now clears read-only flags before deleting. Locally the site was built outside OneDrive; Cloudflare builds on its own machines.
+
+**How to check:** run `python -m forex_replay site --out` with a folder outside OneDrive, then `python -m http.server --directory` that folder, and open it. The status bar says "online", and backtests save in the browser.

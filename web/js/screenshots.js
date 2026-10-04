@@ -3,12 +3,9 @@
 // The chart library draws the candles, sessions, trade lines and drawings into one picture
 // (`takeScreenshot`). A strip on top says what the picture is, because the legend in the
 // corner of the chart is ordinary page text and is not in the library's picture.
-// Pictures are sent to the local server, which keeps them in strategies/<journal>/screenshots/.
+// Pictures are kept by the store (store.js): files under strategies/<journal>/screenshots/ in the desktop app.
 
 const STRIP = 26;
-
-export const screenshotUrl = (journal, name) =>
-  `/api/screenshots/${encodeURIComponent(journal)}/${encodeURIComponent(name)}`;
 
 /**
  * A PNG of the chart (or of two charts side by side, with a 2px gap) with a caption strip on top.
@@ -35,17 +32,4 @@ export function capture(charts, caption) {
     x += shot.width + GAP;
   }
   return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("the browser made no picture"))), "image/png"));
-}
-
-/** Send a PNG to the server. Throws with the server's reason if it is refused. */
-export async function upload(journal, name, blob) {
-  const response = await fetch(screenshotUrl(journal, name), { method: "PUT", headers: { "Content-Type": "image/png" }, body: blob });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${response.status}`);
-  }
-}
-
-export async function remove(journal, name) {
-  await fetch(screenshotUrl(journal, name), { method: "DELETE" });
 }

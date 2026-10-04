@@ -629,3 +629,4 @@ button.primary {
 .adr-row .adr-name { display: block; padding: 1px 3px; }
 .adr-line { display: flex; align-items: center; gap: 5px; margin-top: 2px; }
 .adr-line .plain.small { margin-left: auto; }
+.journal .check[hidden] { display: none; }

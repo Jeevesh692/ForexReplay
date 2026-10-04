@@ -8,7 +8,6 @@
 import {
   applyFilters, breakdown, computeStats, equityCurve, filterChoices, gaveBack, histogram, money, parseRows, propCheck,
 } from "./analytics.js";
-import { screenshotUrl } from "./screenshots.js";
 
 const UP = "#26a69a", DOWN = "#ef5350", LINE = "#2962ff", GRID = "#2a2e39", MUTED = "#868993";
 const KEY_JOURNAL = "forexreplay.analytics.journal";
@@ -28,7 +27,9 @@ function remember(key, value) { try { localStorage.setItem(key, value); } catch 
 
 export class AnalyticsView {
   /** @param {HTMLElement} root  the analytics section */
-  constructor(root) {
+  /** @param {HTMLElement} root  the analytics section; @param {object} store  where journals are kept (store.js) */
+  constructor(root, store) {
+    this.store = store;
     this.root = root;
     this.el = (id) => root.querySelector(`#${id}`);
     this.trades = [];
@@ -54,8 +55,8 @@ export class AnalyticsView {
     let journals = [], backtests = [];
     try {
       [journals, backtests] = await Promise.all([
-        fetch("/api/journals").then((r) => r.json()).then((b) => b.journals || []),
-        fetch("/api/backtests").then((r) => r.json()).then((b) => b.backtests || []),
+        this.store.listJournals(),
+        this.store.listBacktests(),
       ]);
     } catch (err) {
       this.message(`Could not reach the app's server: ${err.message}`);
@@ -79,9 +80,7 @@ export class AnalyticsView {
   async loadJournal(name) {
     this.journal = name;
     try {
-      const body = await fetch(`/api/journal/${encodeURIComponent(name)}`).then((r) => r.json());
-      if (body.error) throw new Error(body.error);
-      this.trades = parseRows(body.rows);
+      this.trades = parseRows(await this.store.journalRows(name));
     } catch (err) {
       this.message(`Could not read the journal: ${err.message}`);
       return;
@@ -288,7 +287,7 @@ export class AnalyticsView {
     this.el("an-trades-note").textContent = trades.length > shown.length ? `Latest ${shown.length} of ${trades.length}.` : "";
     this.el("an-trades").innerHTML = shown.map((t) => {
       const shots = (t.row.screenshots || "").split(";").map((s) => s.trim()).filter(Boolean);
-      const links = shots.map((name, i) => `<a href="${screenshotUrl(this.journal, name)}" target="_blank" rel="noopener">${i + 1}</a>`).join(" ");
+      const links = !this.store.screenshots ? "" : shots.map((name, i) => `<a href="${this.store.screenshotUrl(this.journal, name)}" target="_blank" rel="noopener">${i + 1}</a>`).join(" ");
       return `<tr><td>#${escapeHtml(t.row.trade_id)}</td><td>${escapeHtml(t.side)}</td><td class="nowrap">${escapeHtml(t.row.entry_time)}</td>` +
         `<td class="num ${tone(t.r)}">${r2(t.r)}</td><td class="num">${Number.isFinite(t.money) ? usd(t.money) : ""}</td>` +
         `<td>${escapeHtml(t.exitReason.toLowerCase().replace("_", " "))}</td><td>${escapeHtml(t.tags.join(", "))}</td>` +

@@ -29,6 +29,7 @@ The project is also a portfolio piece for AI-engineering applications: "a comple
 
 ```
 python -m forex_replay app          # or double-click start_app.bat; serves http://127.0.0.1:8765
+python -m forex_replay site --out <folder outside OneDrive>   # the static website (backtests saved in the browser)
 python -m pytest                    # Python tests (pip install pytest)
 node --test web/tests/*.test.mjs    # JavaScript tests (needs Node.js; check `node --version`)
 python -m forex_replay.golden       # regenerate the engine comparison fixture (only when engine rules change)
@@ -36,7 +37,7 @@ python -m forex_replay.stats_golden # regenerate the statistics comparison fixtu
 python -m forex_replay.indicator_golden # regenerate the indicator reference values (only when an indicator definition changes)
 ```
 
-Expected today: 67 Python tests, 130 JavaScript tests, all passing.
+Expected today: 68 Python tests, 134 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -69,6 +70,7 @@ Expected today: 67 Python tests, 130 JavaScript tests, all passing.
 | Journal | `web/js/tradenotes.js` (notes, tags), `web/js/journalpanel.js` (the box), `web/js/screenshots.js` (pictures), `forex_replay/journal.py` (CSV) |
 | Backtests | `web/js/backtest.js` (save, rebuild, check), `web/js/backtestpanel.js` (autosave, dialog), `forex_replay/backtests.py` (files, journal) |
 | Analytics | `web/js/analytics.js` (statistics, held to `forex_replay/stats.py`), `web/js/analyticsview.js` (the tab), `forex_replay/stats_golden.py` |
+| Storage, website | `web/js/store.js` (files through the server, or the browser online), `forex_replay/site.py` (static build) |
 | Wiring | `web/js/main.js`, `web/index.html`, `web/css/app.css` |
 | Tests | `tests/`, `web/tests/` |
 

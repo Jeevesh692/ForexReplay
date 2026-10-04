@@ -4,7 +4,6 @@
 // every candle, so typing a note is not interrupted while the replay plays.
 
 import { MAX_NOTE } from "./tradenotes.js";
-import { screenshotUrl } from "./screenshots.js";
 
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const KEY_AUTO = "forexreplay.autoscreenshots";
@@ -15,7 +14,8 @@ export class JournalPanel {
    * @param {object} options { notes: TradeNotes, describe(id) -> "#3 BUY · +1.20R" or null,
    *   journal() -> current journal name or null, onScreenshot(id), onRemoveScreenshot(id, name), onPick(id) }
    */
-  constructor(root, { notes, describe, journal, onScreenshot, onRemoveScreenshot, onPick }) {
+  constructor(root, { notes, describe, journal, onScreenshot, onRemoveScreenshot, onPick, store }) {
+    this.store = store;
     this.root = root;
     this.notes = notes;
     this.describe = describe;
@@ -50,6 +50,15 @@ export class JournalPanel {
       if (x && this.id !== null) { event.preventDefault(); onRemoveScreenshot(this.id, x.dataset.remove); }
     });
     const auto = this.el("journal-auto");
+    if (!store.screenshots) { // online: no screenshots (browser storage is too small for pictures)
+      this.el("journal-shot").hidden = true;
+      const label = auto.closest("label");
+      label.hidden = true;
+      const note = document.createElement("p");
+      note.className = "muted small";
+      note.textContent = "Screenshots are kept only in the desktop app.";
+      label.after(note);
+    }
     auto.checked = this.autoScreenshots;
     auto.addEventListener("change", () => {
       try { localStorage.setItem(KEY_AUTO, auto.checked ? "on" : "off"); } catch { /* private mode: not kept */ }
@@ -59,6 +68,7 @@ export class JournalPanel {
 
   /** Screenshots at entry and exit are taken automatically unless this is switched off. */
   get autoScreenshots() {
+    if (!this.store.screenshots) return false;
     try { return localStorage.getItem(KEY_AUTO) !== "off"; } catch { return true; }
   }
 
@@ -96,7 +106,7 @@ export class JournalPanel {
       .map((t) => `<button class="chip${entry.tags.includes(t) ? " on" : ""}" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join("");
     const journal = this.journal();
     this.el("journal-shots").innerHTML = !journal ? "" : entry.screenshots.map((name) => {
-      const url = screenshotUrl(journal, name);
+      const url = this.store.screenshotUrl(journal, name);
       const kind = name.includes("-entry") ? "entry" : name.includes("-exit") ? "exit" : "added";
       return `<a class="shot" href="${url}" target="_blank" rel="noopener" title="Open full size (${kind})">` +
         `<img src="${url}" alt="Chart at ${kind}" loading="lazy"><span>${kind}</span>` +

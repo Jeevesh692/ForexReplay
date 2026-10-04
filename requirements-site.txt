@@ -1,0 +1,3 @@
+# What the website build needs (python -m forex_replay site); lighter than requirements.txt
+pandas>=2.0
+numpy>=1.24

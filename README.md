@@ -50,11 +50,15 @@ It opens `http://127.0.0.1:8765`. The first start builds the browser's market da
 
 Then click **Replay**, click the candle to start from, and press **Space**. Press **?** in the app for every keyboard shortcut.
 
+### Online version
+
+`python -m forex_replay site --out _site` builds the same app as a static website (53 files, about 3 MB) for free hosting such as Cloudflare Pages. Online there is no Python server, so each visitor's backtests are saved in their own browser and screenshots are not kept; see [decision 0015](docs/decisions/0015-online-version.md). The site asks search engines not to list it.
+
 ## How it is tested
 
 ```bash
-pip install pytest && python -m pytest    # 67 Python tests
-node --test web/tests/*.test.mjs          # 130 JavaScript tests (Node.js, no packages)
+pip install pytest && python -m pytest    # 68 Python tests
+node --test web/tests/*.test.mjs          # 134 JavaScript tests (Node.js, no packages)
 ```
 
 The browser app repeats three pieces of logic that already existed in Python. Each copy is held to the Python original by a recorded comparison file, so the two can never drift apart:

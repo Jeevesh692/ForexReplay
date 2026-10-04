@@ -15,15 +15,6 @@ const KEY_JOURNAL = "forexreplay.journal";
 const SAVE_DELAY_MS = 1500;
 
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const url = (journal, id) => `/api/backtests/${encodeURIComponent(journal)}/${encodeURIComponent(id)}`;
-
-async function request(path, options = {}) {
-  const response = await fetch(path, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-  return body;
-}
-
 export class Backtests {
   /**
    * @param {object} options
@@ -31,7 +22,13 @@ export class Backtests {
    *   collect()        { trading, drawings, m5, clock, manifest, timeframe } for a save
    *   onResume(journal, id)  rebuilds and opens a saved backtest; returns its list of problems
    */
-  constructor({ dialog, status, collect, onResume }) {
+  constructor({ dialog, status, collect, onResume, store }) {
+    this.store = store; // files on disk (desktop app) or this browser (online): see store.js
+    if (store.kind === "browser") {
+      dialog.querySelector("#backtests-about").textContent = "Online, each replay with a trade or a drawing is saved in this browser as you go, " +
+        "with its trades, its drawings and where it got to. Only this browser on this computer can see them; clearing the site's data removes them. " +
+        "Resume rebuilds a run by repeating every action on the same candles.";
+    }
     this.dialog = dialog;
     this.status = status;
     this.collect = collect;
@@ -129,15 +126,14 @@ export class Backtests {
 
   async put(data) {
     try {
-      const reply = await request(url(data.journal, data.id), {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-      });
+      const reply = await this.store.putBacktest(data);
       if (this.current && this.current.id === data.id) this.everSaved = true;
       const added = reply.journalAdded ? ` · ${reply.journalAdded} trade(s) added to ${reply.journal}` : "";
       this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added}`, "ok", data);
       return true;
     } catch (err) {
-      this.renderStatus(`NOT saved: ${err.message.includes("fetch") ? "the app's server is not running" : err.message}`, "bad", data);
+      const offline = err.message.includes("fetch") && this.store.kind === "server";
+      this.renderStatus(`NOT saved: ${offline ? "the app's server is not running" : err.message}`, "bad", data);
       return false;
     }
   }
@@ -147,9 +143,7 @@ export class Backtests {
     if (!this.worthSaving) return;
     const data = snapshot(this.current, this.collect());
     try {
-      fetch(url(data.journal, data.id), {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), keepalive: true,
-      });
+      this.store.putBacktestNow(data);
     } catch { /* the tab is going away; nothing more can be done */ }
   }
 
@@ -193,7 +187,7 @@ export class Backtests {
     const rows = this.el("backtest-rows");
     let list;
     try {
-      list = (await request("/api/backtests")).backtests;
+      list = await this.store.listBacktests();
     } catch (err) {
       rows.innerHTML = "";
       this.say(`Could not read the saved backtests: ${err.message}`, "bad");
@@ -250,7 +244,7 @@ export class Backtests {
       }
       const [journal, id] = button.dataset.delete.split("/");
       try {
-        await request(url(journal, id), { method: "DELETE" });
+        await this.store.deleteBacktest(journal, id);
         this.say("Deleted. Its trades are still in the journal.", "ok");
       } catch (err) {
         this.say(`Could not delete: ${err.message}`, "bad");

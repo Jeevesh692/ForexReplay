@@ -217,3 +217,33 @@ def test_journals_are_listed_and_read_for_the_analytics_page():
             backtests.journal_rows("../x", root)
         with pytest.raises(FileNotFoundError):
             backtests.journal_rows("nope", root)
+
+
+def test_the_website_build_copies_the_app_and_asks_not_to_be_listed():
+    from forex_replay.site import build_site
+    with tempfile.TemporaryDirectory() as tmp:
+        web = Path(tmp) / "web"
+        for folder in ("css", "js", "data/EURUSD", "vendor", "tests"):
+            (web / folder).mkdir(parents=True)
+        (web / "index.html").write_text("<!doctype html><html><head><title>x</title></head></html>")
+        (web / "js" / "main.js").write_text("export {};")
+        (web / "data" / "EURUSD" / "manifest.json").write_text("{}")
+        (web / "vendor" / "lib.js").write_text("//")
+        (web / "tests" / "a.test.mjs").write_text("//")
+        out = Path(tmp) / "site"
+        result = build_site(out, web_root=web, refresh=False)
+        assert json.loads((out / "site.json").read_text())["static"] is True
+        assert '<meta name="robots" content="noindex, nofollow">' in (out / "index.html").read_text()
+        assert (out / "robots.txt").read_text().startswith("User-agent: *\nDisallow: /")
+        assert "X-Robots-Tag: noindex" in (out / "_headers").read_text()
+        assert (out / "data" / "EURUSD" / "manifest.json").exists() and not (out / "tests").exists()
+        assert result["files"] == 7  # index, main.js, manifest, chart library, robots.txt, _headers, site.json
+        build_site(out, web_root=web, refresh=False)  # building again over an earlier build is fine
+        other = Path(tmp) / "something"
+        other.mkdir()
+        (other / "keep.txt").write_text("mine")
+        with pytest.raises(ValueError):
+            build_site(other, web_root=web, refresh=False)  # never wipes a folder that is not a build
+        assert (other / "keep.txt").exists()
+        with pytest.raises(ValueError):
+            build_site(web / "out", web_root=web, refresh=False)

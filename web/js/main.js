@@ -7,7 +7,8 @@ import { AdrPanel } from "./adrpanel.js";
 import { AnalyticsView } from "./analyticsview.js";
 import { Backtests } from "./backtestpanel.js";
 import { JournalPanel } from "./journalpanel.js";
-import { capture as captureChart, remove as removeScreenshot, upload as uploadScreenshot } from "./screenshots.js";
+import { capture as captureChart } from "./screenshots.js";
+import { openStore } from "./store.js";
 import { TradeNotes } from "./tradenotes.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
@@ -84,8 +85,10 @@ function toIndiaInput(utcSeconds) {
 }
 
 async function boot() {
-  const health = await loadJSON("/api/health").catch(() => null);
-  if (health) $("status-version").textContent = `app v${health.version}`;
+  const store = await openStore(); // files on disk with the local server, or this browser on the website
+  const health = await store.health();
+  if (store.kind === "browser") $("status-version").textContent = "online · backtests are saved in this browser";
+  else if (health) $("status-version").textContent = `app v${health.version}`;
 
   const lib = window.LightweightCharts;
   $("status-lib").innerHTML = lib
@@ -316,7 +319,7 @@ async function boot() {
   function takeScreenshot(id, kind) {
     const bt = backtests && backtests.current;
     const t = trading.broker.trades.find((trade) => trade.id === id);
-    if (!bt || !t) return;
+    if (!bt || !t || !store.screenshots) return;
     const now = m5.time[clock.position - 1] + manifest.bar_seconds;
     const tfs = panes().map((p) => p.tf).join(" + ");
     const caption = `${manifest.symbol} ${tfs} · #${id} ${t.side} · ${kind} · ${formatDateTime(now)} IST · ${bt.name}`;
@@ -330,7 +333,7 @@ async function boot() {
     }
     shotQueue = shotQueue
       .then(async () => {
-        await uploadScreenshot(bt.journal, name, await picture);
+        await store.putScreenshot(bt.journal, name, await picture);
         if (backtests.current && backtests.current.id === bt.id) notes.addScreenshot(id, name);
       })
       .catch((err) => panel.say(`Screenshot not saved: ${err.message}`, "bad"));
@@ -833,7 +836,7 @@ async function boot() {
 
   /** Rebuild a saved backtest and open it at the point it had reached. Returns the rebuild's problems. */
   async function resumeBacktest(journal, id) {
-    const saved = await loadJSON(`/api/backtests/${encodeURIComponent(journal)}/${encodeURIComponent(id)}`);
+    const saved = await store.getBacktest(journal, id);
     const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits) });
     await shotQueue;
     if (clock.active && !(await backtests.end())) {
@@ -905,6 +908,7 @@ async function boot() {
   // The ADR plan: today's ADR and the plan's thresholds, for the replay's day (or the newest day outside a replay).
   adrPanel = new AdrPanel($("adr-plan"), { m5, nowIndex: () => clock.position - 1, pipPoints: manifest.pip_points });
   journalBox = new JournalPanel($("journal-box"), {
+    store,
     notes,
     describe: (id) => {
       const t = clock.active ? trading.broker.trades.find((trade) => trade.id === id) : null;
@@ -916,12 +920,13 @@ async function boot() {
     onScreenshot: (id) => takeScreenshot(id, "added"),
     onRemoveScreenshot: (id, name) => {
       const bt = backtests.current;
-      if (bt) removeScreenshot(bt.journal, name);
+      if (bt) store.deleteScreenshot(bt.journal, name);
       notes.removeScreenshot(id, name);
     },
     onPick: (id) => { panel.pickedTrade = id; panel.render(); },
   });
   backtests = new Backtests({
+    store,
     dialog: $("backtests-dialog"),
     status: $("status-backtest"),
     collect: () => ({ trading, drawings, notes, m5, clock, manifest, timeframe: current }),
@@ -970,7 +975,7 @@ async function boot() {
 
   // ------------------------------------------------------------ tabs
   const tabViews = { chart: $("chart-view"), analytics: $("analytics-view"), data: $("data-view") };
-  const analytics = new AnalyticsView($("analytics-view"));
+  const analytics = new AnalyticsView($("analytics-view"), store);
   document.querySelectorAll("[data-view]").forEach((tab) => {
     tab.addEventListener("click", () => {
       const name = tab.dataset.view;
