@@ -3,13 +3,14 @@
 A forex bar-replay and backtesting tool for EURUSD. Owner: Jeevesh Prakash (GitHub `Jeevesh692/ForexReplay`, branch `main`).
 
 - **v1** (`forex_replay/`): Python package. Matplotlib replay, event-driven backtest, journal CSV, R-multiple stats.
-- **v2** (`web/`): a TradingView-style browser app in plain JavaScript modules, served by a small Python server. Built to the 14-day plan in `docs/plan.md` and released as v2.0.0 on 4 Oct 2026. New work starts from a new plan.
+- **v2** (`web/`): a TradingView-style browser app in plain JavaScript modules, served by a small Python server. Built to the 14-day plan in `docs/plan.md` and released as v2.0.0 on 4 Oct 2026.
+- **Strategy Lab** (next): indicator strategies on H4/D1 with tuning on in-sample data and out-of-sample checks, to `docs/plan-strategy-lab.md`. "start lab day N" does a day of that plan, with the same daily routine.
 
 The project is also a portfolio piece for AI-engineering applications: "a complex app built with an AI agent, directed and understood by me". So the record of who decided what matters as much as the code. Keep it honest.
 
 ## How Jeevesh works with you
 
-- He says "start day N". Do that day from `docs/plan.md`, end to end, then report.
+- He says "start day N" (or "start lab day N" for `docs/plan-strategy-lab.md`). Do that day, end to end, then report.
 - He is a self-taught programmer and trades this strategy himself. Explain in plain words; no jargon without a one-line meaning.
 - Never state a number you have not just read or computed. If something was not checked, say so.
 - Ask only when a wrong guess would be expensive. Otherwise decide, and say what you decided.
