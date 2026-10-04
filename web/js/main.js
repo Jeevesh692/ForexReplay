@@ -13,7 +13,7 @@ import { DrawingLayer } from "./drawinglayer.js";
 import { cleanIndicators, STORAGE_KEY as KEY_INDICATORS } from "./indicators.js";
 import { LayerGroup } from "./layergroup.js";
 import {
-  DrawingStore, LINE_STYLES, loadSaved as loadSavedDrawings, PALETTE, positionStats, save as saveDrawings, TOOLS,
+  DrawingStore, LINE_STYLES, loadSaved as loadSavedDrawings, moveHandle, PALETTE, positionStats, save as saveDrawings, TOOLS,
 } from "./drawings.js";
 import { OTHER_KEYS, SHORTCUTS, shortcutFor } from "./shortcuts.js";
 import { loadJSON, loadSymbol } from "./data.js";
@@ -392,6 +392,7 @@ async function boot() {
   const drawBar = {
     box: $("draw-bar"), text: $("draw-bar-text"), ticket: $("draw-to-ticket"), remove: $("draw-delete"),
     colours: $("draw-colours"), styles: $("draw-styles"), editText: $("draw-edit-text"),
+    levels: $("draw-levels"), stop: $("draw-stop"), target: $("draw-target"),
   };
   drawBar.colours.innerHTML = PALETTE.map((c) => `<button data-colour="${c}" style="background:${c}" title="Colour"></button>`).join("");
   let styleDefaults = {};
@@ -442,6 +443,11 @@ async function boot() {
       if (!d) return;
       const position = d.type === "long" || d.type === "short";
       drawBar.ticket.hidden = !position;
+      drawBar.levels.hidden = !position;
+      if (position) { // keep the typed levels in step with dragging, but never under the cursor of someone typing
+        if (document.activeElement !== drawBar.stop) drawBar.stop.value = priceText(d.stop);
+        if (document.activeElement !== drawBar.target) drawBar.target.value = priceText(d.target);
+      }
       drawBar.text.textContent = position
         ? `${TOOLS[d.type].label} · ${positionStats(d).ratio.toFixed(2)}R`
         : d.type === "hline" || d.type === "hray" ? `${TOOLS[d.type].label} · ${priceText(d.points[0].price)}` : TOOLS[d.type].label;
@@ -467,6 +473,25 @@ async function boot() {
     if (b) layer.restyle({ style: b.dataset.lineStyle });
   });
   drawBar.editText.addEventListener("click", () => { if (layer.selected) layer.editText({ id: layer.selected.id }); });
+  // Typed stop and target for a long/short position. They go through the same rules as dragging
+  // (stop below entry below target for a long), so a price on the wrong side stops one point short.
+  for (const [input, key] of [[drawBar.stop, "stop"], [drawBar.target, "target"]]) {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { input.blur(); return; }
+      if (event.key !== "Enter") return;
+      const d = layer.selected;
+      const price = Math.round(Number(input.value) * 10 ** manifest.digits);
+      if (!d || !(d.type === "long" || d.type === "short") || !Number.isFinite(price) || price <= 0) {
+        setHint("Type a price like 1.08500.");
+        setTimeout(() => setHint(null), 1800);
+        return;
+      }
+      const { id, ...rest } = moveHandle(d, key, { time: d.points[0].time, price });
+      drawings.update(id, rest);
+      layer.select(id); // still selected, so the bar shows the new numbers
+      input.blur();
+    });
+  }
 
   const magnetButton = $("magnet");
   const setMagnet = (on) => {

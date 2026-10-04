@@ -275,3 +275,34 @@ test("shortcuts: modifiers must match exactly, Cmd counts as Ctrl, and no two sh
   }
   for (const tool of Object.keys(TOOLS)) assert.ok(SHORTCUTS.some((s) => s.action === `tool:${tool}`), `no shortcut for ${tool}`);
 });
+
+test("a position running off the right edge keeps its stop and target handles on screen", () => {
+  // Placed at the newest candle: 24 candles wide, but only a few candles of room before the edge.
+  const c = candles(40);
+  const long = createDrawing("long", { time: c.time[36], price: 110000 }, defaults(c));
+  const proj = { ...screen(c), width: 420 };                 // the chart ends at x = 420 (candle 42)
+  const shape = layout(long, proj);
+  const handle = (key) => shape.handles.find((h) => h.key === key);
+  for (const key of ["stop", "target", "end"]) assert.ok(handle(key).x < proj.width, `${key} handle at x ${handle(key).x}`);
+  assert.equal(handle("stop").x, (360 + 410) / 2);           // the middle of the visible part, not of the whole box
+  assert.deepEqual(hit(shape, handle("stop").x, handle("stop").y, { withHandles: true }), { part: "handle", key: "stop" });
+  const dragged = moveHandle(long, "stop", { time: c.time[36], price: 109850 });
+  assert.equal(dragged.stop, 109850);
+});
+
+test("on a small position the handle nearest the mouse is grabbed, not the first one listed", () => {
+  const c = candles(40);
+  const long = { ...createDrawing("long", { time: c.time[10], price: 110000 }, defaults(c)), stop: 109996, target: 110004 };
+  const shape = layout(long, screen(c));
+  const target = shape.handles.find((h) => h.key === "target");
+  assert.deepEqual(hit(shape, target.x, target.y - 2, { withHandles: true }), { part: "handle", key: "target" });
+});
+
+test("position labels stay inside the chart when the box runs past its right edge", () => {
+  const c = candles(40);
+  const long = createDrawing("long", { time: c.time[36], price: 110000 }, defaults(c));
+  const proj = { ...screen(c), width: 420 };                  // textWidth: 7 px per character
+  for (const label of layout(long, proj).labels) {
+    assert.ok(label.x + (label.text.length * 7) / 2 <= proj.width - 4 + 1e-9, `"${label.text}" runs past the edge`);
+  }
+});

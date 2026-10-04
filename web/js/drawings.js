@@ -266,7 +266,11 @@ export function layout(d, proj) {
     box(x0, yEntry, x1, yTarget, "profit");
     box(x0, yEntry, x1, yStop, "loss");
     out.lines.push({ x1: x0, y1: yEntry, x2: x1, y2: yEntry, role: "entry" });
-    const middle = (x0 + x1) / 2;
+    // A position placed at the newest candle runs into the empty space on the right and often past
+    // the edge of the chart. Its handles and labels go in the middle of the part you can SEE, or
+    // the stop and target handles would sit off screen where they cannot be grabbed.
+    const right = Math.max(x0 + 1, Math.min(x1, proj.width - 10));
+    const middle = (x0 + right) / 2;
     const above = (y, other) => (y < other ? y - 5 : y + 14); // put the text outside the box
     out.labels.push({ x: middle, y: above(yTarget, yEntry), align: "center", role: "profit",
       text: `Target ${proj.formatPrice(d.target)} · ${proj.pips(stats.reward).toFixed(1)} pips · ${stats.ratio.toFixed(2)}R` });
@@ -276,7 +280,14 @@ export function layout(d, proj) {
     out.labels.push({ x: middle, y: yEntry - 5, align: "center", role: "entry",
       text: `${d.type === "long" ? "Long" : "Short"} ${proj.formatPrice(entry.price)}${note ? ` · ${note}` : ""}` });
     // The stop and target handles sit in the middle of their edges, away from the entry handle.
-    out.handles.push({ key: "entry", x: x0, y: yEntry }, { key: "end", x: x1, y: yEntry },
+    // Labels are centred on the visible part, but never run past the right edge into the price scale.
+    if (proj.textWidth) {
+      for (const label of out.labels.slice(-3)) {
+        const half = proj.textWidth(label.text) / 2;
+        label.x = Math.min(Math.max(x0 + half, label.x), proj.width - 4 - half); // the right edge wins over the box's left edge
+      }
+    }
+    out.handles.push({ key: "entry", x: x0, y: yEntry }, { key: "end", x: right, y: yEntry },
       { key: "stop", x: middle, y: yStop }, { key: "target", x: middle, y: yTarget });
     return out;
   }
@@ -298,10 +309,13 @@ export function distanceToSegment(px, py, x1, y1, x2, y2) {
  * Returns { part: "handle", key } (only when `withHandles`), { part: "body" } or null.
  */
 export function hit(shape, x, y, { tolerance = 5, withHandles = false } = {}) {
-  if (withHandles) {
+  if (withHandles) { // the nearest handle wins, so handles close together (a small position) can all be grabbed
+    let best = null;
     for (const h of shape.handles) {
-      if (Math.hypot(x - h.x, y - h.y) <= tolerance + 3) return { part: "handle", key: h.key };
+      const distance = Math.hypot(x - h.x, y - h.y);
+      if (distance <= tolerance + 3 && (!best || distance < best.distance)) best = { key: h.key, distance };
     }
+    if (best) return { part: "handle", key: best.key };
   }
   for (const l of shape.lines) {
     if (distanceToSegment(x, y, l.x1, l.y1, l.x2, l.y2) <= tolerance) return { part: "body" };

@@ -108,6 +108,24 @@ export class Trading {
     return settings;
   }
 
+  /**
+   * Make the balance exactly `amount` dollars. Outside a replay that is the starting balance of the
+   * next run. During a run the starting balance is moved so that it plus what has been banked equals
+   * `amount`; it is recorded like any settings change, so a resumed backtest comes back the same.
+   * Refused during a challenge (its limits are measured from the starting balance).
+   */
+  setBalance(amount) {
+    const value = Math.round(Number(amount) * 100) / 100;
+    const [low, high] = [1, 1000000000];
+    if (!Number.isFinite(value) || value < low || value > high) {
+      throw new InvalidOrder("Type a balance between $1 and $1,000,000,000.");
+    }
+    const banked = this.balance - this.account.settings.startingBalance;
+    const start = Math.round((value - banked) * 100) / 100;
+    if (start < low) throw new InvalidOrder(`This run has banked ${banked.toFixed(2)} dollars, so the balance cannot go that low.`);
+    return this.updateSettings({ startingBalance: start });
+  }
+
   reveal(from, to) {
     const m = this.m5;
     for (let i = from; i < to; i++) {

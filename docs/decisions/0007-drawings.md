@@ -44,6 +44,10 @@ When a trade's stop or target line and a drawing are under the mouse together, t
 
 Drawings are saved in the browser (`forexreplay.drawings.EURUSD`) on every change and survive reloads and replays. Anything read back is checked (`cleanDrawing`); a damaged entry is dropped instead of reaching the chart. "Remove all" takes two clicks because it cannot be undone.
 
+## Since v2.0.0
+
+A position placed at the newest candle runs past the right edge of the chart. Its stop, target and width handles and its labels are now placed on the part you can see, and the stop and target can also be typed (see the build log, "After v2.0.0").
+
 ## Not yet done
 
 Colours and line styles, rays, text notes, snapping, undo and keyboard shortcuts came on day 9 ([0010](0010-drawing-styles-magnet-undo-shortcuts.md)); extended lines did not. (Since day 7, a replay's drawings are saved with its backtest; see [0008](0008-backtests-saved-as-actions.md).)

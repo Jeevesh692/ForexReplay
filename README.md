@@ -19,7 +19,7 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 **Trading as a broker would fill it**
 - Market, limit and stop orders with stop loss and take profit, placed from a ticket or by clicking the chart. Stop and target lines can be dragged.
 - Fills are resolved on M5 candles whatever timeframe is on screen. An order is never filled on the candle it was placed on, and when stop and target are both inside one candle, the stop is assumed hit first.
-- An account in dollars: lot size from a risk %, commission ($4 per lot), partial closes, breakeven, close all.
+- An account in dollars: set any balance (click it), lot size from a risk %, commission ($4 per lot), partial closes, breakeven, close all.
 - **Prop-firm challenge mode:** profit target, daily loss limit and maximum loss, checked on every M5 candle at its worst price, with days starting at 17:00 New York.
 
 **Drawing and analysis**
@@ -53,7 +53,7 @@ Then click **Replay**, click the candle to start from, and press **Space**. Pres
 
 ```bash
 pip install pytest && python -m pytest    # 66 Python tests
-node --test web/tests/*.test.mjs          # 115 JavaScript tests (Node.js, no packages)
+node --test web/tests/*.test.mjs          # 120 JavaScript tests (Node.js, no packages)
 ```
 
 The browser app repeats three pieces of logic that already existed in Python. Each copy is held to the Python original by a recorded comparison file, so the two can never drift apart:

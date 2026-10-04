@@ -512,3 +512,38 @@ In the in-app browser:
 - 14 design records, one build-log entry per day.
 - 66 Python and 115 JavaScript tests, including three recorded comparisons between the JavaScript and Python versions.
 - About 6,400 lines of JavaScript in `web/js` and 3,300 lines of Python in `forex_replay` (v1 and v2 together), counted on day 14.
+
+---
+
+## After v2.0.0: Sun 4 Oct 2026 · position tool stop and target, and setting the balance (v2.0.1)
+
+**Asked for (Jeevesh):** "When I am using long and short forecasting tools, I am not able to adjust SL and TP; fix that. Also make me able to change my balance according to my desire."
+
+**What was wrong (found by reproducing it with a real mouse in the in-app browser):** a long/short position is 24 candles wide, and it is usually placed at the newest candle, near the right edge, where the chart leaves only 8 candles of room. Most of the box ran past the edge, under the price scale. Its stop and target handles sat in the middle of the whole box, so they were off screen and could not be grabbed. The labels were centred there too and were cut off.
+
+**Built (Claude):**
+- The stop and target handles (and the width handle) now sit in the middle of the part of the box you can see. The labels are kept inside the chart.
+- When handles are close together (a small position), the one nearest the mouse is grabbed, not the first in the list.
+- Typed levels: selecting a long/short position shows **SL** and **TP** boxes in the bar at the bottom of the chart. Type a price and press Enter. The same rules as dragging apply: a long's stop stays below its entry, its target above. The boxes follow the handles while you drag, and the change can be undone.
+- **Set your balance:** click the Balance figure at the top of the trading panel, type any amount, press Enter.
+  - Before a replay, that becomes the starting balance.
+  - During a replay, the balance becomes exactly that from then on. It is recorded with the backtest, so a resumed run comes back the same.
+  - During a challenge it is refused, because the challenge limits are measured from the starting balance.
+- The allowed balance is now $1 to $1,000,000,000 (it was $100 to $100,000,000), with cents.
+- The "Starting balance" field in Account settings no longer asks for steps of $100.
+
+**Tests:** 5 new JavaScript tests (120 in total; Python stays at 66).
+- **Off-screen handles:** a position running off the right edge keeps its stop, target and width handles on screen, and the stop can be grabbed and dragged. With the old layout this test fails.
+- **Nearest handle** on a small position.
+- **Labels** staying inside the chart.
+- **Balance:** setting it before and during a run (to exactly the amount typed), refusing nonsense, a resumed backtest coming back with the same balance, and refusal during a challenge.
+
+In the in-app browser, with the real mouse and keyboard:
+- placed a long position at the newest candle; all three handles were on screen
+- dragged the stop from 1.15918 to 1.15843: the ratio became 1.14R and the SL box followed
+- typed 1.16400 in the TP box and pressed Enter: the target moved, the ratio became 2.18R, and the position stayed selected
+- after a reload the labels sat fully inside the chart
+- clicked the balance, typed 25000 and pressed Enter: it showed $25,000.00, was saved, and the position tool re-sized to 1.42 lots (1%, $248.50)
+- no console errors
+
+**How to check:** pick the long tool and click at the newest candle. Drag the red handle down and the green handle up; or type prices in the SL and TP boxes at the bottom of the chart and press Enter. Click "Balance" at the top of the panel, type an amount, press Enter.

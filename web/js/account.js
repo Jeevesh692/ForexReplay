@@ -32,7 +32,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 });
 
 const LIMITS = {
-  startingBalance: [100, 100000000],
+  startingBalance: [1, 1000000000], // any balance you like, from $1 to $1 billion
   riskPercent: [0.01, 100],
   fixedLots: [0.01, 1000],
   commissionPerLot: [0, 1000],

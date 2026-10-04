@@ -102,6 +102,10 @@
           <button class="plain small" data-line-style="dotted" title="Dotted line">&#8943;</button>
         </span>
         <button class="plain small" id="draw-edit-text" title="Change the text (or double-click the note)" hidden>Edit text</button>
+        <span class="draw-levels" id="draw-levels" hidden>
+          <label title="Stop loss price: type it, then Enter">SL <input id="draw-stop" inputmode="decimal" autocomplete="off"></label>
+          <label title="Take profit price: type it, then Enter">TP <input id="draw-target" inputmode="decimal" autocomplete="off"></label>
+        </span>
         <button class="plain small" id="draw-to-ticket" title="Copy this entry, stop and target into the order ticket" hidden>Use in ticket</button>
         <button class="plain small" id="draw-delete" title="Delete this drawing (Delete key)">Delete</button>
       </div>
@@ -178,7 +182,8 @@
   <aside class="panel" id="trading-panel">
     <h2>Trading</h2>
     <dl class="account" id="account-strip">
-      <div><dt>Balance</dt><dd id="account-balance"></dd></div>
+      <div class="balance-cell" title="Click to set your balance"><dt>Balance <span class="edit-mark">&#9998;</span></dt><dd id="account-balance"></dd>
+        <input id="balance-input" type="number" min="1" step="any" inputmode="decimal" hidden aria-label="Set balance"></div>
       <div><dt title="Balance plus the floating result of open trades">Equity</dt><dd id="account-equity"></dd></div>
       <div class="wide"><dt title="Change in equity since this replay started">This run</dt><dd id="account-run"></dd></div>
     </dl>
@@ -272,7 +277,7 @@
       <summary>Account settings</summary>
       <label class="field inline">
         <span>Starting balance ($)</span>
-        <input id="set-balance" type="number" min="100" step="100">
+        <input id="set-balance" type="number" min="1" step="any">
       </label>
       <label class="field inline">
         <span title="Round turn (in and out), charged when a trade opens">Commission ($ per lot)</span>

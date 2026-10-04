@@ -46,6 +46,10 @@ The chart library has no draggable lines. `web/js/chart.js` watches the mouse it
 
 The price scale now stretches to keep the lines of active trades on screen, unless a line is more than 1.5 times the visible candle range away.
 
+## Since v2.0.0
+
+The balance can be set directly (click it): before a run it is the starting balance; during a run the starting balance is moved so the balance equals the amount typed, recorded like any settings change; refused during a challenge. Allowed range $1 to $1,000,000,000.
+
 ## Not yet done
 
 Typing a new stop or target for an open trade (dragging and breakeven cover it for now), trailing stops, margin. (Saving trades to the journal came on day 7, [0008](0008-backtests-saved-as-actions.md).)

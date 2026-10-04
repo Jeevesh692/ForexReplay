@@ -58,6 +58,36 @@ export class TradingPanel {
       this.renderSettings(); // show what was actually stored (a rejected value snaps back)
     });
     setting("set-balance", "startingBalance");
+    // Click the balance to type a new one (see Trading.setBalance for what it means during a run).
+    const balanceCell = root.querySelector(".balance-cell");
+    const balanceInput = this.el("balance-input");
+    const balanceText = this.el("account-balance");
+    const closeBalance = () => { balanceInput.hidden = true; balanceText.hidden = false; };
+    balanceCell.addEventListener("click", () => {
+      if (!balanceInput.hidden) return;
+      balanceInput.value = this.trading.balance.toFixed(2);
+      balanceInput.hidden = false;
+      balanceText.hidden = true;
+      balanceInput.focus();
+      balanceInput.select();
+    });
+    balanceInput.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); closeBalance(); return; }
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      try {
+        const settings = this.trading.setBalance(balanceInput.value);
+        saveSettings(settings);
+        this.say(`Balance set to ${formatMoney(this.trading.balance)}.`, "ok");
+      } catch (err) {
+        if (!(err instanceof InvalidOrder)) throw err;
+        this.say(err.message, "bad");
+      }
+      closeBalance();
+      this.renderSettings();
+      this.render();
+    });
+    balanceInput.addEventListener("blur", closeBalance);
     setting("set-commission", "commissionPerLot");
     setting("order-spread", "minSpreadPips");
     this.el("order-size").addEventListener("change", (event) => {

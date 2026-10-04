@@ -110,3 +110,38 @@ test("flatten closes open trades at the current price and cancels pending orders
   assert.deepEqual(counts, { open: 0, pending: 0, closed: 1, wins: 0, losses: 0, totalR: 0 });
   assert.equal(totalMoney, -4); // 1.00 lot at 1% risk, flat price: only the $4 commission
 });
+
+test("the balance can be set to any amount, before a run or during one", async () => {
+  const { rebuild, snapshot } = await import("../js/backtest.js");
+  const { DrawingStore } = await import("../js/drawings.js");
+  const m5 = market(40, { 7: [110000, 110300, 110000, 110000] });
+  const clock = new ReplayClock(m5.length);
+  const trading = new Trading({ m5, clock, settings: { startingBalance: 10000, commissionPerLot: 0, sizeMode: "lots", fixedLots: 1 } });
+  trading.setBalance("2537.50"); // outside a replay: the next run starts with it
+  assert.equal(trading.balance, 2537.5);
+  clock.start(5);
+  trading.reset();
+  assert.equal(trading.balance, 2537.5);
+  trading.place({ side: Side.BUY, type: "market", stopLoss: 109900, takeProfit: 110200 });
+  clock.advance(5); // +200 points on 1 lot = +$200 banked
+  assert.equal(trading.balance, 2737.5);
+  trading.setBalance(50000); // during the run: the balance is exactly what was typed
+  assert.equal(trading.balance, 50000);
+  assert.throws(() => trading.setBalance(0), /between \$1/);
+  assert.throws(() => trading.setBalance("lots"), /between \$1/);
+  // A resumed backtest comes back with the same balance (it is recorded as a settings change).
+  const meta = { id: "bt", name: "x", journal: "j", created: "now", startTime: m5.time[4] };
+  const saved = JSON.parse(JSON.stringify(snapshot(meta, { trading, drawings: new DrawingStore(), m5, clock, manifest: { symbol: "EURUSD", digits: 5, pip_points: 10 }, timeframe: "M5" })));
+  const again = rebuild(saved, { m5, pipPoints: 10, pointValue: 1 });
+  assert.deepEqual(again.problems, []);
+  assert.equal(again.trading.balance, 50000);
+});
+
+test("during a challenge the balance cannot be changed", () => {
+  const m5 = market(20);
+  const clock = new ReplayClock(m5.length);
+  const trading = new Trading({ m5, clock, challenge: { enabled: true, targetPercent: 8, dailyPercent: 5, maxPercent: 10 } });
+  clock.start(5);
+  trading.reset();
+  assert.throws(() => trading.setBalance(20000), /cannot change during a challenge/);
+});
