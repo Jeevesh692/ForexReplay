@@ -14,12 +14,13 @@
 //    the candle under the mouse. Holding Ctrl turns it the other way for that move.
 
 import {
-  createDrawing, hit, layout, logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, snapPrice, timeToLogical, TOOLS,
+  createDrawing, hit, layout, logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, positionLevel, snapPrice, timeToLogical, TOOLS,
 } from "./drawings.js";
 import { formatDateTime } from "./time.js";
 import { timeframe as timeframeInfo } from "./timeframes.js";
 
 const BLUE = PALETTE[0];
+const MAGNET_PIXELS = 12; // the magnet only pulls a point this close to a candle price
 const DASHES = { solid: [], dashed: [6, 4], dotted: [1.5, 3] };
 const STYLE = {
   line: { stroke: BLUE, width: 1.5 },
@@ -144,9 +145,14 @@ export class DrawingLayer {
     const logical = v.chart.timeScale().coordinateToLogical(point.x);
     const price = v.series.coordinateToPrice(point.y);
     if (logical === null || price === null) return null;
-    let points = Math.round(price * 10 ** v.digits);
-    if (snap && this.magnet !== !!event.ctrlKey) points = snapPrice(v.candles, logical, points);
-    return { ...point, logical, time: logicalToTime(v.candles, this.tfSeconds, logical), price: points };
+    const raw = Math.round(price * 10 ** v.digits);
+    let points = raw;
+    if (snap && this.magnet !== !!event.ctrlKey) {
+      const near = v.series.coordinateToPrice(point.y + MAGNET_PIXELS); // how many points 12 pixels cover right now
+      const reach = near === null ? 0 : Math.abs(raw - Math.round(near * 10 ** v.digits));
+      points = snapPrice(v.candles, logical, raw, reach);
+    }
+    return { ...point, logical, time: logicalToTime(v.candles, this.tfSeconds, logical), price: points, rawPrice: raw };
   }
 
   setMagnet(on) {
@@ -346,7 +352,8 @@ export class DrawingLayer {
     if (!drag.moved && Math.hypot(at.x - drag.start.x, at.y - drag.start.y) < 3) return; // a click, not a drag (yet)
     drag.moved = true;
     if (drag.hit.part === "handle") {
-      drag.current = moveHandle(drag.original, drag.hit.key, at);
+      const price = positionLevel(drag.original, drag.hit.key, at.price, at.rawPrice);
+      drag.current = moveHandle(drag.original, drag.hit.key, { ...at, price });
     } else {
       const v = this.view;
       const bars = Math.round(at.logical - drag.start.logical);

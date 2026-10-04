@@ -781,7 +781,7 @@ async function boot() {
         layer.setTool(layer.tool === tool ? null : tool);
       } else if (action === "magnet") {
         setMagnet(!layer.magnet);
-        setHint(`Magnet ${layer.magnet ? "on: points jump to the nearest open, high, low or close" : "off"}.`);
+        setHint(`Magnet ${layer.magnet ? "on: a point near a candle's open, high, low or close jumps onto it" : "off"}.`);
         setTimeout(() => setHint(null), 1800);
       } else if (action === "undo") undoDrawing();
       else if (action === "redo") redoDrawing();

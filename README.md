@@ -53,7 +53,7 @@ Then click **Replay**, click the candle to start from, and press **Space**. Pres
 
 ```bash
 pip install pytest && python -m pytest    # 66 Python tests
-node --test web/tests/*.test.mjs          # 120 JavaScript tests (Node.js, no packages)
+node --test web/tests/*.test.mjs          # 122 JavaScript tests (Node.js, no packages)
 ```
 
 The browser app repeats three pieces of logic that already existed in Python. Each copy is held to the Python original by a recorded comparison file, so the two can never drift apart:

@@ -29,6 +29,8 @@ When the magnet is on, a new point and a dragged handle jump to the nearest open
 
 The magnet only looks at the candles on the chart, so during a replay it can only snap to prices already revealed. In a forming H1 candle it snaps to the high of the M5 candles shown so far, never to the high of the whole hour (there is a test for this).
 
+**Changed in v2.0.2 (4 Oct 2026):** the strong magnet folded a position's stop or target onto its entry. Over candles that were all above a long's entry, nudging the stop snapped it to the nearest candle price, which was above the entry, and it was clamped one point under it (reported by Jeevesh). The magnet is now *weak*: it pulls a point only when a candle price is within 12 pixels of the mouse. A position's stop or target also never takes a magnet price on the wrong side of the entry.
+
 ## Undo and redo
 
 Ctrl + Z and Ctrl + Y (or Ctrl + Shift + Z), or the arrows in the tool bar. The drawing store keeps a copy of the list before each change (add, move, restyle, edit text, delete, clear), up to 100 steps. A change that changes nothing adds no step. Loading a list (starting a replay, resuming a backtest, leaving a replay) starts a fresh history, so undo never reaches into another run.

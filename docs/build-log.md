@@ -547,3 +547,32 @@ In the in-app browser, with the real mouse and keyboard:
 - no console errors
 
 **How to check:** pick the long tool and click at the newest candle. Drag the red handle down and the green handle up; or type prices in the SL and TP boxes at the bottom of the chart and press Enter. Click "Balance" at the top of the panel, type an amount, press Enter.
+
+---
+
+## After v2.0.1: Sun 4 Oct 2026 · a position's stop or target collapsing onto the entry (v2.0.2)
+
+**Asked for (Jeevesh):** "When I am using the long forecasting tool and I click on SL, it disappears; same with the short position but with TP."
+
+**What was wrong:** reproduced with the real mouse in the in-app browser, with the magnet on. Nudging a long's stop handle by 4 pixels threw the stop to one point under the entry (1.16061 for an entry of 1.16062). The red zone vanished, the ratio read 200R, and the size note said 100 lots.
+
+The magnet always snapped to the nearest open, high, low or close of the candle under the mouse, however far away it was. A long placed below the candles there has every candle price above its entry. The "nearest" price was then above the entry, and the stop was clamped against the entry. A short's target, below its entry, collapsed the same way. With the magnet off it did not happen, which is why the first check (magnet off) could not reproduce it.
+
+**Built (Claude):**
+- The magnet now pulls a point only when a candle price is within 12 pixels of the mouse, like TradingView's weak magnet. Further away, the point stays where the mouse is. This applies to every tool.
+- A position's stop or target never takes a magnet price on the wrong side of the entry; the handle then follows the mouse.
+- Tooltips, the shortcut list and the magnet hint describe the new behaviour.
+
+**Tests:** 2 new JavaScript tests (122 in total; Python stays at 66).
+- **Weak magnet:** it snaps a price 3 points from a candle's high, leaves one 80 points away alone, and still snaps any distance when no limit is given.
+- **Position guard:** a long's stop and a short's target refuse a magnet price on the wrong side of the entry, and keep one on the right side.
+- One expectation in the second test was first written wrong (a short's target of 110020 against an entry of 110030 is on the right side) and was corrected.
+
+In the in-app browser, with the real mouse and the magnet on:
+- **Long:** the same 4-pixel nudge left the stop on the right side, and dragging it further moved it to 1.15886 (19.6 pips, 1.02R).
+- **Short:** a 4-pixel nudge on the target moved it to 1.15995, still below the entry of 1.16204. Both zones stayed visible.
+- No console errors.
+
+**Decisions:** the strong magnet of [0010](decisions/0010-drawing-styles-magnet-undo-shortcuts.md) is replaced by a weak one (12 pixels), and position levels never cross their entry because of the magnet.
+
+**How to check:** turn the magnet on (the U button). Place a long below some candles and drag its red handle a little: the red zone stays. Do the same with a short's green handle.

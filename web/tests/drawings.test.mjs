@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { Candles } from "../js/data.js";
 import {
   cleanDrawing, createDrawing, distanceToSegment, DrawingStore, FIB_LEVELS, fibPrice, handles, hit, layout,
-  logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, positionStats, snapPrice, timeToLogical, TOOLS, UNDO_LIMIT,
+  logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, positionLevel, positionStats, snapPrice, timeToLogical, TOOLS, UNDO_LIMIT,
 } from "../js/drawings.js";
 import { SHORTCUTS, shortcutFor } from "../js/shortcuts.js";
 import { aggregate, TimeframeView } from "../js/timeframes.js";
@@ -305,4 +305,24 @@ test("position labels stay inside the chart when the box runs past its right edg
   for (const label of layout(long, proj).labels) {
     assert.ok(label.x + (label.text.length * 7) / 2 <= proj.width - 4 + 1e-9, `"${label.text}" runs past the edge`);
   }
+});
+
+test("the magnet only pulls a price that is already close to a candle price", () => {
+  const c = candles(10); // every candle: open 110000, high 110020, low 109980, close 110005
+  assert.equal(snapPrice(c, 3, 110017, 5), 110020);   // 3 points from the high: snaps
+  assert.equal(snapPrice(c, 3, 109900, 5), 109900);   // 80 points from anything: stays where the mouse is
+  assert.equal(snapPrice(c, 3, 109900), 109980);      // no limit given: the old, always-snapping behaviour
+});
+
+test("a magnet never folds a position's stop or target onto its entry", () => {
+  const c = candles(40);
+  const long = createDrawing("long", { time: c.time[10], price: 109970 }, defaults(c)); // entry below every candle price
+  // Dragging the stop with the magnet: the nearest candle price (109980) is ABOVE the entry, so it is ignored.
+  assert.equal(positionLevel(long, "stop", 109980, 109940), 109940);
+  assert.equal(moveHandle(long, "stop", { time: c.time[10], price: positionLevel(long, "stop", 109980, 109940) }).stop, 109940);
+  assert.equal(positionLevel(long, "stop", 109950, 109952), 109950);  // a snap on the right side is kept
+  const short = createDrawing("short", { time: c.time[10], price: 110030 }, defaults(c)); // entry above every candle price
+  assert.equal(positionLevel(short, "target", 110040, 110000), 110000); // the target cannot snap above a short's entry
+  assert.equal(positionLevel(short, "target", 110020, 110000), 110020); // below the entry is fine
+  assert.equal(positionLevel(long, "entry", 109980, 109940), 109980);   // other handles snap as usual
 });

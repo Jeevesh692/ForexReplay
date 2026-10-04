@@ -45,17 +45,36 @@ const whole = (value) => Number.isInteger(value);
 
 /**
  * Magnet: the price of the open, high, low or close nearest to `price`, on the candle at
- * chart position `logical`. Only candles on the chart can be snapped to, so during a replay
- * nothing hidden is ever used. Outside the candles the price is left as it is.
+ * chart position `logical`, if it is within `maxDistance` points (the layer passes the points
+ * that 12 pixels cover at the current zoom). Further away, or outside the candles, the price
+ * is left as it is. Only candles on the chart can be snapped to, so during a replay nothing
+ * hidden is ever used.
+ *
+ * Until v2.0.2 the magnet always snapped, however far away the nearest price was. Nudging a
+ * long's stop handle over candles that were all above the entry then threw the stop up to one
+ * point under the entry, and the red zone vanished (reported by Jeevesh).
  */
-export function snapPrice(candles, logical, price) {
+export function snapPrice(candles, logical, price, maxDistance = Infinity) {
   const i = Math.round(logical);
   if (!candles || i < 0 || i >= candles.length) return price;
   let best = price, distance = Infinity;
   for (const value of [candles.open[i], candles.high[i], candles.low[i], candles.close[i]]) {
     if (Math.abs(value - price) < distance) { best = value; distance = Math.abs(value - price); }
   }
-  return best;
+  return distance <= maxDistance ? best : price;
+}
+
+/**
+ * For a position's stop or target handle: the snapped price if it is still on the right side
+ * of the entry, otherwise the price under the mouse. A magnet must never fold a stop or target
+ * onto the entry.
+ */
+export function positionLevel(d, key, snapped, raw) {
+  if (!isPosition(d.type) || (key !== "stop" && key !== "target")) return snapped;
+  const direction = d.type === "long" ? 1 : -1;
+  const entry = d.points[0].price;
+  const ok = key === "stop" ? (entry - snapped) * direction > 0 : (snapped - entry) * direction > 0;
+  return ok ? snapped : raw;
 }
 
 // ----- time <-> position on the chart -----------------------------------------
