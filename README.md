@@ -52,7 +52,7 @@ Then click **Replay**, click the candle to start from, and press **Space**. Pres
 
 ### Online version
 
-`python -m forex_replay site --out _site` builds the same app as a static website (53 files, about 3 MB) for free hosting such as Cloudflare Pages. Online there is no Python server, so each visitor's backtests are saved in their own browser and screenshots are not kept; see [decision 0015](docs/decisions/0015-online-version.md). The site asks search engines not to list it.
+`python -m forex_replay site --out _site` builds the same app as a static website (53 files, about 3 MB) for free hosting. Every push to `main` publishes it on GitHub Pages at https://jeevesh692.github.io/ForexReplay/ (public; [decision 0016](docs/decisions/0016-github-pages.md)). Online there is no Python server, so each visitor's backtests are saved in their own browser and screenshots are not kept; see [decision 0015](docs/decisions/0015-online-version.md). The site asks search engines not to list it.
 
 ## How it is tested
 
