@@ -139,6 +139,20 @@
       <div id="an-body">
         <div class="tiles" id="an-tiles"></div>
         <div class="block chart-block">
+          <div class="block-head"><h2 id="an-balance-title">Account balance</h2><div class="figures" id="an-balance-figures"></div></div>
+          <div class="svg-wrap"><svg id="an-balance" role="img" aria-label="Closed balance in dollars after each trade"></svg>
+            <div class="svg-tip" id="an-balance-tip" hidden></div></div>
+          <p class="muted small" id="an-balance-note"></p>
+        </div>
+        <div class="block">
+          <div class="block-head"><h2>P&amp;L calendar</h2>
+            <div class="month-pick"><button class="plain bordered small" id="an-month-prev" aria-label="Previous month">‹</button>
+              <select id="an-month" aria-label="Month"></select>
+              <button class="plain bordered small" id="an-month-next" aria-label="Next month">›</button></div></div>
+          <div class="table-scroll"><table class="calendar" id="an-calendar"></table></div>
+          <p class="muted small">Days are trading days on the broker clock (17:00 to 17:00 New York), by when each trade closed. Week totals cover all seven days of the row.</p>
+        </div>
+        <div class="block chart-block">
           <h2>Equity in R, trade by trade</h2>
           <div class="svg-wrap"><svg id="an-equity" role="img" aria-label="Cumulative result in R after each trade"></svg>
             <div class="svg-tip" id="an-equity-tip" hidden></div></div>

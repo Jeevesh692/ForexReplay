@@ -64,7 +64,7 @@ export class ServerStore {
 }
 
 export const BROWSER_KEY = "forexreplay.store.v1";
-const SUMMARY = ["id", "name", "journal", "symbol", "startTime", "furthestTime", "created", "saved", "result"];
+const SUMMARY = ["id", "name", "journal", "symbol", "startTime", "furthestTime", "created", "saved", "result", "settings", "challenge"];
 
 /** Backtests in this browser (the online site). */
 export class BrowserStore {
