@@ -201,3 +201,57 @@ export function applyFilters(trades, filters) {
   return trades.filter((t) => (!filters.run || t.run === filters.run) && (!filters.side || t.side === filters.side) &&
     (!filters.session || t.session === filters.session) && (!filters.tag || t.tags.includes(filters.tag)));
 }
+
+// ----- money over time: the balance graph and the P&L calendar ---------------------
+// These only regroup the journal's own $ column by exit time; stats.py has no twin of
+// them, so web/tests/analytics.test.mjs checks them directly.
+
+/**
+ * The closed balance after each trade that has $ recorded, in the order trades closed:
+ * [{ balance, trade }], starting from `start` (0 gives cumulative $ only).
+ */
+export function balanceCurve(trades, start = 0) {
+  const closed = trades.filter((t) => Number.isFinite(t.money) && t.row.exit_time)
+    .map((t, i) => [t, i]).sort((a, b) => a[0].row.exit_time.localeCompare(b[0].row.exit_time) || a[1] - b[1]).map(([t]) => t);
+  let balance = start;
+  return closed.map((trade) => ({ balance: (balance += trade.money), trade }));
+}
+
+/** Results per trading day (the exit date on the broker clock): Map "YYYY-MM-DD" -> { money, r, trades, withMoney }. */
+export function dailyPnl(trades) {
+  const days = new Map();
+  for (const t of trades) {
+    if (!t.exitDay) continue;
+    const d = days.get(t.exitDay) || { money: 0, r: 0, trades: 0, withMoney: 0 };
+    d.trades += 1;
+    d.r += t.r;
+    if (Number.isFinite(t.money)) { d.money += t.money; d.withMoney += 1; }
+    days.set(t.exitDay, d);
+  }
+  return days;
+}
+
+/**
+ * A month as calendar weeks, Sunday first, each with the days shown and the week's total
+ * over all seven days (days of the next or previous month included, as the week is one week).
+ * `month` is 1-12. Returns [{ days: [{ date, inMonth, result|null }], total: { money, r, trades, withMoney } }].
+ */
+export function monthWeeks(year, month, days) {
+  const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const first = Date.UTC(year, month - 1, 1);
+  const DAY = 86400000;
+  let start = first - new Date(first).getUTCDay() * DAY;
+  const weeks = [];
+  while (weeks.length === 0 || new Date(start).getUTCMonth() === month - 1) {
+    const week = { days: [], total: { money: 0, r: 0, trades: 0, withMoney: 0 } };
+    for (let i = 0; i < 7; i++) {
+      const date = iso(start + i * DAY);
+      const result = days.get(date) || null;
+      week.days.push({ date, inMonth: Number(date.slice(5, 7)) === month, result });
+      if (result) for (const key of Object.keys(week.total)) week.total[key] += result[key];
+    }
+    weeks.push(week);
+    start += 7 * DAY;
+  }
+  return weeks;
+}
