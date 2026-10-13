@@ -22,9 +22,10 @@ web/data/
 web/vendor/
 node_modules/
 
-# Saved backtests from the browser app (personal working files)
-strategies/*/backtests/
-strategies/*/screenshots/bt-*.png
+# Each person's strategies stay on their own computer: sessions, journals, screenshots, logs,
+# checklists and workbooks. Only the explanation is shared (see strategies/README.md).
+strategies/*
+!strategies/README.md
 
 # The static website build (python -m forex_replay site)
 _site/

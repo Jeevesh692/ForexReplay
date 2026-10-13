@@ -4,6 +4,8 @@ Goal: one place per strategy. Each of Jeevesh's strategies (about 10: liquidity 
 
 Say "start journal day N" to do a day.
 
+**The plan is complete** (13 Oct 2026, released as v2.1.0).
+
 ## Decided (13 Oct 2026, Jeevesh)
 
 - **Desktop app first.** Everything is written under `strategies/<strategy>/` on his computer, so the Excel workbooks refresh straight from the CSV files beside them and nothing is lost when the browser's data is cleared. The online version gets the loggers later (stage 3 in both logger specs).
@@ -25,9 +27,9 @@ What is missing is a way to treat each journal folder as a strategy: see them al
 | 2 | **Logger groundwork and NBB pre-session fields.** `forex_replay/loglib.py` (New York time, 15m/30m/D1/W1 candles, swings, Wilder ATR, atomic CSV keyed by run). The M5 candles kept in memory by the server. The save calls the strategy's logger; a logger error is reported, never blocks the save. `python -m forex_replay nbb <strategy>` rebuilds the log from every saved session (and `sweep` on day 5). NBB PRE fields: ADR5, daily and weekly structure, bias, Asian range, 00:00 open, PDH/PDL/PWH/PWL, PD arrays and the nearest one. `nbb_days.csv`. | done (13 Oct) |
 | 3 | **NBB setup fields.** H2, H1, L1, displacement, the rule Fibonacci walk, the opposite PD array, entry and stop levels, your own Fibonacci drawing. | done (13 Oct) |
 | 4 | **NBB after the setup.** POST fields with PENDING until 16:00 New York has been replayed, resolution, deepest levels, Phase 2 simulation. Header contract test. Checked end to end with `NBB_Backtest_Log.xlsx`. | done (13 Oct) |
-| 5 | **Sweep logger, map and setup.** The 08:00 map (PDH/PDL, overnight, 30m swings, equal levels; the loose map and the rulebook map), the sweep, the rule trade, the six nearest opposite levels. | |
-| 6 | **Sweep after the setup, and days.** stop_hit, MFE, 16:00 result, Phase 2, `sweep_days.csv`, header contract. Checked end to end with `Sweep_Backtest_Log.xlsx`. | |
-| 7 | **Strategies without a logger.** Your own checklist per strategy (questions with Yes/No, a choice, or a number, such as "Asian range swept?"), asked in the journal box for each trade and written as extra columns in `trades.csv`. Fixes, documentation, release v2.1. | |
+| 5 | **Sweep logger, map and setup.** The 08:00 map (PDH/PDL, overnight, 30m swings, equal levels; the loose map and the rulebook map), the sweep, the rule trade, the six nearest opposite levels. | done (13 Oct) |
+| 6 | **Sweep after the setup, and days.** stop_hit, MFE, 16:00 result, Phase 2, `sweep_days.csv`, header contract. Checked end to end with `Sweep_Backtest_Log.xlsx`. | done (13 Oct) |
+| 7 | **Strategies without a logger.** Your own checklist per strategy (questions with Yes/No, a choice, or a number, such as "Asian range swept?"), asked in the journal box for each trade and written to `checklist_log.csv` beside the journal (changed while building: a separate file keeps `trades.csv` at its fixed columns). Fixes, documentation, release v2.1. Also (asked on day 7): strategies kept off GitHub so a friend can use the features with his own. | done (13 Oct) |
 
 ## Rules this keeps
 

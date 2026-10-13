@@ -52,7 +52,7 @@ def test_changing_a_strategy_keeps_its_sessions_and_bad_input_is_refused():
         root = Path(tmp)
         backtests.save("nbb", "bt-1", backtest([closed_trade(1)], journal="nbb"), root)
         assert strategies.save_strategy("nbb", {"label": " NBB OTE ", "logger": "nbb"}, root)["label"] == "NBB OTE"
-        assert strategies.read_config("nbb", root) == {"label": "NBB OTE", "logger": "nbb"}
+        assert strategies.read_config("nbb", root) == {"label": "NBB OTE", "logger": "nbb", "checklist": []}
         assert (root / "nbb" / "backtests" / "bt-1.json").exists()
         assert len(backtests.journal_rows("nbb", root)) == 1
         for name, data in [("../x", {"label": "x"}), ("nbb", {"label": ""}), ("nbb", {"label": "x" * 61}),
@@ -60,7 +60,7 @@ def test_changing_a_strategy_keeps_its_sessions_and_bad_input_is_refused():
             with pytest.raises(backtests.BacktestError):
                 strategies.save_strategy(name, data, root)
         (root / "nbb" / "strategy.json").write_text("{ damaged", encoding="utf-8")
-        assert strategies.read_config("nbb", root) == {"label": "nbb", "logger": "none"}
+        assert strategies.read_config("nbb", root) == {"label": "nbb", "logger": "none", "checklist": []}
 
 
 def test_server_lists_and_saves_strategies():

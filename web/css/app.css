@@ -447,6 +447,15 @@ button.primary {
 .strategy-new input { flex: 1 1 200px; }
 .backtest-heading { font-size: 13px; margin-top: 14px; }
 .strategy-chip { color: var(--blue); margin-left: 4px; }
+.checklist-editor { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 4px; }
+.checklist-row { display: grid; grid-template-columns: 1fr 110px 1fr auto; gap: 6px; margin-top: 6px; align-items: center; }
+.checklist-row input[type="text"] { width: 100%; }
+.checklist-row .options[hidden] { visibility: hidden; display: block; }
+.journal-checklist { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.journal-checklist .question { display: flex; align-items: center; gap: 6px; justify-content: space-between; font-size: 12px; }
+.journal-checklist .question > span { flex: 1; color: var(--muted); }
+.journal-checklist select, .journal-checklist input { max-width: 110px; }
+.journal-checklist input[type="number"] { width: 80px; }
 .strategy-chip:empty { display: none; }
 .backtest-table td { vertical-align: middle; }
 .backtest-table .nowrap { white-space: nowrap; }

@@ -7,6 +7,7 @@
     python -m forex_replay data     (rebuild the app's market data from MT5 exports)
     python -m forex_replay site     (build the app as a static website, for free hosting)
     python -m forex_replay nbb nbb  (rebuild a strategy's NBB log from every saved session)
+    python -m forex_replay sweep liquidity_sweep  (the same for the sweep log)
 """
 
 from __future__ import annotations
@@ -101,15 +102,17 @@ def cmd_site(args) -> None:
     print(f"Website written to {result['out']}: {result['files']} files, {result['bytes'] / 1e6:.1f} MB")
 
 
-def cmd_nbb(args) -> None:
-    from . import loglib, nbb
+def cmd_log(args) -> None:
+    """Rebuild a strategy's automatic log (nbb or sweep) from every saved session."""
+    from . import loglib, nbb, sweep
     from .backtests import check_name
 
+    module = {"nbb": nbb, "sweep": sweep}[args.command]
     folder = JOURNALS_DIR / check_name(args.strategy, "A strategy name")
     if not folder.is_dir():
         raise SystemExit(f"No strategy folder {folder}")
-    totals = nbb.rebuild(folder, loglib.load_m5())
-    print(f"{folder / nbb.LOG_FILE}: {totals['trades']} trades; {folder / nbb.DAYS_FILE}: {totals['days']} days; "
+    totals = module.rebuild(folder, loglib.load_m5())
+    print(f"{folder / module.LOG_FILE}: {totals['trades']} trades; {folder / module.DAYS_FILE}: {totals['days']} days; "
           f"from {totals['sessions']} saved sessions")
 
 
@@ -161,9 +164,10 @@ def build_parser() -> argparse.ArgumentParser:
     site.add_argument("--out", default="_site", help="folder to write the website into")
     site.set_defaults(func=cmd_site)
 
-    nbb = sub.add_parser("nbb", help="rebuild a strategy's NBB log (nbb_log.csv, nbb_days.csv) from its saved sessions")
-    nbb.add_argument("strategy", help="the strategy's folder name under strategies/, e.g. nbb")
-    nbb.set_defaults(func=cmd_nbb)
+    for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv")):
+        log = sub.add_parser(name, help=f"rebuild a strategy's {name} log ({files}) from its saved sessions")
+        log.add_argument("strategy", help="the strategy's folder name under strategies/, e.g. liquidity_sweep")
+        log.set_defaults(func=cmd_log)
     return parser
 
 

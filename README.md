@@ -29,7 +29,8 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 
 **Strategies, backtests, journal and analytics**
 - Each strategy (for example a liquidity sweep or an Asian sweep) has its own folder of sessions, journal, screenshots and Excel workbook. Leave one, test another, and come back days later to where you stopped.
-- For the NBB strategy, every save also measures each trade against the rulebook (bias, Asian range, PD arrays, H1/L1/H2, displacement, the rule Fibonacci and what price did afterwards) into a CSV that an Excel workbook analyses, with no look-ahead.
+- For the NBB strategy, every save also measures each trade against the rulebook (bias, Asian range, PD arrays, H1/L1/H2, displacement, the rule Fibonacci and what price did afterwards) into a CSV that an Excel workbook analyses, with no look-ahead. The liquidity-sweep strategy has the same: the 08:00 map, the sweep, the rule trade and the opposite levels.
+- Any strategy can have its own checklist (Yes/No, a choice, or a number), answered per trade in the journal and written to a CSV for Excel.
 - Every replay is a backtest, saved as you go and resumable later. It is saved as the actions you took and rebuilt by replaying them, then checked trade by trade against the save.
 - Each trade gets a note, tags and automatic chart screenshots at entry and exit.
 - The journal (`strategies/<name>/trades.csv`) has one row per closed trade: R result, MFE and MAE, session, lots, dollars, note and tags.
@@ -51,6 +52,20 @@ python -m forex_replay app        # or double-click start_app.bat on Windows
 It opens `http://127.0.0.1:8765`. The first start builds the browser's market data from the MT5 export in `data/` (EURUSD M5, 1 Aug 2025 to 11 Sep 2026, 82,569 candles).
 
 Then click **Replay**, click the candle to start from, and press **Space**. Press **?** in the app for every keyboard shortcut.
+
+### Use it for your own strategies
+
+Anyone can use the app for their own strategies. The project shares the features, not anyone's trading:
+no strategy, session, journal, log, checklist or Excel workbook is in the repository, and git ignores the
+`strategies/` folder where the app keeps them ([strategies/README.md](strategies/README.md)).
+
+1. Get the code: on GitHub, **Code → Download ZIP** (then unzip it), or `git clone https://github.com/Jeevesh692/ForexReplay.git`.
+2. Install Python 3.11 or later (tick "Add Python to PATH"), then in the project folder run `pip install -r requirements.txt` once.
+3. Double-click `start_app.bat` (Windows) or run `python -m forex_replay app`.
+4. Press **Strategies** in the toolbar and add your own: a name, and an automatic log if one fits (NBB or liquidity sweep; otherwise none). **Checklist** lets you write your own questions to answer for each trade.
+5. Press **New session**, pick a start candle, and trade. Everything is saved under `strategies/<your strategy>/` on your computer as you go.
+
+To update later, download the code again (or `git pull`); your `strategies/` folder is never touched.
 
 ### Online version
 
@@ -81,7 +96,7 @@ The record is part of the project:
 - [`docs/build-log.md`](docs/build-log.md): one entry per day with what was asked, built, tested and decided, and the bugs found along the way.
 - [`docs/decisions/`](docs/decisions/): design records, each saying why something is the way it is and what is not done yet.
 - [`docs/plan.md`](docs/plan.md): the plan and its status.
-- [`docs/plan-strategy-journals.md`](docs/plan-strategy-journals.md): the work after v2.0: strategies with automatic rule logs for Excel. So far: days 1 to 4 of 7 (strategies, each with its own sessions; the NBB log for its Excel workbook).
+- [`docs/plan-strategy-journals.md`](docs/plan-strategy-journals.md): the work after v2.0: strategies with automatic rule logs for Excel. Complete: 7 of 7 days, released as v2.1.0 (strategies with their own sessions, the NBB and liquidity-sweep logs, checklists).
 
 Some things the build caught by checking rather than assuming:
 - **A look-ahead bug in the first indicator version.** It read past the revealed candles, so its lines ran into the hidden future. Caught in the browser; a test now fails on that code.

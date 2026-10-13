@@ -924,6 +924,7 @@ async function boot() {
       notes.removeScreenshot(id, name);
     },
     onPick: (id) => { panel.pickedTrade = id; panel.render(); },
+    checklist: () => (backtests && backtests.current ? backtests.checklist(backtests.current.journal) : []),
   });
   backtests = new Backtests({
     store,
@@ -933,6 +934,7 @@ async function boot() {
     onResume: resumeBacktest,
     onNewSession: newSession,
     chip: $("strategy-name"),
+    onStrategiesChanged: () => journalBox.render(),
   });
   backtests.loadLabels();
 

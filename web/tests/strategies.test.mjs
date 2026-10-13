@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BrowserStore } from "../js/store.js";
-import { cleanStrategy, slug, strategyList } from "../js/strategies.js";
+import { cleanAnswer, cleanChecklist, cleanStrategy, questionId, slug, strategyList } from "../js/strategies.js";
+import { TradeNotes } from "../js/tradenotes.js";
 
 function memory() {
   const data = new Map();
@@ -20,8 +21,8 @@ test("a label becomes the same folder name as in Python", () => {
 });
 
 test("a strategy needs a safe name, a label and a known log", () => {
-  assert.deepEqual(cleanStrategy("nbb", { label: " NBB OTE ", logger: "nbb" }), { label: "NBB OTE", logger: "nbb" });
-  assert.deepEqual(cleanStrategy("asian", { label: "Asian sweep" }), { label: "Asian sweep", logger: "none" });
+  assert.deepEqual(cleanStrategy("nbb", { label: " NBB OTE ", logger: "nbb" }), { label: "NBB OTE", logger: "nbb", checklist: [] });
+  assert.deepEqual(cleanStrategy("asian", { label: "Asian sweep" }), { label: "Asian sweep", logger: "none", checklist: [] });
   for (const [name, data] of [["../x", { label: "x" }], ["nbb", { label: "" }], ["nbb", { label: "x".repeat(61) }],
     ["nbb", { label: "x", logger: "magic" }], ["nbb", null]]) {
     assert.ok(cleanStrategy(name, data).error, `${name} ${JSON.stringify(data)}`);
@@ -52,4 +53,44 @@ test("online, strategies are kept in the browser with the sessions", async () =>
     trades: [{ id: 1, status: "CLOSED" }], actions: [], drawings: [] });
   const [only] = await store.listStrategies();
   assert.deepEqual([only.name, only.label, only.sessions, only.latest.id, only.trades], ["asian_sweep", "Asian sweep", 1, "bt-1", 1]);
+  await store.putStrategy("asian_sweep", { label: "Asian sweep", checklist: [{ text: "Swept?", kind: "yesno" }] });
+  assert.deepEqual((await store.listStrategies())[0].checklist, [{ id: "swept", text: "Swept?", kind: "yesno" }]);
+});
+
+test("a checklist keeps clean questions with ids made the same way as in Python", () => {
+  const list = cleanChecklist([
+    { text: " Asian high swept? ", kind: "yesno" },
+    { text: "Entry model", kind: "choice", options: ["FVG", " OB ", "Breaker", ""] },
+    { text: "Confluences", kind: "number", options: ["ignored"] },
+    { text: "Asian high swept?!", kind: "yesno" }, // the same id would follow: it gets a number
+  ]);
+  // the same cases as tests/test_checklist.py
+  assert.deepEqual(list, [
+    { id: "asian_high_swept", text: "Asian high swept?", kind: "yesno" },
+    { id: "entry_model", text: "Entry model", kind: "choice", options: ["FVG", "OB", "Breaker"] },
+    { id: "confluences", text: "Confluences", kind: "number" },
+    { id: "asian_high_swept_2", text: "Asian high swept?!", kind: "yesno" },
+  ]);
+  assert.equal(questionId("!!!", []), "q");
+  const tooMany = Array.from({ length: 31 }, (_, i) => ({ text: `q${i}`, kind: "yesno" }));
+  for (const bad of [[{ text: "", kind: "yesno" }], [{ text: "x", kind: "colour" }], [{ text: "x", kind: "choice", options: ["one"] }],
+    [{ text: "x", kind: "yesno" }, { text: "x", kind: "number" }], "not a list", tooMany]) {
+    assert.ok(cleanChecklist(bad).error, JSON.stringify(bad).slice(0, 60));
+  }
+});
+
+test("answers fit their question, and are kept with the trade's note", () => {
+  const [yes, choice, num] = cleanChecklist([{ text: "Swept?", kind: "yesno" }, { text: "Model", kind: "choice", options: ["FVG", "OB"] },
+    { text: "Score", kind: "number" }]);
+  assert.deepEqual([cleanAnswer(yes, "Yes"), cleanAnswer(yes, "maybe"), cleanAnswer(choice, "OB"), cleanAnswer(choice, "BB"),
+    cleanAnswer(num, " 12.50 "), cleanAnswer(num, "1e3"), cleanAnswer(num, "abc")], ["Yes", "", "OB", "", "12.5", "1000", ""]);
+  const notes = new TradeNotes();
+  notes.setAnswer(4, "swept", "Yes");
+  notes.setAnswer(4, "score", "3");
+  assert.deepEqual(notes.get(4).answers, { swept: "Yes", score: "3" });
+  notes.setAnswer(4, "swept", "");
+  notes.setAnswer(4, "score", "");
+  assert.equal(notes.has(4), false); // nothing left: the entry goes
+  notes.load({ 4: { answers: { swept: "No", "bad key!": "x", score: 7 } } });
+  assert.deepEqual(notes.get(4).answers, { swept: "No" });
 });

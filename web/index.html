@@ -277,6 +277,7 @@
       <p class="muted small" id="journal-empty">Click a trade above to write about it: a note, tags and screenshots.</p>
       <div id="journal-editor" hidden>
         <textarea id="journal-note" rows="3" placeholder="Why you took it, what you saw, what you would do differently"></textarea>
+        <div class="journal-checklist" id="journal-checklist" hidden></div>
         <div class="journal-tags" id="journal-tags"></div>
         <input id="journal-tag-input" type="text" maxlength="24" autocomplete="off" placeholder="Your own tag, then Enter">
         <div class="journal-shots" id="journal-shots"></div>
@@ -341,6 +342,18 @@
       <select id="strategy-logger" aria-label="Automatic log"></select>
       <button type="submit" class="plain bordered" id="strategy-create">+ Add strategy</button>
     </form>
+    <section class="checklist-editor" id="checklist-editor" hidden>
+      <h3 class="backtest-heading">Checklist · <span id="checklist-for"></span></h3>
+      <p class="muted small">Questions you answer for each trade in the journal box. Each one becomes a column of
+        <code>checklist_log.csv</code> in the strategy's folder, for Excel. Renaming a question starts a new column; the old one keeps earlier answers.</p>
+      <div id="checklist-rows"></div>
+      <div class="dialog-actions">
+        <button type="button" class="plain bordered small" id="checklist-add">+ Add question</button>
+        <span class="spacer"></span>
+        <button type="button" class="plain bordered small" id="checklist-cancel">Cancel</button>
+        <button type="button" class="primary small" id="checklist-save">Save checklist</button>
+      </div>
+    </section>
     <h3 class="backtest-heading">Sessions <span class="muted" id="backtest-filter"></span></h3>
     <table class="grid backtest-table">
       <thead><tr><th>Name</th><th>Strategy</th><th>Reached (IST)</th><th class="num">Trades</th><th class="num">Result</th><th>Saved</th><th></th></tr></thead>

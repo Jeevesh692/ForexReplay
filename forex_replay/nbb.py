@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .loglib import (WEEKDAYS, Bars, Candles, fmt_bool, fmt_num, fmt_price, is_swing_high, minutes_bars, ny, ny_date, ny_text,
+from .loglib import (WEEKDAYS, Bars, Candles, back, previous_rows, trade_fields, view, fmt_bool, fmt_num, fmt_price, is_swing_high, minutes_bars, ny, ny_date, ny_text,
                      ny_time, server_bars, server_day, week_bars, week_of_server_day, weekdays_between, wilder_atr,
                      write_keyed_csv)
 
@@ -54,23 +54,6 @@ D1_LOOKBACK, H4_LOOKBACK = 20, 60
 DAILY_STRUCTURE_DAYS, WEEKLY_STRUCTURE_WEEKS = 120, 30
 H1_SEARCH = 64
 TYPE_RANK = {"PW": 0, "PD": 1, "BRK": 2, "OB": 3, "FVG": 4}
-
-
-# ----------------------------------------------------------------- mirroring
-def mirror(m5: Candles) -> Candles:
-    """Every price negated, highs and lows swapped: a sell rule measured on this is the buy rule."""
-    return Candles(m5.time, -m5.open, -m5.low, -m5.high, -m5.close, m5.spread)
-
-
-def view(m5: Candles, side: str) -> Candles:
-    return m5 if side == "SELL" else mirror(m5)
-
-
-def back(value, side: str):
-    """A price on the side's view -> the real price."""
-    if value is None:
-        return None
-    return value if side == "SELL" else -value
 
 
 def killzone_of(utc: int) -> str:
@@ -431,14 +414,6 @@ def phase2(m5: Candles, m15: Bars, fill: int, entry: float, one: float, zero: fl
 
 
 # ----------------------------------------------------------------- rows
-def _settings_at(data: dict, t: int) -> dict:
-    settings = dict(data.get("settings") or {})
-    for a in data.get("actions") or []:
-        if a.get("kind") == "settings" and a.get("at", 0) <= t and isinstance(a.get("settings"), dict):
-            settings.update(a["settings"])
-    return settings
-
-
 def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
     run, digits, pip = data["id"], data["digits"], data["pipPoints"]
     furthest = data["furthestTime"]
@@ -448,24 +423,9 @@ def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
     zone = killzone_of(entry_t)
     price = lambda p: fmt_price(None if p is None else int(round(p)), digits)
     row = dict.fromkeys(COLUMNS, "")  # every column present; blank until measured
-    row.update({
-        "run_id": run, "trade_id": trade["id"], "date_ny": day.isoformat(), "weekday": WEEKDAYS[day.weekday()],
-        "killzone": zone, "side": side, "order_type": trade.get("orderType", ""),
-        "placed_time_ny": ny_text(trade.get("placedTime")), "entry_time_ny": ny_text(entry_t),
-        "exit_time_ny": ny_text(trade.get("exitTime")), "entry_price": price(trade.get("entryPrice")),
-        "stop_loss": price(trade.get("initialStop", trade.get("stopLoss"))), "take_profit": price(trade.get("takeProfit")),
-        "exit_price": price(trade.get("exitPrice")), "exit_reason": trade.get("exitReason") or "",
-        "lots": fmt_num(trade.get("lots"), 2), "actual_r": fmt_num(trade.get("resultR"), 2),
-        "pnl_usd": fmt_num(trade.get("money"), 2), "commission_usd": fmt_num(trade.get("commission"), 2),
-        "tags": "; ".join(trade.get("tags") or []), "note": trade.get("note") or "",
-    })
+    row.update(trade_fields(trade, data, m5))
+    row["killzone"] = zone
     initial = trade.get("initialStop", trade.get("stopLoss"))
-    if trade.get("entryPrice") is not None and initial is not None:
-        row["risk_pips"] = fmt_num(abs(trade["entryPrice"] - initial) / pip, 1)
-    i = m5.index_at(entry_t)
-    if i >= 0:
-        min_spread = round(float(_settings_at(data, entry_t).get("minSpreadPips", 0) or 0) * pip)
-        row["spread_pips"] = fmt_num(max(min_spread, int(m5.spread[i])) / pip, 1)
 
     seen = m5.until(furthest)
     pre = pre_fields(seen, day, side, pip)
@@ -576,14 +536,6 @@ def _trade_order(r: dict):
 FINAL = ("COMPLETE", "NO_SETUP")  # rows that later candles can no longer change
 
 
-def _previous(path: Path, run: str, key: str) -> dict:
-    if not path.exists():
-        return {}
-    import csv
-    with path.open(newline="", encoding="utf-8") as f:
-        return {r[key]: r for r in csv.DictReader(f) if r.get("run_id") == run}
-
-
 def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
     """Recompute this session's rows in nbb_log.csv and nbb_days.csv; other sessions' rows are kept.
 
@@ -594,7 +546,7 @@ def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
     """
     folder = Path(folder)
     closed = [t for t in data.get("trades") or [] if t.get("status") == "CLOSED" and t.get("entryTime") is not None]
-    before = _previous(folder / LOG_FILE, data["id"], "trade_id")
+    before = previous_rows(folder / LOG_FILE, data["id"], "trade_id")
     rows = []
     for t in closed:
         old = before.get(str(t["id"]))
@@ -608,7 +560,7 @@ def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
             rows.append(row)
         else:
             rows.append(trade_row(t, data, m5))
-    old_days = _previous(folder / DAYS_FILE, data["id"], "date_ny")
+    old_days = previous_rows(folder / DAYS_FILE, data["id"], "date_ny")
     days = day_rows(data, m5, reuse=old_days)
     write_keyed_csv(Path(folder) / LOG_FILE, COLUMNS, data["id"], rows, _trade_order)
     write_keyed_csv(Path(folder) / DAYS_FILE, DAY_COLUMNS, data["id"], days, lambda r: (r["date_ny"], r["run_id"]))

@@ -116,21 +116,34 @@ def save(journal: str, backtest_id: str, data: dict, root: Path = JOURNALS_DIR) 
 
 
 def run_logger(data: dict, folder: Path, root: Path) -> dict:
-    """Write the strategy's automatic log (strategy.json's "logger"), if it has one.
-    A logger failure is reported with the save's answer and never stops the save itself."""
-    from . import loglib, strategy_folders  # here, not at the top: strategy_folders imports this module
-    logger = strategy_folders.read_config(folder.name, root)["logger"]
-    if logger == "none":
-        return {}
-    try:
-        if logger == "nbb":
-            from . import nbb
-            result = nbb.write_logs(data, folder, loglib.load_m5(str(data.get("symbol") or "EURUSD")))
-        else:
-            return {"logError": f"The {logger} log is not built yet."}
-        return {"log": {"logger": logger, **result}}
-    except Exception as err:  # noqa: BLE001 (any failure in a log must not lose the save)
-        return {"logError": f"{logger} log not written: {err}"}
+    """Write the strategy's automatic log (strategy.json's "logger") and its checklist answers, if it has them.
+    A failure is reported with the save's answer and never stops the save itself."""
+    from . import checklist, loglib, strategy_folders  # here, not at the top: strategy_folders imports this module
+    config = strategy_folders.read_config(folder.name, root)
+    logger, questions = config["logger"], config["checklist"]
+    out, errors = {}, []
+    m5 = None
+    if logger != "none":
+        try:
+            from . import nbb, sweep
+            module = {"nbb": nbb, "sweep": sweep}[logger]
+            m5 = loglib.load_m5(str(data.get("symbol") or "EURUSD"))
+            out["log"] = {"logger": logger, **module.write_logs(data, folder, m5)}
+        except Exception as err:  # noqa: BLE001 (any failure in a log must not lose the save)
+            errors.append(f"{logger} log not written: {err}")
+    if questions:
+        try:
+            if m5 is None:
+                try:
+                    m5 = loglib.load_m5(str(data.get("symbol") or "EURUSD"))
+                except FileNotFoundError:
+                    m5 = None  # only the spread column needs the candles
+            out["checklist"] = checklist.write_log(data, folder, questions, m5)
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"checklist not written: {err}")
+    if errors:
+        out["logError"] = "; ".join(errors)
+    return out
 
 
 def list_journals(root: Path = JOURNALS_DIR) -> list[dict]:

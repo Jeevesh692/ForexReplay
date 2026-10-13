@@ -796,3 +796,68 @@ Each made a test fail. The first one at first did not: the setup code guards aga
 1. Start the app and open **Strategies**. Press **New session** on **NBB Trader playbook** and replay a morning: draw your Fibonacci, place the 0.62 limit with the stop at H2, and let it close. Carry on past 16:00 New York.
 2. Open `strategies/nbb/nbb_log.csv`. `h2_price`, `fib_0` and `user_fib_*` should match your chart, and `entry_fib_level` should be about 0.62.
 3. In `strategies/nbb/NBB_Backtest_Log.xlsx`, do the one-time setup on its Start here sheet, then Data > Refresh All.
+
+---
+
+## Journal days 5 to 7: Tue 13 Oct 2026 · the sweep log, checklists, and sharing the features (v2.1.0)
+
+**Asked for (Jeevesh):** "start day 5 and build until day 7 is complete, and I want to add this as a feature in github, so that my friend can use it too, but not with same strategies... he should only have access to features, not the strategy excel file, as he may mistakenly enter into my session and update the wrong trades."
+
+**Built (Claude):**
+- **Days 5 and 6, the sweep log** (`forex_replay/sweep.py`, to `docs/plan-sweep-logger.md`):
+  - **The 08:00 map:** PDH/PDL, overnight high and low, 30m swings untaken and moved away at least 0.5 × ATR within 5 weekdays, and equal levels; the rulebook map at 1.0 × ATR and 2 days.
+  - **The sweep before the entry:** break, close back, extreme, closes beyond; the rule entry and stop; the six nearest opposite levels; whether the big move had already happened.
+  - **After the setup:** PENDING until 16:00 is replayed; stop hit, best move before the stop, the 16:00 result, and the Phase 2 simulation.
+  - **Counts:** trade of the day and attempt at the same level, and `sweep_days.csv` with the sweeps in the 08:00 to 11:00 window.
+  - **Shared parts** (the trade columns, mirroring for buys, reading earlier rows) moved into `loglib.py`; the NBB output is unchanged, checked by its 14 exact-value tests.
+  - **Rebuild command:** `python -m forex_replay sweep <strategy>`.
+- **Day 7, checklists:**
+  - Your own questions per strategy (Yes/No, a choice, or a number), edited from **Checklist** in the Strategies dialog and answered in the journal box.
+  - The answers are saved with the trade's note, and written to `checklist_log.csv`, one column per question.
+- **Sharing:**
+  - `strategies/` is ignored by git except its README. The personal files that were in the repository (`impulse_candle`, and the NBB and sweep `strategy.json`) were untracked; they are still on Jeevesh's computer.
+  - The README has the steps for a friend to use the app for their own strategies.
+  - See [decision 0020](decisions/0020-checklists-and-sharing.md).
+- **Release v2.1.0.**
+
+**Tests:** 18 new Python tests (104 in total) and 2 new JavaScript tests (141 in total).
+- **The sweep:** a hand-built day with every number worked out in `tests/sweep_day.py`:
+  - every field of a sell, down to Phase 2 = 2.08R; its buy mirror; no look-ahead (a spike through ONH after the entry changes nothing measured before it); PENDING before 16:00
+  - a run of 3 closes is still logged; a candle through the stop and the target is the stop, and its low is not counted in the best move
+  - the map rules (a swing taken before 08:00 is off the map, two close swings are one EQ level, a swing at the overnight high is dropped, a swing that moved away 0.74 × ATR is on the app's map but not the rulebook's); ONH outranks a swing when both are swept
+  - saving twice is identical; reused rows give the same files as a full recompute; trade-of-day and level-attempt counts
+  - the headers; day rows; only the strategy's own log runs; rebuild; weekday ages
+- **Checklists:** questions cleaned the same way in both languages; answers kept and written as the browser keeps them; one column per question; a renamed question keeps its old column; no checklist, no file.
+- **File locks:** a file held by another program is retried, then explained.
+
+I broke four sweep rules on purpose, one at a time:
+- reading past the entry
+- checking the target before the stop
+- not waiting for 16:00
+- keeping taken swings on the map
+
+Each made a test fail.
+
+**In the in-app browser:**
+- Gave Liquidity sweep a checklist of two questions through the real editor ("Was it the first sweep of the day?" Yes/No; "Entry trigger": Close back inside, Engulfing, FVG).
+- Started a session on 11 Mar 2026, sold at 08:40 New York, and answered both questions in the journal box.
+- Restarted the server, resumed: the answers were still there. Replayed past 16:00.
+- The status bar said "SWEEP log: 1 trade(s), 1 day(s) · checklist: 1 trade(s)":
+  - `checklist_log.csv` had Yes and Engulfing under the two questions.
+  - `sweep_log.csv` had the trade (NO_SETUP: the sell did not follow a sweep above).
+  - `sweep_days.csv` counted 2 sweeps in the window.
+- The test session and checklist were removed afterwards.
+
+**Checked with the workbook:** 80 made-up trades on real candles were logged and pasted into a copy of `Sweep_Backtest_Log.xlsx` in Excel. There were no error cells and every Stats section filled. "Days with at least one sweep" (30) matched the logger's own count. Details in [decision 0019](decisions/0019-sweep-logger.md).
+
+**Found along the way:**
+- **The app would not start.** The new checklist code in the journal box used a helper before it was defined. No test covers that panel; the browser check caught it at once.
+- **Checklist answers saved but did not show.** The journal box skipped redrawing while anything inside it had focus, which was meant to protect a number being typed. A clicked Yes button kept focus, so it never lit up. It now holds back only while a number box has focus.
+- **"Access is denied" writing `sweep_log.csv`.** OneDrive was uploading the file a moment after it was created, and Windows will not replace a file another program holds. This would have happened in real use, and with Excel holding the CSV too. Log files are now moved into place with retries, and the status bar explains if one stays locked.
+- **My first Excel check of the sweep workbook showed all zeros.** That was my check, not the logger: I cut the checking script's output short, which stopped it before it saved the copy. Rerun properly, it filled.
+- **Two old test sessions came back.** The built-in browser kept pages from earlier checks open, and they saved their sessions again when the server restarted: the NBB one from days 2 to 4, and the Asian sweep one from day 1. That is the app protecting unsaved work, as designed; they were test data and were deleted. Browser checks now end by closing the tab with the server stopped, which CLAUDE.md now says.
+
+**How to check:**
+1. **The sweep log:** open **Strategies**, press **New session** on Liquidity sweep, replay a New York morning, and take a sweep trade at the close back with the stop beyond the sweep. Replay past 16:00, then open `strategies/liquidity_sweep/sweep_log.csv`: `level_type` and `level_price` should be the level you traded, and `stop_diff_pips` about 0.
+2. **A checklist:** press **Checklist** beside any strategy, add a question, and save. Pick a trade: the question is in the journal box. After a save, `checklist_log.csv` has your answer.
+3. **Sharing:** on GitHub the `strategies` folder shows only its README.

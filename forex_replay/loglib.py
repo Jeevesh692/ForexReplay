@@ -133,6 +133,23 @@ def load_m5(symbol: str = "EURUSD", data_root: Path = WEB_DATA) -> Candles:
     return _load(str(manifest), manifest.stat().st_mtime)
 
 
+# ----------------------------------------------------------------- buys as mirrored sells
+def mirror(m5: Candles) -> Candles:
+    """Every price negated, highs and lows swapped: a sell rule measured on this is the buy rule."""
+    return Candles(m5.time, -m5.open, -m5.low, -m5.high, -m5.close, m5.spread)
+
+
+def view(m5: Candles, side: str) -> Candles:
+    return m5 if side == "SELL" else mirror(m5)
+
+
+def back(value, side: str):
+    """A price on the side's view -> the real price."""
+    if value is None:
+        return None
+    return value if side == "SELL" else -value
+
+
 # ----------------------------------------------------------------- bigger timeframes
 @dataclass(frozen=True)
 class Bars:
@@ -245,6 +262,56 @@ def fmt_bool(value) -> str:
     return "" if value is None else ("TRUE" if value else "FALSE")
 
 
+# ----------------------------------------------------------------- the trade itself
+def settings_at(data: dict, t: int) -> dict:
+    """The session's account settings in force at time t (its start settings, then any changes made before t)."""
+    settings = dict(data.get("settings") or {})
+    for a in data.get("actions") or []:
+        if a.get("kind") == "settings" and a.get("at", 0) <= t and isinstance(a.get("settings"), dict):
+            settings.update(a["settings"])
+    return settings
+
+
+def spread_at(data: dict, m5: Candles, index: int, t: int) -> int:
+    """The spread the engine used on a candle: its recorded spread or the minimum-spread setting, whichever is larger."""
+    minimum = round(float(settings_at(data, t).get("minSpreadPips", 0) or 0) * data["pipPoints"])
+    return max(minimum, int(m5.spread[index]))
+
+
+def trade_fields(trade: dict, data: dict, m5: Candles) -> dict:
+    """The columns every strategy log starts with: the trade as it was traded."""
+    digits, pip = data["digits"], data["pipPoints"]
+    entry_t = trade["entryTime"]
+    day = ny_date(entry_t)
+    price = lambda p: fmt_price(None if p is None else int(round(p)), digits)
+    initial = trade.get("initialStop", trade.get("stopLoss"))
+    row = {
+        "run_id": data["id"], "trade_id": trade["id"], "date_ny": day.isoformat(), "weekday": WEEKDAYS[day.weekday()],
+        "side": trade["side"], "order_type": trade.get("orderType", ""),
+        "placed_time_ny": ny_text(trade.get("placedTime")), "entry_time_ny": ny_text(entry_t),
+        "exit_time_ny": ny_text(trade.get("exitTime")), "entry_price": price(trade.get("entryPrice")),
+        "stop_loss": price(initial), "take_profit": price(trade.get("takeProfit")),
+        "exit_price": price(trade.get("exitPrice")), "exit_reason": trade.get("exitReason") or "",
+        "lots": fmt_num(trade.get("lots"), 2), "actual_r": fmt_num(trade.get("resultR"), 2),
+        "pnl_usd": fmt_num(trade.get("money"), 2), "commission_usd": fmt_num(trade.get("commission"), 2),
+        "tags": "; ".join(trade.get("tags") or []), "note": trade.get("note") or "", "risk_pips": "", "spread_pips": "",
+    }
+    if trade.get("entryPrice") is not None and initial is not None:
+        row["risk_pips"] = fmt_num(abs(trade["entryPrice"] - initial) / pip, 1)
+    i = m5.index_at(entry_t)
+    if i >= 0:
+        row["spread_pips"] = fmt_num(spread_at(data, m5, i, entry_t) / pip, 1)
+    return row
+
+
+def previous_rows(path: Path, run: str, key: str) -> dict:
+    """This session's rows already in a log file, by `key` (to reuse finished ones)."""
+    if not path.exists():
+        return {}
+    with path.open(newline="", encoding="utf-8") as f:
+        return {r[key]: r for r in csv.DictReader(f) if r.get("run_id") == run}
+
+
 # ----------------------------------------------------------------- files
 def write_keyed_csv(path: Path, columns: list[str], run_id: str, rows: list[dict], sort_key) -> None:
     """Replace every row of `run_id` in the CSV with `rows`, keep other runs' rows, sort, and write atomically."""
@@ -260,7 +327,23 @@ def write_keyed_csv(path: Path, columns: list[str], run_id: str, rows: list[dict
         writer.writeheader()
         for r in every:
             writer.writerow({c: r.get(c, "") for c in columns})
-    os.replace(tmp, path)
+    replace_file(tmp, path)
+
+
+def replace_file(tmp: Path, path: Path, tries: int = 15, wait: float = 0.2) -> None:
+    """Move the finished file into place. Windows refuses while another program has the target open: OneDrive
+    uploading it (a moment) or Excel showing it (until closed). Retry for a few seconds, then say which it is."""
+    import time as _time
+    for attempt in range(tries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                tmp.unlink(missing_ok=True)
+                raise PermissionError(f"{path.name} is open in another program (Excel?) or still syncing; "
+                                      f"close it and the next save writes it") from None
+            _time.sleep(wait)
 
 
 def weekdays_between(first: date, last: date):

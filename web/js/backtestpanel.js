@@ -9,7 +9,7 @@
 
 import { formatSignedMoney } from "./account.js";
 import { newId, snapshot, validName } from "./backtest.js";
-import { LOGGERS, slug } from "./strategies.js";
+import { cleanChecklist, KINDS, LOGGERS, MAX_QUESTIONS, slug } from "./strategies.js";
 import { formatDateTime } from "./time.js";
 
 export const DEFAULT_JOURNAL = "manual_backtests";
@@ -25,8 +25,9 @@ export class Backtests {
    *   onResume(journal, id)  rebuilds and opens a saved backtest; returns its list of problems
    *   onNewSession(journal)  saves and leaves the session on screen, then lets you pick a start candle
    *   chip             the toolbar element that shows the strategy in use
+   *   onStrategiesChanged()  a strategy's settings (its checklist) changed
    */
-  constructor({ dialog, status, collect, onResume, onNewSession, chip, store }) {
+  constructor({ dialog, status, collect, onResume, onNewSession, chip, store, onStrategiesChanged }) {
     this.store = store; // files on disk (desktop app) or this browser (online): see store.js
     if (store.kind === "browser") {
       dialog.querySelector("#backtests-about").textContent = "Online, each strategy's sessions are saved in this browser as you go, " +
@@ -40,6 +41,9 @@ export class Backtests {
     this.onNewSession = onNewSession;
     this.chip = chip;
     this.labels = {}; // strategy name -> label, from the last list
+    this.configs = {}; // strategy name -> { label, logger, checklist }
+    this.onStrategiesChanged = onStrategiesChanged || (() => {});
+    this.editing = null; // { name, questions } while a checklist is being edited
     this.selected = null; // the strategy whose sessions the dialog lists (null = all)
     this.current = null; // { id, name, journal, created, startTime } of the run on screen
     this.everSaved = false;
@@ -52,6 +56,22 @@ export class Backtests {
     this.el("strategy-logger").innerHTML = LOGGERS.map((l) => `<option value="${l.id}">${escapeHtml(l.label)}</option>`).join("");
     this.el("strategy-new").addEventListener("submit", (event) => { event.preventDefault(); this.create(); });
     this.el("strategy-rows").addEventListener("click", (event) => this.handleStrategyClick(event));
+    this.el("checklist-add").addEventListener("click", () => {
+      if (this.editing.questions.length >= MAX_QUESTIONS) return;
+      this.editing.questions.push({ text: "", kind: "yesno", options: [] });
+      this.renderChecklistEditor(this.editing.questions.length - 1);
+    });
+    this.el("checklist-cancel").addEventListener("click", () => this.closeChecklist());
+    this.el("checklist-save").addEventListener("click", () => this.saveChecklist());
+    const rows = this.el("checklist-rows");
+    rows.addEventListener("input", (event) => this.editChecklist(event));
+    rows.addEventListener("change", (event) => this.editChecklist(event));
+    rows.addEventListener("click", (event) => {
+      const x = event.target.closest("[data-q-remove]");
+      if (!x) return;
+      this.editing.questions.splice(Number(x.dataset.qRemove), 1);
+      this.renderChecklistEditor();
+    });
     this.el("backtest-filter").addEventListener("click", (event) => {
       if (event.target.closest("[data-show-all]")) { this.selected = null; this.refresh(); }
     });
@@ -89,6 +109,65 @@ export class Backtests {
 
   remember(list) {
     this.labels = Object.fromEntries(list.map((s) => [s.name, s.label]));
+    this.configs = Object.fromEntries(list.map((s) => [s.name, { label: s.label, logger: s.logger, checklist: s.checklist || [] }]));
+  }
+
+  /** A strategy's checklist questions (none if it has no checklist). */
+  checklist(name) { return (this.configs[name] || {}).checklist || []; }
+
+  // ----- checklist editor ---------------------------------------------------
+  openChecklist(name) {
+    this.editing = { name, questions: this.checklist(name).map((q) => ({ ...q, options: [...(q.options || [])] })) };
+    if (this.editing.questions.length === 0) this.editing.questions.push({ text: "", kind: "yesno", options: [] });
+    this.el("checklist-for").textContent = this.label(name);
+    this.el("checklist-editor").hidden = false;
+    this.renderChecklistEditor(0);
+  }
+
+  closeChecklist() {
+    this.editing = null;
+    this.el("checklist-editor").hidden = true;
+  }
+
+  renderChecklistEditor(focus = null) {
+    const rows = this.el("checklist-rows");
+    rows.innerHTML = this.editing.questions.map((q, i) => `<div class="checklist-row">
+      <input type="text" maxlength="80" data-q-text="${i}" value="${escapeHtml(q.text)}" placeholder="Question, e.g. Asian high swept?" aria-label="Question">
+      <select data-q-kind="${i}" aria-label="Answer type">${KINDS.map((k) => `<option value="${k.id}"${k.id === q.kind ? " selected" : ""}>${k.label}</option>`).join("")}</select>
+      <input type="text" class="options" data-q-options="${i}" value="${escapeHtml((q.options || []).join(", "))}" placeholder="Choices, separated by commas"${q.kind === "choice" ? "" : " hidden"} aria-label="Choices">
+      <button type="button" class="plain small" data-q-remove="${i}" title="Remove this question">&times;</button>
+    </div>`).join("") || '<p class="muted small">No questions. Add one, or save to remove the checklist.</p>';
+    if (focus !== null) { const box = rows.querySelector(`[data-q-text="${focus}"]`); if (box) box.focus(); }
+  }
+
+  editChecklist(event) {
+    const t = event.target;
+    const q = (key) => this.editing.questions[Number(t.dataset[key])];
+    if (t.dataset.qText !== undefined) q("qText").text = t.value;
+    else if (t.dataset.qOptions !== undefined) q("qOptions").options = t.value.split(",").map((o) => o.trim()).filter(Boolean);
+    else if (t.dataset.qKind !== undefined && event.type === "change") {
+      q("qKind").kind = t.value;
+      t.closest(".checklist-row").querySelector("[data-q-options]").hidden = t.value !== "choice";
+    }
+  }
+
+  async saveChecklist() {
+    const { name } = this.editing;
+    const questions = this.editing.questions.filter((q) => q.text.trim()); // empty rows are dropped
+    const clean = cleanChecklist(questions.map((q) => (q.kind === "choice" ? q : { id: q.id, text: q.text, kind: q.kind })));
+    if (clean.error) { this.say(clean.error, "bad"); return; }
+    const config = this.configs[name] || { label: this.label(name), logger: "none" };
+    try {
+      await this.store.putStrategy(name, { label: config.label, logger: config.logger, checklist: clean });
+    } catch (err) {
+      this.say(`Could not save the checklist: ${err.message}`, "bad");
+      return;
+    }
+    this.closeChecklist();
+    await this.refresh();
+    this.onStrategiesChanged();
+    this.say(clean.length ? `Saved ${clean.length} question(s) for ${this.label(name)}. Answer them for each trade in the journal box.`
+      : `${this.label(name)} has no checklist now.`, "ok");
   }
 
   // ----- the run on screen ------------------------------------------------
@@ -161,7 +240,8 @@ export class Backtests {
         this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added} · ${reply.logError}`, "bad", data);
         return true; // the session itself is safe; only its automatic log failed
       }
-      const log = reply.log ? ` · ${reply.log.logger.toUpperCase()} log: ${reply.log.trades} trade(s), ${reply.log.days} day(s)` : "";
+      const log = (reply.log ? ` · ${reply.log.logger.toUpperCase()} log: ${reply.log.trades} trade(s), ${reply.log.days} day(s)` : "") +
+        (reply.checklist ? ` · checklist: ${reply.checklist.trades} trade(s)` : "");
       this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added}${log}`, "ok", data);
       return true;
     } catch (err) {
@@ -213,6 +293,7 @@ export class Backtests {
     this.armedDelete = null;
     this.say("");
     this.selected = this.current ? this.current.journal : this.journal;
+    this.closeChecklist();
     if (!this.dialog.open) this.dialog.showModal();
     if (this.current) await this.save(); // so the list shows the run on screen as it is now
     await this.refresh();
@@ -260,6 +341,7 @@ export class Backtests {
       <td class="nowrap">${s.latest ? formatDateTime(s.latest.furthestTime) : '<span class="muted">not started</span>'}</td>
       <td class="actions">
         ${s.latest ? `<button type="button" class="plain bordered small" data-strategy-resume="${name}/${escapeHtml(s.latest.id)}"${latestOnScreen ? " disabled" : ""} title="Open the session saved most recently, where it stopped">Resume</button>` : ""}
+        <button type="button" class="plain small" data-strategy-checklist="${name}" title="Your own questions to answer for each trade of this strategy">Checklist${(s.checklist || []).length ? ` (${s.checklist.length})` : ""}</button>
         <button type="button" class="plain bordered small" data-strategy-new="${name}" title="Save the session on screen, then start a new session of this strategy from a candle you pick">New session</button>
       </td></tr>`;
   }
@@ -292,6 +374,10 @@ export class Backtests {
     }
     if (button && button.dataset.strategyResume) {
       await this.resume(button.dataset.strategyResume);
+      return;
+    }
+    if (button && button.dataset.strategyChecklist) {
+      this.openChecklist(button.dataset.strategyChecklist);
       return;
     }
     const row = event.target.closest("tr[data-select]");
