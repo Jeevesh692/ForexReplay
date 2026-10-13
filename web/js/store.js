@@ -8,6 +8,7 @@
 //
 // Both stores offer the same calls, so the rest of the app does not care which one it has.
 
+import { cleanStrategy, strategyList } from "./strategies.js";
 import { serverOffsetSeconds } from "./timeframes.js";
 
 /** The static build writes site.json; the Python server does not serve one. */
@@ -33,7 +34,8 @@ export class ServerStore {
   constructor(fetchFn = fetch) {
     this.kind = "server";
     this.screenshots = true;
-    this.fetch = fetchFn;
+    // Called as a plain function: the browser's fetch refuses to run as a method of another object ("Illegal invocation").
+    this.fetch = (...args) => fetchFn(...args);
   }
 
   health() { return request(this.fetch, "api/health").catch(() => null); }
@@ -54,6 +56,12 @@ export class ServerStore {
   }
   deleteBacktest(journal, id) { return request(this.fetch, `api/backtests/${enc(journal)}/${enc(id)}`, { method: "DELETE" }); }
   listJournals() { return request(this.fetch, "api/journals").then((b) => b.journals || []); }
+  listStrategies() { return request(this.fetch, "api/strategies").then((b) => b.strategies || []); }
+  putStrategy(name, data) {
+    return request(this.fetch, `api/strategies/${enc(name)}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+  }
   journalRows(name) { return request(this.fetch, `api/journal/${enc(name)}`).then((b) => b.rows); }
   screenshotUrl(journal, name) { return `api/screenshots/${enc(journal)}/${enc(name)}`; }
   async putScreenshot(journal, name, blob) {
@@ -77,8 +85,10 @@ export class BrowserStore {
   read() {
     try {
       const data = JSON.parse(this.storage.getItem(BROWSER_KEY) || "null");
-      return data && typeof data.backtests === "object" ? data : { backtests: {} };
-    } catch { return { backtests: {} }; }
+      if (!data || typeof data.backtests !== "object") return { backtests: {}, strategies: {} };
+      if (typeof data.strategies !== "object" || data.strategies === null) data.strategies = {};
+      return data;
+    } catch { return { backtests: {}, strategies: {} }; }
   }
 
   write(data) {
@@ -124,6 +134,20 @@ export class BrowserStore {
     delete all.backtests[`${journal}/${id}`];
     this.write(all);
     return { ok: true };
+  }
+
+  async listStrategies() {
+    const counts = Object.fromEntries((await this.listJournals()).map((j) => [j.name, j.trades]));
+    return strategyList(await this.listBacktests(), this.read().strategies, counts);
+  }
+
+  async putStrategy(name, data) {
+    const clean = cleanStrategy(name, data);
+    if (clean.error) throw new Error(clean.error);
+    const all = this.read();
+    all.strategies[name] = clean;
+    this.write(all);
+    return { ok: true, name, ...clean };
   }
 
   /** Journals: the closed trades of the backtests saved under each journal name. */

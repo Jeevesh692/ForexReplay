@@ -41,7 +41,7 @@
       <button id="replay-live" title="Return to where the replay had got to (End)" hidden>Live &#8677;</button>
       <button id="replay-exit" title="Save this backtest and leave the replay">&#10005;</button>
     </div>
-    <button class="plain" id="backtests-open" title="Saved backtests: resume one where it stopped, or delete it">Backtests</button>
+    <button class="plain" id="backtests-open" title="Your strategies and their saved sessions: switch strategy, resume where you left off, or start a new session">Strategies <span class="strategy-chip" id="strategy-name"></span></button>
     <div class="divider"></div>
     <div class="group tabs" aria-label="View">
       <button class="active" data-view="chart">Chart</button>
@@ -328,20 +328,27 @@
   </dialog>
 
   <dialog id="backtests-dialog" class="dialog">
-    <h2>Backtests</h2>
-    <p class="muted" id="backtests-about">Each replay with a trade or a drawing is saved as you go, with its trades, its drawings and where it got to.
-      Resume rebuilds it by repeating every action on the same candles, then carries on live from there.
-      Closed trades are also added to the journal (<code>strategies/&lt;journal&gt;/trades.csv</code>).</p>
+    <h2>Strategies</h2>
+    <p class="muted" id="backtests-about">Each strategy keeps its own sessions, journal and screenshots in <code>strategies/&lt;strategy&gt;/</code>.
+      A session (a replay with a trade or a drawing) is saved as you go, with its trades, drawings and where it got to.
+      Resume rebuilds it by repeating every action on the same candles, then carries on live from there. Switching saves the session on screen first.</p>
+    <table class="grid strategy-table">
+      <thead><tr><th>Strategy</th><th>Log</th><th class="num">Sessions</th><th class="num">Trades</th><th>Last session reached (IST)</th><th></th></tr></thead>
+      <tbody id="strategy-rows"></tbody>
+    </table>
+    <form class="strategy-new" id="strategy-new">
+      <input id="strategy-label" type="text" maxlength="60" autocomplete="off" placeholder="New strategy, e.g. Asian sweep" aria-label="New strategy name">
+      <select id="strategy-logger" aria-label="Automatic log"></select>
+      <button type="submit" class="plain bordered" id="strategy-create">+ Add strategy</button>
+    </form>
+    <h3 class="backtest-heading">Sessions <span class="muted" id="backtest-filter"></span></h3>
     <table class="grid backtest-table">
-      <thead><tr><th>Name</th><th>Journal</th><th>Reached (IST)</th><th class="num">Trades</th><th class="num">Result</th><th>Saved</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Strategy</th><th>Reached (IST)</th><th class="num">Trades</th><th class="num">Result</th><th>Saved</th><th></th></tr></thead>
       <tbody id="backtest-rows"></tbody>
     </table>
     <p class="order-message" id="backtest-message"></p>
     <div class="dialog-actions">
-      <label class="field inline journal-field" title="Folder under strategies/ for new replays: letters, digits, - and _">
-        <span>Journal for new replays</span>
-        <input id="backtest-journal" type="text" maxlength="48" autocomplete="off">
-      </label>
+      <span class="muted small" id="backtest-target"></span>
       <span class="spacer"></span>
       <button type="button" class="plain bordered" id="backtest-close">Close</button>
     </div>

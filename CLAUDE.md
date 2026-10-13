@@ -4,13 +4,14 @@ A forex bar-replay and backtesting tool for EURUSD. Owner: Jeevesh Prakash (GitH
 
 - **v1** (`forex_replay/`): Python package. Matplotlib replay, event-driven backtest, journal CSV, R-multiple stats.
 - **v2** (`web/`): a TradingView-style browser app in plain JavaScript modules, served by a small Python server. Built to the 14-day plan in `docs/plan.md` and released as v2.0.0 on 4 Oct 2026.
-- **Strategy Lab** (next): indicator strategies on H4/D1 with tuning on in-sample data and out-of-sample checks, to `docs/plan-strategy-lab.md`. "start lab day N" does a day of that plan, with the same daily routine.
+- **Strategy journals** (now): each strategy a folder with its own sessions, journal, screenshots and automatic rule log for Jeevesh's Excel workbooks, to `docs/plan-strategy-journals.md`. "start journal day N" does a day of it. The loggers follow `docs/plan-nbb-logger.md` and `docs/plan-sweep-logger.md` exactly: the workbooks read the CSVs by column name.
+- **Strategy Lab** (later): indicator strategies on H4/D1 with tuning on in-sample data and out-of-sample checks, to `docs/plan-strategy-lab.md`. "start lab day N" does a day of that plan, with the same daily routine.
 
 The project is also a portfolio piece for AI-engineering applications: "a complex app built with an AI agent, directed and understood by me". So the record of who decided what matters as much as the code. Keep it honest.
 
 ## How Jeevesh works with you
 
-- He says "start day N" (or "start lab day N" for `docs/plan-strategy-lab.md`). Do that day, end to end, then report.
+- He says "start day N" (or "start journal day N" for `docs/plan-strategy-journals.md`, "start lab day N" for `docs/plan-strategy-lab.md`). Do that day, end to end, then report.
 - He is a self-taught programmer and trades this strategy himself. Explain in plain words; no jargon without a one-line meaning.
 - Never state a number you have not just read or computed. If something was not checked, say so.
 - Ask only when a wrong guess would be expensive. Otherwise decide, and say what you decided.
@@ -22,7 +23,7 @@ The project is also a portfolio piece for AI-engineering applications: "a comple
 3. Add a day entry to `docs/build-log.md` in the existing format: asked for, built, tests, decisions, found along the way, how to check.
 4. If a design choice was made, add `docs/decisions/NNNN-title.md` in the existing format (date, status, decided by, reasoning, not yet done).
 5. Update the "So far" line near the top of `README.md` and the status table in `docs/plan.md`.
-6. Commit as `v2 day N: summary` with a bullet list, then push to `origin main` without asking (Jeevesh's standing instruction, 3 Oct 2026). Leave `strategies/impulse_candle/trades.csv` uncommitted (his own test trades).
+6. Commit as `v2 day N: summary` (`journal day N: summary` for the journal plan) with a bullet list, then push to `origin main` without asking (Jeevesh's standing instruction, 3 Oct 2026). Leave `strategies/impulse_candle/trades.csv` uncommitted (his own test trades).
 7. Finish with: what was built, how to check it by hand, how you know it is right, a short walkthrough of the ideas, and **three questions** that test whether he understood the day. Grade his answers honestly next time.
 
 ## Run and test
@@ -37,7 +38,7 @@ python -m forex_replay.stats_golden # regenerate the statistics comparison fixtu
 python -m forex_replay.indicator_golden # regenerate the indicator reference values (only when an indicator definition changes)
 ```
 
-Expected today: 68 Python tests, 134 JavaScript tests, all passing.
+Expected today: 72 Python tests, 139 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -68,7 +69,8 @@ Expected today: 68 Python tests, 134 JavaScript tests, all passing.
 | Drawings | `web/js/drawings.js` (model, geometry), `web/js/drawinglayer.js` (paint, mouse, magnet, text box) |
 | Shortcuts | `web/js/shortcuts.js` (one table for keys and the help list) |
 | Journal | `web/js/tradenotes.js` (notes, tags), `web/js/journalpanel.js` (the box), `web/js/screenshots.js` (pictures), `forex_replay/journal.py` (CSV) |
-| Backtests | `web/js/backtest.js` (save, rebuild, check), `web/js/backtestpanel.js` (autosave, dialog), `forex_replay/backtests.py` (files, journal) |
+| Backtests | `web/js/backtest.js` (save, rebuild, check), `web/js/backtestpanel.js` (autosave, the Strategies dialog), `forex_replay/backtests.py` (files, journal) |
+| Strategies | `web/js/strategies.js` (names, list), `forex_replay/strategy_folders.py` (`strategies/<name>/strategy.json`: label and logger). Not `forex_replay/strategies/`, which is v1's strategy code |
 | Analytics | `web/js/analytics.js` (statistics, held to `forex_replay/stats.py`), `web/js/analyticsview.js` (the tab), `forex_replay/stats_golden.py` |
 | Storage, website | `web/js/store.js` (files through the server, or the browser online), `forex_replay/site.py` (static build) |
 | Wiring | `web/js/main.js`, `web/index.html`, `web/css/app.css` |

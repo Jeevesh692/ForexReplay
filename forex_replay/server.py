@@ -15,6 +15,8 @@ It also stores backtests for the app (see backtests.py):
     GET / PUT / DELETE /api/screenshots/<journal>/<name>.png   chart pictures for trades
     GET    /api/journals                     journal folders that have a trades.csv
     GET    /api/journal/<journal>            the rows of a journal, for the analytics page
+    GET    /api/strategies                   every strategy folder, its sessions and its log (strategy_folders.py)
+    PUT    /api/strategies/<name>            create a strategy, or change its name or log
 
 Writes must be sent as application/json (screenshots as image/png). A web page on another site cannot
 send that to this server without the browser asking first, and the server
@@ -33,7 +35,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import __version__
-from . import backtests
+from . import backtests, strategy_folders
 from .config import JOURNALS_DIR, PROJECT_ROOT
 
 WEB_ROOT = PROJECT_ROOT / "web"
@@ -97,6 +99,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._backtest("GET")
         elif route.startswith("/api/screenshots/"):
             self._screenshot("GET")
+        elif route == "/api/strategies":
+            self._json({"strategies": strategy_folders.list_strategies(self.journals_root)})
         elif route == "/api/journals":
             self._json({"journals": backtests.list_journals(self.journals_root)})
         elif route.startswith("/api/journal/"):
@@ -112,6 +116,8 @@ class Handler(SimpleHTTPRequestHandler):
     def do_PUT(self):  # noqa: N802
         if self.path.startswith("/api/screenshots/"):
             self._screenshot("PUT")
+        elif self.path.startswith("/api/strategies/"):
+            self._strategy()
         else:
             self._backtest("PUT")
 
@@ -148,6 +154,16 @@ class Handler(SimpleHTTPRequestHandler):
         except FileNotFoundError as err:
             self._json({"error": str(err)}, 404)
         except backtests.BacktestError as err:
+            self._json({"error": str(err)}, 400)
+
+    def _strategy(self) -> None:
+        parts = self.path.split("?")[0].split("/")  # ['', 'api', 'strategies', name]
+        if len(parts) != 4:
+            self._json({"error": "Not found."}, 404)
+            return
+        try:
+            self._json(strategy_folders.save_strategy(parts[3], self._read_json(), self.journals_root))
+        except (backtests.BacktestError, ValueError) as err:
             self._json({"error": str(err)}, 400)
 
     def _backtest(self, method: str) -> None:

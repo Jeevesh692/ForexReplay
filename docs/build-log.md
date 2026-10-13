@@ -699,3 +699,39 @@ In the in-app browser:
 - Building the website inside the OneDrive folder failed: OneDrive had turned the earlier build's `css` folder into a read-only synced placeholder that could not be deleted. The build now clears read-only flags before deleting. Locally the site was built outside OneDrive; Cloudflare builds on its own machines.
 
 **How to check:** run `python -m forex_replay site --out` with a folder outside OneDrive, then `python -m http.server --directory` that folder, and open it. The status bar says "online", and backtests save in the browser.
+
+---
+
+## Journal day 1: Tue 13 Oct 2026 · strategies, each with its own sessions
+
+**Asked for (Jeevesh):** "I have 10 different strategies in my mind, so I want them stored in sessions: one backtesting session for liquidity sweep, one for Asian sweep, one for dollar reversal." Each with its Excel journal filled automatically, with screenshots, and progress saved so he can leave a strategy, test another and come back, "even when I close my computer and open it after 1 week". He had already written two logger specs and workbooks (NBB and liquidity sweep) in another chat. Asked where he will backtest, he chose **the desktop app** (the workbooks refresh from CSV files beside them).
+
+**Planned:** `docs/plan-strategy-journals.md`, seven days. Day 1 is the strategies themselves; days 2 to 6 build the NBB and sweep loggers exactly to his specs (copied in as `docs/plan-nbb-logger.md` and `docs/plan-sweep-logger.md`, with their decision numbers moved to 0018 and 0019 because 0016 and 0017 were taken); day 7 is a checklist for strategies without a logger.
+
+**Built (Claude):**
+- `forex_replay/strategy_folders.py`: lists every strategy folder with its label, logger, sessions, latest session, journal rows and workbooks; creates a strategy or changes its label or logger (`strategy.json`). Named so as not to clash with v1's `forex_replay/strategies/` package.
+- Server: `GET /api/strategies`, `PUT /api/strategies/<name>` (JSON only, like the other writes).
+- `web/js/strategies.js`: the same folder-name rule as Python, checks, and the list built from saved sessions for the online version. Both stores gained `listStrategies` and `putStrategy`.
+- The Backtests dialog became **Strategies**: every strategy (most recently used first) with Resume (its latest session) and New session, a form to add one with its log, and the chosen strategy's sessions below. The toolbar shows the strategy in use; the status bar names it with the session.
+- Set up Jeevesh's two strategies with their logs and workbooks: `strategies/nbb/` (NBB Trader playbook, NBB log, `NBB_Backtest_Log.xlsx`) and `strategies/liquidity_sweep/` (Liquidity sweep (Marco), sweep log, `Sweep_Backtest_Log.xlsx`). The workbooks are not committed (git ignores `.xlsx`).
+
+**Tests:** 4 new Python tests (72 in total) and 5 new JavaScript tests (139 in total).
+- folder names from labels, the same examples in both languages
+- the list: sessions counted per strategy, the newest one to resume, journal rows, workbooks (Excel's `~$` lock files left out), most recently used first, older journals included, empty folders left out
+- changing a strategy keeps its sessions and journal; unsafe names, empty or long labels, unknown logs and a damaged `strategy.json` are handled
+- the server refuses non-JSON writes and unknown logs
+- online, strategies are kept with the sessions in the browser
+- the desktop store calls `fetch` as a plain function (failed before the fix with "Illegal invocation", passes after)
+
+In the in-app browser, on the desktop app:
+- the dialog listed impulse_candle (24 trades), NBB and Liquidity sweep with their logs and workbooks
+- added "Asian sweep" (folder `asian_sweep`), pressed New session, picked a candle, placed a buy; reloaded the page: the session was listed with its open trade
+- resumed it, stepped forward, then New session on NBB: the Asian sweep session was saved first, the NBB session started, a sell filled and its automatic screenshot was written to `strategies/nbb/screenshots/`
+- Resume on Asian sweep brought it back at 02:40 IST with the buy open: "1 action(s) repeated; every trade matches the save"
+- the test sessions were then deleted from disk
+
+**Found along the way:**
+- Automatic and manual screenshots had been failing since v2.0.5 with "Failed to execute 'fetch' on 'Window': Illegal invocation", and the save when a tab closes was failing silently for the same reason. Cause and fix in [decision 0017](decisions/0017-strategies.md). Every other save worked, so no session was lost, but no screenshot has been written since 4 Oct.
+- Disabled Resume buttons looked the same as enabled ones; they are now dimmed.
+
+**How to check:** start the app, press **Strategies** in the toolbar. Add a strategy, press New session, pick a candle and place a trade. Then New session on another strategy, and Resume on the first: it opens where you left it. Close the app, open it again: the Strategies list still has both.

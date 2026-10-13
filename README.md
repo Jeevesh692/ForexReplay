@@ -27,7 +27,8 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 - Trendline, ray, horizontal line and ray, vertical line, rectangle, Fibonacci with the OTE zone (0.618 to 0.79) and your own levels and extensions, long/short position tool, text notes. Drawings have colours, line styles, a magnet to candle prices, undo, and TradingView-style Alt shortcuts.
 - Indicators: SMA, EMA, daily VWAP, RSI, ATR and ADR (with today's ADR levels), worked out only from revealed candles.
 
-**Backtests, journal and analytics**
+**Strategies, backtests, journal and analytics**
+- Each strategy (for example a liquidity sweep or an Asian sweep) has its own folder of sessions, journal, screenshots and Excel workbook. Leave one, test another, and come back days later to where you stopped.
 - Every replay is a backtest, saved as you go and resumable later. It is saved as the actions you took and rebuilt by replaying them, then checked trade by trade against the save.
 - Each trade gets a note, tags and automatic chart screenshots at entry and exit.
 - The journal (`strategies/<name>/trades.csv`) has one row per closed trade: R result, MFE and MAE, session, lots, dollars, note and tags.
@@ -77,8 +78,9 @@ v2 was built from 27 Sep to 4 Oct 2026 with Claude, an AI coding agent, to a 14-
 
 The record is part of the project:
 - [`docs/build-log.md`](docs/build-log.md): one entry per day with what was asked, built, tested and decided, and the bugs found along the way.
-- [`docs/decisions/`](docs/decisions/): 14 design records, each saying why something is the way it is and what is not done yet.
+- [`docs/decisions/`](docs/decisions/): design records, each saying why something is the way it is and what is not done yet.
 - [`docs/plan.md`](docs/plan.md): the plan and its status.
+- [`docs/plan-strategy-journals.md`](docs/plan-strategy-journals.md): the work after v2.0: strategies with automatic rule logs for Excel. So far: day 1 of 7 (strategies, each with its own sessions).
 
 Some things the build caught by checking rather than assuming:
 - **A look-ahead bug in the first indicator version.** It read past the revealed candles, so its lines ran into the hidden future. Caught in the browser; a test now fails on that code.
@@ -108,7 +110,7 @@ web/                   the browser app: plain ES modules, no build step, no npm 
   js/indicators.js     SMA, EMA, RSI, VWAP (step by step during a replay)
   tests/               node --test
 docs/                  build log, design records, plan, screenshots
-strategies/<name>/     journals (trades.csv), saved backtests, screenshots
+strategies/<name>/     one per strategy: strategy.json, journal (trades.csv), saved sessions, screenshots
 ```
 
 The rules the code keeps are written down in [`CLAUDE.md`](CLAUDE.md): no look-ahead, one replay clock, fills on M5, two engines held to one truth, prices as whole points, times as UTC seconds.

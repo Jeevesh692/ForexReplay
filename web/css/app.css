@@ -435,7 +435,19 @@ button.primary {
 
 /* ---------- backtests dialog ---------- */
 #backtests-dialog { width: min(940px, calc(100vw - 32px)); }
-.backtest-table { margin-top: 10px; }
+.backtest-table { margin-top: 6px; }
+.strategy-table { margin-top: 10px; }
+.strategy-table td { vertical-align: middle; }
+.strategy-table .actions { white-space: nowrap; text-align: right; }
+.strategy-table button:disabled, .backtest-table button:disabled { opacity: 0.4; }
+.strategy-table tr.selected td { background: rgba(41, 98, 255, 0.12); }
+.strategy-table .tag { color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.strategy-table .file { color: var(--muted); font-size: 11px; }
+.strategy-new { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.strategy-new input { flex: 1 1 200px; }
+.backtest-heading { font-size: 13px; margin-top: 14px; }
+.strategy-chip { color: var(--blue); margin-left: 4px; }
+.strategy-chip:empty { display: none; }
 .backtest-table td { vertical-align: middle; }
 .backtest-table .nowrap { white-space: nowrap; }
 .backtest-table .actions { white-space: nowrap; text-align: right; }

@@ -931,7 +931,25 @@ async function boot() {
     status: $("status-backtest"),
     collect: () => ({ trading, drawings, notes, m5, clock, manifest, timeframe: current }),
     onResume: resumeBacktest,
+    onNewSession: newSession,
+    chip: $("strategy-name"),
   });
+  backtests.loadLabels();
+
+  /** "New session" in the Strategies dialog: save and leave the session on screen, then pick a start candle. */
+  async function newSession(journal) {
+    if (clock.active) {
+      clock.pause();
+      await shotQueue;
+      if (!(await backtests.end())) {
+        panel.say("The session on screen could not be saved (see the bottom bar), so it is still open.", "bad");
+        return;
+      }
+      leaveReplay();
+    }
+    setPicking(true);
+    setHint(`New ${backtests.label(journal)} session: click the candle you want the replay to start from. Press Esc to cancel.`);
+  }
   $("backtests-open").addEventListener("click", () => { clock.pause(); backtests.open(); });
   window.addEventListener("pagehide", () => backtests.saveOnUnload());
   renderReplayUi();
