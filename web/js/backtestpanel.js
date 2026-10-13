@@ -157,7 +157,12 @@ export class Backtests {
       const reply = await this.store.putBacktest(data);
       if (this.current && this.current.id === data.id) this.everSaved = true;
       const added = reply.journalAdded ? ` · ${reply.journalAdded} trade(s) added to ${reply.journal}` : "";
-      this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added}`, "ok", data);
+      if (reply.logError) {
+        this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added} · ${reply.logError}`, "bad", data);
+        return true; // the session itself is safe; only its automatic log failed
+      }
+      const log = reply.log ? ` · ${reply.log.logger.toUpperCase()} log: ${reply.log.trades} trade(s), ${reply.log.days} day(s)` : "";
+      this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added}${log}`, "ok", data);
       return true;
     } catch (err) {
       const offline = err.message.includes("fetch") && this.store.kind === "server";

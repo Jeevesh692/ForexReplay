@@ -29,6 +29,7 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 
 **Strategies, backtests, journal and analytics**
 - Each strategy (for example a liquidity sweep or an Asian sweep) has its own folder of sessions, journal, screenshots and Excel workbook. Leave one, test another, and come back days later to where you stopped.
+- For the NBB strategy, every save also measures each trade against the rulebook (bias, Asian range, PD arrays, H1/L1/H2, displacement, the rule Fibonacci and what price did afterwards) into a CSV that an Excel workbook analyses, with no look-ahead.
 - Every replay is a backtest, saved as you go and resumable later. It is saved as the actions you took and rebuilt by replaying them, then checked trade by trade against the save.
 - Each trade gets a note, tags and automatic chart screenshots at entry and exit.
 - The journal (`strategies/<name>/trades.csv`) has one row per closed trade: R result, MFE and MAE, session, lots, dollars, note and tags.
@@ -80,7 +81,7 @@ The record is part of the project:
 - [`docs/build-log.md`](docs/build-log.md): one entry per day with what was asked, built, tested and decided, and the bugs found along the way.
 - [`docs/decisions/`](docs/decisions/): design records, each saying why something is the way it is and what is not done yet.
 - [`docs/plan.md`](docs/plan.md): the plan and its status.
-- [`docs/plan-strategy-journals.md`](docs/plan-strategy-journals.md): the work after v2.0: strategies with automatic rule logs for Excel. So far: day 1 of 7 (strategies, each with its own sessions).
+- [`docs/plan-strategy-journals.md`](docs/plan-strategy-journals.md): the work after v2.0: strategies with automatic rule logs for Excel. So far: days 1 to 4 of 7 (strategies, each with its own sessions; the NBB log for its Excel workbook).
 
 Some things the build caught by checking rather than assuming:
 - **A look-ahead bug in the first indicator version.** It read past the revealed candles, so its lines ran into the hidden future. Caught in the browser; a test now fails on that code.

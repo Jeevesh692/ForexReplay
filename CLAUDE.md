@@ -36,9 +36,10 @@ node --test web/tests/*.test.mjs    # JavaScript tests (needs Node.js; check `no
 python -m forex_replay.golden       # regenerate the engine comparison fixture (only when engine rules change)
 python -m forex_replay.stats_golden # regenerate the statistics comparison fixture (only when stats.py changes)
 python -m forex_replay.indicator_golden # regenerate the indicator reference values (only when an indicator definition changes)
+python -m forex_replay nbb <strategy>  # rebuild a strategy's NBB log from every saved session (after a logger fix)
 ```
 
-Expected today: 72 Python tests, 139 JavaScript tests, all passing.
+Expected today: 86 Python tests, 139 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -72,6 +73,7 @@ Expected today: 72 Python tests, 139 JavaScript tests, all passing.
 | Backtests | `web/js/backtest.js` (save, rebuild, check), `web/js/backtestpanel.js` (autosave, the Strategies dialog), `forex_replay/backtests.py` (files, journal) |
 | Strategies | `web/js/strategies.js` (names, list), `forex_replay/strategy_folders.py` (`strategies/<name>/strategy.json`: label and logger). Not `forex_replay/strategies/`, which is v1's strategy code |
 | Analytics | `web/js/analytics.js` (statistics, held to `forex_replay/stats.py`), `web/js/analyticsview.js` (the tab), `forex_replay/stats_golden.py` |
+| Strategy logs | `forex_replay/loglib.py` (shared: clocks, candles cut at a moment, bigger timeframes, ATR, CSV keyed by session), `forex_replay/nbb.py` (the NBB log, to `docs/plan-nbb-logger.md`); called from `backtests.save` by the strategy's `strategy.json` |
 | Storage, website | `web/js/store.js` (files through the server, or the browser online), `forex_replay/site.py` (static build) |
 | Wiring | `web/js/main.js`, `web/index.html`, `web/css/app.css` |
 | Tests | `tests/`, `web/tests/` |

@@ -3,6 +3,7 @@
     strategies/<journal>/backtests/<id>.json   one file per backtest (resumable)
     strategies/<journal>/trades.csv            the journal: one row per closed trade
     strategies/<journal>/screenshots/<name>.png  chart pictures attached to trades
+    strategies/<journal>/nbb_log.csv ...        the strategy's automatic log, if strategy.json asks for one
 
 A backtest file holds what is needed to rebuild the run: where it started, the
 account settings, every action taken (orders, closes, stop moves) with the time
@@ -109,8 +110,27 @@ def save(journal: str, backtest_id: str, data: dict, root: Path = JOURNALS_DIR) 
                                    pip_points=data["pipPoints"], run_id=backtest_id)
             added += log.log_row(row)
         updated = log.update_notes({str(t["id"]): note_fields(t) for t in closed})
+        logged = run_logger(data, root / journal, root)
     return {"ok": True, "journalAdded": added, "journalUpdated": updated,
-            "journal": str(log.path.relative_to(root.parent))}
+            "journal": str(log.path.relative_to(root.parent)), **logged}
+
+
+def run_logger(data: dict, folder: Path, root: Path) -> dict:
+    """Write the strategy's automatic log (strategy.json's "logger"), if it has one.
+    A logger failure is reported with the save's answer and never stops the save itself."""
+    from . import loglib, strategy_folders  # here, not at the top: strategy_folders imports this module
+    logger = strategy_folders.read_config(folder.name, root)["logger"]
+    if logger == "none":
+        return {}
+    try:
+        if logger == "nbb":
+            from . import nbb
+            result = nbb.write_logs(data, folder, loglib.load_m5(str(data.get("symbol") or "EURUSD")))
+        else:
+            return {"logError": f"The {logger} log is not built yet."}
+        return {"log": {"logger": logger, **result}}
+    except Exception as err:  # noqa: BLE001 (any failure in a log must not lose the save)
+        return {"logError": f"{logger} log not written: {err}"}
 
 
 def list_journals(root: Path = JOURNALS_DIR) -> list[dict]:

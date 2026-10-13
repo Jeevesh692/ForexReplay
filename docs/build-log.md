@@ -735,3 +735,64 @@ In the in-app browser, on the desktop app:
 - Disabled Resume buttons looked the same as enabled ones; they are now dimmed.
 
 **How to check:** start the app, press **Strategies** in the toolbar. Add a strategy, press New session, pick a candle and place a trade. Then New session on another strategy, and Resume on the first: it opens where you left it. Close the app, open it again: the Strategies list still has both.
+
+---
+
+## Journal days 2 to 4: Tue 13 Oct 2026 · the NBB log
+
+**Asked for (Jeevesh):** "I want to automatically measure for all of my trades... start day 2 and build until day 4 is complete." The contract is his spec, `docs/plan-nbb-logger.md`, and his workbook `NBB_Backtest_Log.xlsx`.
+
+**Built (Claude):**
+- **Day 2, groundwork and pre-session fields.**
+  - `forex_replay/loglib.py`, shared with the sweep logger: New York and server clocks, M5 candles read once from the app's own data files, 15m/H4/D1/weekly candles built from a cut of them, Wilder ATR as in the browser, swings, and CSV files rewritten safely and keyed by session.
+  - In `forex_replay/nbb.py`: ADR(5), daily and weekly structure, bias, Asian range, the 00:00 open, PDH/PDL/PWH/PWL, the PD arrays (FVG, order block and breaker on D1 and H4) and the nearest one, and `nbb_days.csv`.
+  - A save of a strategy with `"logger": "nbb"` writes the log. A logger error is reported and never blocks the save. Added `python -m forex_replay nbb <strategy>` to rebuild.
+- **Day 3, setup fields.** H2, H1, L1, the displacement candle with its size against ATR and its body, the rule Fibonacci walk (moved by lower lows, fixed by a close above the previous high, final at the first 0.62 touch in a killzone), opposite arrays in the way, your entry and stop on the rule Fibonacci, and your own Fibonacci drawing.
+- **Day 4, after the setup.**
+  - PENDING until 16:00 New York has been replayed.
+  - The 0.62 fill time, deepest levels in the killzone and in total, resolution, the level at 16:00, break-even, target momentum, and the Phase 2 simulation.
+  - Finished rows are reused on later saves, so saving every 1.5 seconds stays quick.
+  - The status bar says "NBB log: N trade(s), N day(s)" after each save.
+- Buys are measured on mirrored candles, so the rules exist once. Every judgment call where the spec left room is listed in [decision 0018](decisions/0018-nbb-logger.md).
+
+**Tests:** 14 new Python tests (86 in total); JavaScript unchanged at 139. They run on a hand-built day (`tests/nbb_day.py`) whose every expected number is worked out in its comments.
+- every field of a built sell setup, down to Phase 2 = 2.95R (half at 0.0: 0.82R; the runner to H2 minus ADR: 2.13R)
+- the same day upside down gives the buy mirror, field by field
+- no look-ahead: deleting every candle after the order, with price running above H2 later, changes no PRE or SETUP field; a replay stopped at 12:00 gives PENDING and blank POST fields
+- a weak displacement is still logged; no H1 gives NO_SETUP
+- one candle through both ends resolves as the stop
+- a lower low after the leg was fixed moves the 0.0
+- saving twice gives identical files; PENDING turns COMPLETE; another session's rows are kept
+- reusing finished rows gives byte-for-byte the files a full recompute gives
+- the headers are the spec's column lists, read from the spec file
+- day rows from Monday 00:00 to Wednesday 12:00 are Monday, Tuesday and Wednesday
+- the structure rule; Wilder ATR; the save hook (and that a logger failure keeps the save); the rebuild command
+
+I broke four rules on purpose, one at a time:
+- reading past the order
+- checking the target before the stop
+- not waiting for 16:00
+- never moving the leg after it is fixed
+
+Each made a test fail. The first one at first did not: the setup code guards against reading past the order in two places. I added a price spike after the order to the test, and removing both guards then failed it.
+
+**In the in-app browser:**
+- Started an NBB session on 11 Mar 2026 from the Strategies dialog, sold at market at 07:30 New York, and replayed past 16:00.
+- The status bar said "NBB log: 1 trade(s), 0 day(s)". There were no day rows because the session started after that day's 00:00.
+- `strategies/nbb/nbb_log.csv` had every column filled, for example:
+  - H2 1.16456 at 03:15, H1 1.16410, L1 1.16276
+  - displacement at 03:30, 2.36 × ATR
+  - resolution TARGET at 11:00
+- The test session was deleted afterwards.
+
+**Checked with the workbook:** 80 made-up trades on real candles were logged and pasted into a copy of `NBB_Backtest_Log.xlsx` in Excel. Every sheet recalculated with no error cells, and every Stats section filled. Details in [decision 0018](decisions/0018-nbb-logger.md).
+
+**Found along the way:**
+- **Speed.** The first version spent most of its time looking up New York daylight saving for every hour of history. Caching it took a day's pre-session fields from 0.08 to 0.03 seconds.
+- **Saves were too slow.** A save recomputed every trade, which would have slowed saves to seconds in long sessions. Finished rows are now reused.
+- **A leftover test session came back.** After journal day 1, the in-app browser still had the test Asian sweep session open, and saved it again when the app's server restarted. That is the app keeping work safe, as designed. It was test data, so it was deleted.
+
+**How to check:**
+1. Start the app and open **Strategies**. Press **New session** on **NBB Trader playbook** and replay a morning: draw your Fibonacci, place the 0.62 limit with the stop at H2, and let it close. Carry on past 16:00 New York.
+2. Open `strategies/nbb/nbb_log.csv`. `h2_price`, `fib_0` and `user_fib_*` should match your chart, and `entry_fib_level` should be about 0.62.
+3. In `strategies/nbb/NBB_Backtest_Log.xlsx`, do the one-time setup on its Start here sheet, then Data > Refresh All.
