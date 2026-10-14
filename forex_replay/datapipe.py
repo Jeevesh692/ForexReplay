@@ -19,6 +19,7 @@ a stop at 1.08500 is hit by a low of 1.08500, never missed by float rounding.
 
 from __future__ import annotations
 
+import gzip
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -32,7 +33,7 @@ from .config import PROJECT_ROOT
 SERVER_OFFSET_FROM_NEW_YORK = pd.Timedelta(hours=7)
 FIELDS = ["time", "open", "high", "low", "close", "volume", "spread"]
 BYTES_PER_BAR = 4 * len(FIELDS)
-PIPELINE_VERSION = 2  # bump when the output files change, so existing installs rebuild
+PIPELINE_VERSION = 3  # bump when the output files change, so existing installs rebuild (3: M1 base, 14 Oct 2026)
 WEB_DATA_DIR = PROJECT_ROOT / "web" / "data"
 DATA_DIR = PROJECT_ROOT / "data"
 
@@ -46,13 +47,15 @@ class SymbolSpec:
     bar_seconds: int = 300
 
 
-EURUSD = SymbolSpec()
-# Every symbol the app knows how to price. A symbol is offered in the app once data/ holds an M5 export of it.
-# pip_points: points in one pip (5-digit quotes: 0.0001 = 10 points; USDJPY's 3 digits: 0.01 = 10 points).
+# The app replays 1-minute candles (decision 0022): every timeframe, every fill and every log is built from them.
+EURUSD = SymbolSpec(timeframe="M1", bar_seconds=60)
+# Every symbol the app knows how to price. A symbol is offered in the app once data/ holds an M1 export of it
+# (plain .csv or compressed .csv.gz). pip_points: points in one pip (5-digit quotes: 0.0001 = 10 points;
+# USDJPY's 3 digits: 0.01 = 10 points).
 SYMBOLS = {
     "EURUSD": EURUSD,
-    "GBPUSD": SymbolSpec(symbol="GBPUSD"),
-    "USDJPY": SymbolSpec(symbol="USDJPY", digits=3, pip_points=10),
+    "GBPUSD": SymbolSpec(symbol="GBPUSD", timeframe="M1", bar_seconds=60),
+    "USDJPY": SymbolSpec(symbol="USDJPY", digits=3, pip_points=10, timeframe="M1", bar_seconds=60),
 }
 
 
@@ -60,7 +63,8 @@ SYMBOLS = {
 def read_mt5_csv(path: str | Path) -> pd.DataFrame:
     """Read an MT5 export. Returns server-time-indexed OHLC with volume and spread (points)."""
     path = Path(path)
-    with path.open(encoding="utf-8-sig") as f:
+    opener = gzip.open if path.suffix == ".gz" else open  # exports may be kept compressed (.csv.gz)
+    with opener(path, "rt", encoding="utf-8-sig") as f:
         first = f.readline()
 
     if first.startswith("<DATE>"):  # MetaTrader "Export Bars" (tab separated)
@@ -169,6 +173,14 @@ def from_bytes(blob: bytes) -> np.ndarray:
 
 def write_dataset(df: pd.DataFrame, spec: SymbolSpec, out_root: Path, report: dict) -> dict:
     out_dir = out_root / spec.symbol / spec.timeframe
+    for other in (out_root / spec.symbol).glob("*"):  # files of another base timeframe (the M5 of before) go
+        if other.is_dir() and other.name != spec.timeframe:
+            for f in other.glob("*.bin"):
+                f.unlink()
+            try:
+                other.rmdir()
+            except OSError:
+                pass  # a synced folder (OneDrive) can hold an empty directory a while; it is harmless
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob("*.bin"):
         old.unlink()
@@ -244,7 +256,7 @@ def reference_candles(df: pd.DataFrame, spec: SymbolSpec) -> dict:
 # ----------------------------------------------------------------- entry point
 def find_exports(data_dir: Path = DATA_DIR, symbol: str = "EURUSD", timeframe: str = "M5") -> list[Path]:
     """Exports for a symbol/timeframe, oldest file first so newer exports win overlaps."""
-    files = [p for p in data_dir.glob(f"{symbol}_{timeframe}*.csv")]
+    files = [p for p in data_dir.glob(f"{symbol}_{timeframe}_*") if p.name.endswith((".csv", ".csv.gz"))]
     return sorted(files, key=lambda p: p.stat().st_mtime)
 
 

@@ -903,3 +903,60 @@ Each made a test fail.
 **Not done:**
 - The new data files are not committed (Jeevesh's call: broker data in a public repository).
 - M1 is not used yet.
+
+---
+
+## After v2.2.0: Wed 14 Oct 2026 · the replay runs on 1-minute candles (v2.3.0)
+
+**Asked for (Jeevesh):** "make the app use 1-minute candles", after MT5's max bars was set to Unlimited and the full M1 history was read (about 446,000 candles a pair).
+
+**Checked first:**
+- M5 built from FundedNext's GBPUSD minutes matched FundedNext's own GBPUSD M5 on 100% of candles.
+- For EURUSD, the same comparison against the old Five Percent Online M5 file matched on only 0.25%: same clock, different broker prices. So all three pairs now come from FundedNext.
+- There were no saved sessions to convert.
+
+**Built (Claude):**
+- **Data:**
+  - The pipeline reads only M1 exports, plain or compressed (`.csv.gz`), into `web/data/<pair>/M1`.
+  - The three M1 files are kept compressed in git (about 5 MB each).
+  - Built: EURUSD 445,308, GBPUSD 445,279, USDJPY 444,818 minutes, 0 bad candles, fewer than 1% of minutes missing (quiet minutes).
+- **The replay:**
+  - An M1 button; the clock steps one minute; every timeframe is built from the minutes; fills happen on the minutes.
+  - Replay speeds up to 300 minutes a second.
+  - Sessions record `barSeconds`, and Resume refuses a session replayed on another candle size.
+- **The logs:**
+  - They measure M5 built from the minutes, counting only 5-minute candles that had closed at the moment in question (`loglib.closed_cut`).
+  - The entry's spread comes from its exact minute.
+- **The chart:**
+  - It holds a window of candles (3,000, at most 6,000) that moves as you scroll or jump, instead of all 445,000.
+  - Indicators are still worked out on every candle.
+- See [decision 0022](decisions/0022-one-minute-candles.md).
+
+**Tests:** 5 new Python tests (110 in total); JavaScript at 144. The JavaScript real-data test still found the browser's H4 and D1 candles, now built from the minutes, equal to pandas.
+- M5 built from minutes equals the original candles
+- the closed-candle rule, at 08:37 and 08:39
+- a minute session logs exactly what the 5-minute one did when the times line up (NBB and sweep, trades and days)
+- an entry at 08:38 does not see a sweep confirmed on the candle closing at 08:40, one at 08:40 does, and deleting later minutes changes nothing measured before
+- the entry spread from the fill minute
+- letting the logs see the forming candle on purpose made 2 tests fail
+
+**In the in-app browser (GBPUSD, 445,279 minutes):**
+- The app loaded in about 4 to 7 seconds, with M1 in the timeframe bar.
+- **First version, too slow:** switching timeframe took 2 to 5 seconds, and a replay step took 114 ms.
+- **Finding the cause:**
+  - My own code took nearly nothing; the time was inside the chart library's `update`.
+  - A bare chart with the same candles and the same options updated in 0.7 ms, and a brand-new chart built with the app's own code in 0.5 ms.
+  - The difference was the mouse: with it over the chart, the library works out the crosshair again across every candle it holds. That costs about 1 ms per 1,000 candles: 96 ms at 89,000.
+- **After the window:** switching timeframe 0.2 to 0.6 s, jumping to Aug 2025 0.76 s, back to the newest candles 0.43 s, one step with the mouse over the chart 9 ms.
+- **A trade:** placed 08:38 New York, filled on the 08:39 minute; the session saved with `barSeconds: 60`. No console errors.
+- The test session was deleted after leaving the replay and closing the tab.
+
+**Found along the way:**
+- The mouse-over-chart cost was already there with M5: about 90 ms a step at 83,000 candles. The day-13 figure of about 3 ms a step was measured with the mouse elsewhere.
+- **The first window was still too big.** It ran from a jump back to the newest candle (430,000 candles, 4 seconds). It now has limits on both sides.
+- OneDrive held the old `web/data/<pair>/M5` folder, so deleting it failed. The build now removes the files and leaves an empty folder if it must.
+
+**How to check:**
+1. Start the app and press **M1**.
+2. Start a replay, then press Shift + → to step a minute at a time, or Space to play.
+3. Jump to an old date with **Go to**, scroll left and right, then press **Latest**.

@@ -1,4 +1,5 @@
-// Builds higher-timeframe candles (M15 ... D1) from the M5 candles.
+// Builds every timeframe (M1 ... D1) from the base candles the data holds: M1 since v2.3 (decision 0022).
+// Comments below still say "M5 candles" where they mean the base candles; the code does not care which.
 //
 // Candle boundaries follow the broker's server clock, which is New York time
 // + 7 hours (see docs/decisions/0002). That is what makes these candles match
@@ -12,6 +13,7 @@
 import { Candles } from "./data.js";
 
 export const TIMEFRAMES = [
+  { id: "M1", seconds: 60, label: "1 minute" },
   { id: "M5", seconds: 300, label: "5 minutes" },
   { id: "M15", seconds: 900, label: "15 minutes" },
   { id: "M30", seconds: 1800, label: "30 minutes" },

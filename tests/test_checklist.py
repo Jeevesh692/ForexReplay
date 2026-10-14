@@ -41,7 +41,7 @@ def test_answers_are_written_as_the_browser_keeps_them():
 
 def test_a_save_writes_one_column_per_question_and_keeps_old_columns(monkeypatch):
     m5 = D.candles()
-    monkeypatch.setattr(loglib, "load_m5", lambda *a, **k: m5)
+    monkeypatch.setattr(loglib, "load_base", lambda *a, **k: m5)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         questions = [{"text": "Asian high swept?", "kind": "yesno"}, {"text": "Model", "kind": "choice", "options": ["FVG", "OB"]}]

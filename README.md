@@ -11,17 +11,17 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 ## What it does
 
 **Replay without hindsight**
-- One replay clock in M5 candles drives every timeframe (M5, M15, M30, H1, H4, D1). Higher timeframes show a forming candle that grows as M5 candles arrive.
+- One replay clock in 1-minute candles drives every timeframe (M1, M5, M15, M30, H1, H4, D1). Higher timeframes show a forming candle that grows as the minutes arrive.
 - You can step back and look at history, but orders, closes and stop moves are only accepted at the live edge. You cannot trade a move you have already watched.
 - Two charts side by side on the same clock (for example M15 and H4), with the crosshair following across.
 - Session shading (Asia, London, New York, or ICT killzones), set in each city's own clock. All times are shown in India time.
 
 **Trading as a broker would fill it**
 - Market, limit and stop orders with stop loss and take profit, placed from a ticket or by clicking the chart. Stop and target lines can be dragged.
-- Fills are resolved on M5 candles whatever timeframe is on screen. An order is never filled on the candle it was placed on, and when stop and target are both inside one candle, the stop is assumed hit first.
+- Fills are resolved on 1-minute candles whatever timeframe is on screen. An order is never filled on the candle it was placed on, and when stop and target are both inside one candle, the stop is assumed hit first.
 - An account in dollars: set any balance (click it), lot size from a risk %, commission ($4 per lot), partial closes, breakeven, close all.
 - **ADR plan:** ADR10 worked out once a day from completed daily candles, and your thresholds (sweep penetration, buffer, minimum stop, displacement, FVG size) as multiples of it, in pips; the ticket warns when a stop is under minStop or reward:risk under your floor.
-- **Prop-firm challenge mode:** profit target, daily loss limit and maximum loss, checked on every M5 candle at its worst price, with days starting at 17:00 New York.
+- **Prop-firm challenge mode:** profit target, daily loss limit and maximum loss, checked on every 1-minute candle at its worst price, with days starting at 17:00 New York.
 
 **Drawing and analysis**
 - Trendline, ray, horizontal line and ray, vertical line, rectangle, Fibonacci with the OTE zone (0.618 to 0.79) and your own levels and extensions, long/short position tool, text notes. Drawings have colours, line styles, a magnet to candle prices, undo, and TradingView-style Alt shortcuts.
@@ -49,7 +49,7 @@ pip install -r requirements.txt
 python -m forex_replay app        # or double-click start_app.bat on Windows
 ```
 
-It opens `http://127.0.0.1:8765`. The first start builds the browser's market data from the MT5 export in `data/` (EURUSD M5, 1 Aug 2025 to 11 Sep 2026, 82,569 candles).
+It opens `http://127.0.0.1:8765`. The first start builds the browser's market data from the MT5 exports in `data/` (EURUSD, GBPUSD and USDJPY, 1-minute candles from 1 Aug 2025 to 14 Oct 2026, about 445,000 a pair).
 
 Then click **Replay**, click the candle to start from, and press **Space**. Press **?** in the app for every keyboard shortcut.
 
@@ -114,7 +114,7 @@ forex_replay/          Python: v1 replay and backtester, plus v2's data pipeline
   golden.py stats_golden.py indicator_golden.py   recorded comparisons for the JavaScript copies
 web/                   the browser app: plain ES modules, no build step, no npm packages
   js/replay.js         the one replay clock
-  js/timeframes.js     M15..D1 built from M5, with forming candles
+  js/timeframes.js     M1..D1 built from the 1-minute candles, with forming candles
   js/broker.js         trading engine (a rule-for-rule port of broker.py)
   js/trading.js        clock -> engine; records every action for save and rebuild
   js/account.js        money: lots, dollars, commission
@@ -129,12 +129,12 @@ docs/                  build log, design records, plan, screenshots
 strategies/<name>/     one per strategy: strategy.json, journal (trades.csv), saved sessions, screenshots
 ```
 
-The rules the code keeps are written down in [`CLAUDE.md`](CLAUDE.md): no look-ahead, one replay clock, fills on M5, two engines held to one truth, prices as whole points, times as UTC seconds.
+The rules the code keeps are written down in [`CLAUDE.md`](CLAUDE.md): no look-ahead, one replay clock, fills on 1-minute candles, two engines held to one truth, prices as whole points, times as UTC seconds.
 
 ## Not done yet
 
 - **Data:** one symbol (EURUSD) and one data source (an MT5 export). Many candles record zero spread, so the minimum spread setting matters.
-- **Intrabar data:** a request for tick or M1 data, so candles form live inside an M5 candle, is parked (see `docs/plan.md`). Fills are honest at M5 resolution, not finer.
+- **Intrabar data:** the replay runs on 1-minute candles since v2.3 ([decision 0022](docs/decisions/0022-one-minute-candles.md)); tick data, for movement inside a minute, is not done. Fills are honest at 1-minute resolution, not finer.
 - **Gaps:** each design record ends with what is not done; the main ones are trailing stops, more indicators, a date filter on the analytics page, and more than two charts.
 
 ## v1: the Python version

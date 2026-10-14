@@ -125,8 +125,8 @@ def _load(manifest_path: str, stamp: float) -> Candles:
     return Candles(a[:, 0].copy(), a[:, 1].copy(), a[:, 2].copy(), a[:, 3].copy(), a[:, 4].copy(), a[:, 6].copy())
 
 
-def load_m5(symbol: str = "EURUSD", data_root: Path = WEB_DATA) -> Candles:
-    """The app's M5 candles, read once and kept in memory until the data files are rebuilt."""
+def load_base(symbol: str = "EURUSD", data_root: Path = WEB_DATA) -> Candles:
+    """The app's base candles (M1 since v2.3), read once and kept in memory until the data files are rebuilt."""
     manifest = data_root / symbol / "manifest.json"
     if not manifest.exists():
         raise FileNotFoundError("The market data has not been built yet; start the app once (python -m forex_replay app).")
@@ -148,6 +148,48 @@ def back(value, side: str):
     if value is None:
         return None
     return value if side == "SELL" else -value
+
+
+# ----------------------------------------------------------------- M5 from the base candles
+M5_SECONDS = 300
+
+
+def bar_of(data: dict) -> int:
+    """A session's base candle in seconds: 60 since v2.3; sessions saved before that replayed M5 (300)."""
+    return int(data.get("barSeconds") or M5_SECONDS)
+
+
+def closed_cut(t: int, bar: int) -> int:
+    """The open time of the last M5 candle that had closed once the base candle opened at `t` had closed.
+    With M5 base candles this is `t` itself; with M1, an order at 08:37 sees the 08:30 candle (closed 08:35),
+    never the 08:35 one still forming. Pass it to Candles.until on M5 candles."""
+    return ((t + bar) // M5_SECONDS) * M5_SECONDS - M5_SECONDS
+
+
+_five_cache: dict = {}
+
+
+def five_minute(base: Candles) -> Candles:
+    """M5 candles from M1 ones, in the broker's own way (the bucket's first open, highest high, lowest low,
+    last close; checked identical to the broker's M5 for GBPUSD on 14 Oct 2026). Spread: the bucket's last."""
+    key = (id(base.time), len(base))
+    if key in _five_cache:
+        return _five_cache[key]
+    if len(base) == 0:
+        return base
+    keys = base.time // M5_SECONDS
+    starts = np.flatnonzero(np.r_[True, keys[1:] != keys[:-1]])
+    lasts = np.r_[starts[1:] - 1, len(keys) - 1]
+    out = Candles(keys[starts] * M5_SECONDS, base.open[starts], np.maximum.reduceat(base.high, starts),
+                  np.minimum.reduceat(base.low, starts), base.close[lasts], base.spread[lasts])
+    _five_cache.clear()  # one dataset at a time is enough
+    _five_cache[key] = out
+    return out
+
+
+def logger_candles(data: dict, base: Candles) -> Candles:
+    """The M5 candles a logger measures on, for this session's base candles."""
+    return base if bar_of(data) == M5_SECONDS else five_minute(base)
 
 
 # ----------------------------------------------------------------- bigger timeframes

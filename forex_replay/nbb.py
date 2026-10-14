@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .loglib import (WEEKDAYS, Bars, Candles, back, previous_rows, trade_fields, view, fmt_bool, fmt_num, fmt_price, is_swing_high, minutes_bars, ny, ny_date, ny_text,
+from .loglib import (WEEKDAYS, Bars, Candles, back, bar_of, closed_cut, logger_candles, previous_rows, trade_fields, view, fmt_bool, fmt_num, fmt_price, is_swing_high, minutes_bars, ny, ny_date, ny_text,
                      ny_time, server_bars, server_day, week_bars, week_of_server_day, weekdays_between, wilder_atr,
                      write_keyed_csv)
 
@@ -243,11 +243,12 @@ class Setup:
     disp_after: int | None = None
 
 
-def find_setup(m5_view: Candles, day_start: int, placed: int) -> Setup:
-    """H2, H1, L1 and the displacement candle, on the side's view, from candles up to `placed` only."""
+def find_setup(m5_view: Candles, day_start: int, placed: int, bar: int = 300) -> Setup:
+    """H2, H1, L1 and the displacement candle, on the side's view, from M5 candles closed by the order only."""
     s = Setup()
-    m5 = m5_view.until(placed)
-    seg = m5.between(day_start, placed + 1)
+    cut = closed_cut(placed, bar)
+    m5 = m5_view.until(cut)
+    seg = m5.between(day_start, cut + 1)
     if seg.stop <= seg.start:
         return s
     i2 = seg.start + int(np.argmax(m5.high[seg]))  # the first candle making the day's high so far
@@ -263,7 +264,7 @@ def find_setup(m5_view: Candles, day_start: int, placed: int) -> Setup:
         return s
     atr = wilder_atr(m15.high, m15.low, m15.close, 14)
     for j in range(kh + 1, len(m15)):
-        if m15.end[j] > placed + 300:  # had not closed when the order was placed
+        if m15.end[j] > cut + 300:  # had not closed when the order was placed
             break
         if m5.high[int(m15.first[j]):int(m15.last[j]) + 1].max() > s.h2:
             break  # price went beyond H2 first
@@ -286,8 +287,9 @@ class Fib:
     complete: bool    # the walk reached its end (not cut short by the replay's furthest point)
 
 
-def walk_fib(m5_view: Candles, setup: Setup, walk_end: int, furthest: int) -> Fib:
+def walk_fib(m5_view: Candles, setup: Setup, walk_end: int, furthest: int, bar: int = 300) -> Fib:
     """The rule Fibonacci: 1.0 = H2; 0.0 = the leg low, moved and fixed candle by candle (see the spec, step 4)."""
+    furthest = closed_cut(furthest, bar)  # the last M5 candle closed by the furthest point replayed
     m5 = m5_view.until(furthest)
     m15 = minutes_bars(m5, 15)
     j = m15.index_of_time(setup.disp_time)
@@ -414,7 +416,9 @@ def phase2(m5: Candles, m15: Bars, fill: int, entry: float, one: float, zero: fl
 
 
 # ----------------------------------------------------------------- rows
-def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
+def trade_row(trade: dict, data: dict, m5: Candles, base: Candles | None = None) -> dict:
+    """`m5`: the M5 candles to measure on; `base`: the session's own candles (M1), for the entry's spread."""
+    bar = bar_of(data)
     run, digits, pip = data["id"], data["digits"], data["pipPoints"]
     furthest = data["furthestTime"]
     entry_t = trade["entryTime"]
@@ -423,11 +427,11 @@ def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
     zone = killzone_of(entry_t)
     price = lambda p: fmt_price(None if p is None else int(round(p)), digits)
     row = dict.fromkeys(COLUMNS, "")  # every column present; blank until measured
-    row.update(trade_fields(trade, data, m5))
+    row.update(trade_fields(trade, data, base if base is not None else m5))
     row["killzone"] = zone
     initial = trade.get("initialStop", trade.get("stopLoss"))
 
-    seen = m5.until(furthest)
+    seen = m5.until(closed_cut(furthest, bar))
     pre = pre_fields(seen, day, side, pip)
     row.update({
         "adr5_pips": fmt_num(None if pre["adr5"] is None else pre["adr5"] / pip, 1),
@@ -441,7 +445,7 @@ def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
 
     placed = trade.get("placedTime") or entry_t
     sv = view(seen, side)
-    setup = find_setup(sv, pre["day_start"], placed)
+    setup = find_setup(sv, pre["day_start"], placed, bar)
     row["setup_found"] = fmt_bool(setup.found)
     if setup.h2 is not None:
         row["h2_price"], row["h2_time_ny"] = price(back(setup.h2, side)), ny_text(setup.h2_time)
@@ -472,7 +476,7 @@ def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
         row["post_status"] = "NO_SETUP"
         return row
     walk_end = killzone_window(day, zone)[1]
-    fib = walk_fib(sv, setup, walk_end, furthest)
+    fib = walk_fib(sv, setup, walk_end, furthest, bar)
     span = fib.one - fib.zero
     row.update({"fib_1": price(back(fib.one, side)), "fib_0": price(back(fib.zero, side)),
                 "fib_0_time_ny": ny_text(fib.zero_time), "leg_pips": fmt_num(abs(span) / pip, 1)})
@@ -487,7 +491,7 @@ def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
             row["entry_fib_level"] = fmt_num((to_view(trade["entryPrice"]) - fib.zero) / span, 3)
         if initial is not None:
             row["stop_fib_level"] = fmt_num((to_view(initial) - fib.zero) / span, 3)
-    if furthest + 300 < t1600 or not fib.complete:
+    if closed_cut(furthest, bar) + 300 < t1600 or not fib.complete:
         row["post_status"] = "PENDING"
         return row
     row["post_status"] = "COMPLETE"
@@ -507,7 +511,7 @@ def day_rows(data: dict, m5: Candles, reuse: dict | None = None) -> list[dict]:
     `reuse` maps date -> an earlier row of this session; only its trade count is worked out again."""
     pip, run = data["pipPoints"], data["id"]
     start, furthest = data["startTime"], data["furthestTime"]
-    seen = m5.until(furthest)
+    seen = m5.until(closed_cut(furthest, bar_of(data)))
     entries = [ny_date(t["entryTime"]) for t in data.get("trades") or [] if t.get("entryTime") is not None]
     rows = []
     for day in weekdays_between(ny_date(start), ny_date(furthest)):
@@ -536,7 +540,7 @@ def _trade_order(r: dict):
 FINAL = ("COMPLETE", "NO_SETUP")  # rows that later candles can no longer change
 
 
-def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
+def write_logs(data: dict, folder: Path, base: Candles) -> dict:
     """Recompute this session's rows in nbb_log.csv and nbb_days.csv; other sessions' rows are kept.
 
     The app saves every couple of seconds while a replay plays, so finished work is not repeated:
@@ -545,6 +549,7 @@ def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
     note and tags, your Fibonacci drawing, the day's trade count). `rebuild` recomputes everything.
     """
     folder = Path(folder)
+    m5 = logger_candles(data, base)  # the rules are on M5 candles, built from the session's M1 ones
     closed = [t for t in data.get("trades") or [] if t.get("status") == "CLOSED" and t.get("entryTime") is not None]
     before = previous_rows(folder / LOG_FILE, data["id"], "trade_id")
     rows = []
@@ -559,7 +564,7 @@ def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
             row["user_fib_1"], row["user_fib_0"] = (fmt_price(drawn[1], data["digits"]), fmt_price(drawn[2], data["digits"])) if drawn else ("", "")
             rows.append(row)
         else:
-            rows.append(trade_row(t, data, m5))
+            rows.append(trade_row(t, data, m5, base))
     old_days = previous_rows(folder / DAYS_FILE, data["id"], "date_ny")
     days = day_rows(data, m5, reuse=old_days)
     write_keyed_csv(Path(folder) / LOG_FILE, COLUMNS, data["id"], rows, _trade_order)

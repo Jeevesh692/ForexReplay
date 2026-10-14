@@ -205,7 +205,7 @@ def test_a_save_writes_the_strategys_log_and_a_logger_error_never_blocks_it(monk
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         strategy_folders.save_strategy("nbb", {"label": "NBB", "logger": "nbb"}, root)
-        monkeypatch.setattr(loglib, "load_m5", lambda *a, **k: m5)
+        monkeypatch.setattr(loglib, "load_base", lambda *a, **k: m5)
         reply = backtests.save("nbb", "bt-nbb-1", D.session([D.sell_trade()]), root)
         assert reply["log"] == {"logger": "nbb", "trades": 1, "days": 3} and "logError" not in reply
         assert (root / "nbb" / nbb.LOG_FILE).exists() and (root / "nbb" / nbb.DAYS_FILE).exists()
@@ -214,7 +214,7 @@ def test_a_save_writes_the_strategys_log_and_a_logger_error_never_blocks_it(monk
 
         def broken(*a, **k):
             raise RuntimeError("market data missing")
-        monkeypatch.setattr(loglib, "load_m5", broken)
+        monkeypatch.setattr(loglib, "load_base", broken)
         reply = backtests.save("nbb", "bt-nbb-1", D.session([D.sell_trade()]), root)
         assert reply["ok"] and "market data missing" in reply["logError"]
         assert json.loads((root / "nbb" / "backtests" / "bt-nbb-1.json").read_text())["id"] == "bt-nbb-1"

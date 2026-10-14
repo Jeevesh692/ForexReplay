@@ -14,6 +14,7 @@
     <div class="brand">Forex<span>Replay</span></div>
     <select class="pill symbol-select" id="symbol" title="Pair: switching saves the session on screen and opens the other pair" aria-label="Pair"><option>EURUSD</option></select>
     <div class="group" id="timeframes" aria-label="Timeframe">
+      <button disabled data-tf="M1" title="1 minute">M1</button>
       <button disabled data-tf="M5" title="5 minutes">M5</button>
       <button disabled data-tf="M15" title="15 minutes">M15</button>
       <button disabled data-tf="M30" title="30 minutes">M30</button>
@@ -37,7 +38,7 @@
       <button id="replay-back" title="Step back one candle (Left arrow)">&#9664;&#10072;</button>
       <button id="replay-play" title="Play (Space)">&#9654;</button>
       <button id="replay-forward" title="Step forward one candle (Right arrow). Shift + Right = one M5 candle">&#10072;&#9654;</button>
-      <select id="replay-speed" title="Speed: M5 candles per second"></select>
+      <select id="replay-speed" title="Speed: 1-minute candles per second"></select>
       <button id="replay-live" title="Return to where the replay had got to (End)" hidden>Live &#8677;</button>
       <button id="replay-exit" title="Save this backtest and leave the replay">&#10005;</button>
     </div>

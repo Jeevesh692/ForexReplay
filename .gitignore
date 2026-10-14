@@ -12,7 +12,7 @@ venv/
 .DS_Store
 Thumbs.db
 
-# 1-minute exports: large (about 27 MB a pair) and not used by the app yet
+# 1-minute exports are kept compressed (data/*_M1_*.csv.gz, about 5 MB a pair); the plain CSVs (27 MB) stay out
 data/*_M1_*.csv
 
 # Personal working files

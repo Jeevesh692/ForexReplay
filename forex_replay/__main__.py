@@ -111,7 +111,7 @@ def cmd_log(args) -> None:
     folder = JOURNALS_DIR / check_name(args.strategy, "A strategy name")
     if not folder.is_dir():
         raise SystemExit(f"No strategy folder {folder}")
-    totals = module.rebuild(folder, loglib.load_m5())
+    totals = module.rebuild(folder, loglib.load_base())
     print(f"{folder / module.LOG_FILE}: {totals['trades']} trades; {folder / module.DAYS_FILE}: {totals['days']} days; "
           f"from {totals['sessions']} saved sessions")
 

@@ -197,7 +197,7 @@ def test_day_rows_count_the_map_and_the_sweeps_in_the_window():
 
 def test_only_the_strategys_own_logger_runs(monkeypatch):
     m5 = D.candles()
-    monkeypatch.setattr(loglib, "load_m5", lambda *a, **k: m5)
+    monkeypatch.setattr(loglib, "load_base", lambda *a, **k: m5)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         strategy_folders.save_strategy("liquidity_sweep", {"label": "Sweep", "logger": "sweep"}, root)

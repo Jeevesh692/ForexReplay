@@ -127,7 +127,7 @@ def run_logger(data: dict, folder: Path, root: Path) -> dict:
         try:
             from . import nbb, sweep
             module = {"nbb": nbb, "sweep": sweep}[logger]
-            m5 = loglib.load_m5(str(data.get("symbol") or "EURUSD"))
+            m5 = loglib.load_base(str(data.get("symbol") or "EURUSD"))
             out["log"] = {"logger": logger, **module.write_logs(data, folder, m5)}
         except Exception as err:  # noqa: BLE001 (any failure in a log must not lose the save)
             errors.append(f"{logger} log not written: {err}")
@@ -135,7 +135,7 @@ def run_logger(data: dict, folder: Path, root: Path) -> dict:
         try:
             if m5 is None:
                 try:
-                    m5 = loglib.load_m5(str(data.get("symbol") or "EURUSD"))
+                    m5 = loglib.load_base(str(data.get("symbol") or "EURUSD"))
                 except FileNotFoundError:
                     m5 = None  # only the spread column needs the candles
             out["checklist"] = checklist.write_log(data, folder, questions, m5)

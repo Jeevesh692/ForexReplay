@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .loglib import (WEEKDAYS, Candles, back, fmt_bool, fmt_num, fmt_price, is_swing_high, is_swing_low, minutes_bars,
+from .loglib import (WEEKDAYS, Candles, back, bar_of, closed_cut, logger_candles, fmt_bool, fmt_num, fmt_price, is_swing_high, is_swing_low, minutes_bars,
                      ny_date, ny_minutes, ny_text, ny_time, previous_rows, server_bars, spread_at, trade_fields, view,
                      weekdays_between, wilder_atr, write_keyed_csv)
 
@@ -191,9 +191,10 @@ class Sweep:
 
 
 def find_sweep(m5_view: Candles, m: Map, day: date, entry_t: int, data: dict) -> Sweep:
-    """The level swept before the entry (sells: above), from candles that closed by the entry."""
+    """The level swept before the entry (sells: above), from M5 candles that closed by the entry."""
     s = Sweep()
-    m5 = m5_view.until(entry_t - 300)
+    bar = bar_of(data)
+    m5 = m5_view.until(closed_cut(entry_t - bar, bar))
     map_t = ny_time(day, MAP_HOUR)
     start = int(np.searchsorted(m5.time, map_t))
     kept = []
@@ -302,15 +303,17 @@ def _level_text(lv: Level | None, upper: bool, digits: int, side: str) -> tuple[
     return lv.code(upper), fmt_price(int(round(back(lv.price, side))), digits)
 
 
-def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
+def trade_row(trade: dict, data: dict, m5: Candles, base: Candles | None = None) -> dict:
+    """`m5`: the M5 candles to measure on; `base`: the session's own candles (M1), for the entry's spread."""
+    bar = bar_of(data)
     digits, pip = data["digits"], data["pipPoints"]
     furthest, entry_t, side = data["furthestTime"], trade["entryTime"], trade["side"]
     day = ny_date(entry_t)
     price = lambda p: "" if p is None else fmt_price(int(round(back(p, side))), digits)
     row = dict.fromkeys(COLUMNS, "")
-    row.update(trade_fields(trade, data, m5))
+    row.update(trade_fields(trade, data, base if base is not None else m5))
     row["entry_min_ny"] = ny_minutes(entry_t)
-    seen = m5.until(furthest)
+    seen = m5.until(closed_cut(furthest, bar))
     real = build_map(seen, day)  # in real prices, for the PRE columns
     row.update({
         "atr30_pips": fmt_num(None if real.atr is None else real.atr / pip, 1),
@@ -353,7 +356,7 @@ def trade_row(trade: dict, data: dict, m5: Candles) -> dict:
         row[f"opp{k}_pips"] = fmt_num((s.rule_entry - o.price) / pip, 1)
         row[f"opp{k}_respect_atr"] = fmt_num(o.respect, 2)
         row[f"opp{k}_age_days"] = fmt_num(o.age, 2)
-    if furthest + 300 < ny_time(day, CLOSE_HOUR):
+    if closed_cut(furthest, bar) + 300 < ny_time(day, CLOSE_HOUR):
         row["post_status"] = "PENDING"
         return row
     row["post_status"] = "COMPLETE"
@@ -378,7 +381,7 @@ def day_rows(data: dict, m5: Candles, reuse: dict | None = None) -> list[dict]:
     no longer change, so an earlier row of it is reused; the furthest day is always worked out again."""
     pip, run = data["pipPoints"], data["id"]
     start, furthest = data["startTime"], data["furthestTime"]
-    seen = m5.until(furthest)
+    seen = m5.until(closed_cut(furthest, bar_of(data)))
     entries = [ny_date(t["entryTime"]) for t in data.get("trades") or [] if t.get("entryTime") is not None]
     last_day = ny_date(furthest)
     rows = []
@@ -408,10 +411,11 @@ def _trade_order(r: dict):
 FINAL = ("COMPLETE", "NO_SETUP")
 
 
-def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
+def write_logs(data: dict, folder: Path, base: Candles) -> dict:
     """Recompute this session's rows in sweep_log.csv and sweep_days.csv; other sessions' rows are kept.
     Finished rows are reused, as in the NBB logger (see nbb.write_logs)."""
     folder = Path(folder)
+    m5 = logger_candles(data, base)  # the rules are on M5 candles, built from the session's M1 ones
     trades = data.get("trades") or []
     closed = [t for t in trades if t.get("status") == "CLOSED" and t.get("entryTime") is not None]
     before = previous_rows(folder / LOG_FILE, data["id"], "trade_id")
@@ -422,7 +426,7 @@ def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
                 and old.get("exit_time_ny") == ny_text(t.get("exitTime")):
             rows.append(dict(old, tags="; ".join(t.get("tags") or []), note=t.get("note") or ""))
         else:
-            rows.append(trade_row(t, data, m5))
+            rows.append(trade_row(t, data, m5, base))
     _count_attempts(rows, data, m5)
     days = day_rows(data, m5, reuse=previous_rows(folder / DAYS_FILE, data["id"], "date_ny"))
     write_keyed_csv(folder / LOG_FILE, COLUMNS, data["id"], rows, _trade_order)
@@ -432,7 +436,7 @@ def write_logs(data: dict, folder: Path, m5: Candles) -> dict:
 
 def _count_attempts(rows: list[dict], data: dict, m5: Candles) -> None:
     """trade_of_day and level_attempt, counted over every trade of the session that was filled (open ones too)."""
-    seen = m5.until(data["furthestTime"])
+    seen = m5.until(closed_cut(data["furthestTime"], bar_of(data)))
     logged = {r["trade_id"]: r for r in rows}
     entered = sorted((t for t in data.get("trades") or [] if t.get("entryTime") is not None),
                      key=lambda t: (t["entryTime"], t["id"]))

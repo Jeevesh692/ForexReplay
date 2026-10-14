@@ -117,7 +117,7 @@ async function boot() {
   const { manifest, candles: m5 } = loaded;
 
   $("status-data").textContent =
-    `${manifest.symbol} · ${number(manifest.bars)} M5 candles · ` +
+    `${manifest.symbol} · ${number(manifest.bars)} ${manifest.timeframe} candles · ` +
     `${formatDateTime(manifest.first)} → ${formatDateTime(manifest.last)} IST`;
 
   const redrawData = renderDataView($("data-view"), { manifest, quality, candles: m5 });
@@ -771,7 +771,7 @@ async function boot() {
     const now = m5.time[clock.position - 1] + manifest.bar_seconds; // close of the last revealed candle
     const behind = clock.furthest - clock.position;
     ui.clock.textContent = `Replay · ${formatDateTime(now)} IST` +
-      (behind > 0 ? ` · viewing history (${number(behind)} M5 back)` : "");
+      (behind > 0 ? ` · viewing history (${number(behind)} ${manifest.timeframe} back)` : "");
     ui.clock.classList.toggle("history", behind > 0);
   }
 
@@ -852,7 +852,7 @@ async function boot() {
       await switchSymbol(saved.symbol, `${journal}/${id}`);
       return [];
     }
-    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits) });
+    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits), barSeconds: manifest.bar_seconds });
     await shotQueue;
     if (clock.active && !(await backtests.end())) {
       throw new Error("the replay on screen could not be saved, so it was left open.");

@@ -30,7 +30,7 @@ export const OTHER_KEYS = [
   { keys: "Hold Ctrl", label: "While drawing or dragging a point: magnet the other way for that move" },
   { keys: "Space", label: "Replay: play or pause" },
   { keys: "→ / ←", label: "Replay: one chart candle forward / back" },
-  { keys: "Shift + →", label: "Replay: one M5 candle forward" },
+  { keys: "Shift + →", label: "Replay: one 1-minute candle forward" },
   { keys: "End", label: "Replay: back to the live candle" },
 ];
 

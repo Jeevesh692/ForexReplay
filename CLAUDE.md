@@ -40,13 +40,15 @@ python -m forex_replay nbb <strategy>  # rebuild a strategy's NBB log from every
 python -m forex_replay sweep <strategy>  # the same for the liquidity-sweep log
 ```
 
-Expected today: 105 Python tests, 144 JavaScript tests, all passing.
+Expected today: 110 Python tests, 144 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
 - **No look-ahead.** The chart and the engine may only ever see candles the replay clock has revealed. Orders, closes and stop moves are accepted only at the live edge of the replay. A `Candles` object's arrays can be longer than its `length` (a replay's display reuses full-size arrays): never read past `length`.
-- **One replay clock** (`web/js/replay.js`): one position in M5 candles; every timeframe is derived from it.
-- **Fills are resolved on M5 candles** whatever timeframe is on screen. An order is never evaluated on the candle it was placed on.
+- **One replay clock** (`web/js/replay.js`): one position in the base candles (M1 since v2.3, decision 0022); every timeframe is derived from it.
+- **Fills are resolved on the base (1-minute) candles** whatever timeframe is on screen. An order is never evaluated on the candle it was placed on.
+- **The logs measure M5 built from the minutes, and only M5 candles that had closed** at the moment in question (`loglib.closed_cut`); never the forming one.
+- **The chart holds a window of at most 6,000 candles** (`chart.js`): the library's update cost grows with every candle it holds while the mouse is over the chart. Indicators are still computed on every candle.
 - **Two engines, one truth.** `forex_replay/broker.py` and `web/js/broker.js` implement the same rules. Change Python first, then JavaScript, then run `python -m forex_replay.golden`; the JavaScript parity test must match every recorded trade.
 - **Prices are whole points** in the browser (1.08500 is 108500). Lot sizes are whole numbers of 0.01 lots. No floats for either.
 - **Times are UTC seconds everywhere.** India time (+5:30) is applied only inside `web/js/chart.js` and `web/js/time.js`. MT5 server time is New York + 7 hours; conversion is in `forex_replay/datapipe.py`.
@@ -83,9 +85,7 @@ Read `docs/decisions/` before changing how something works; each record says why
 
 ## Facts about the data and account
 
-- Data, all M5 from 1 Aug 2025, exported from MT5 into `data/`:
-  - EURUSD to 11 Sep 2026 (Five Percent Online)
-  - GBPUSD and USDJPY to 14 Oct 2026 (FundedNext demo, read on 14 Oct with the `MetaTrader5` Python package); both brokers' server clocks were checked to agree
-- M1 files for the three pairs (31 Jul 2025 to 14 Oct 2026, about 446,000 candles each) sit in `data/`, are not used yet, and are ignored by git (too large). The GBPUSD and USDJPY M5 files are in the repository (Jeevesh, 14 Oct), so a clone and the website have all three pairs.
-- The EURUSD export records zero spread on about 95% of candles; FundedNext's M5 on 5% (GBPUSD) and 0% (USDJPY). Commission is $4 per lot (his broker's figure; treated as round turn, not yet confirmed whether it is per side).
+- Data: M1 for EURUSD, GBPUSD and USDJPY, 31 Jul 2025 to 14 Oct 2026, from a FundedNext demo account (read on 14 Oct with the `MetaTrader5` Python package), kept as `data/*_M1_*.csv.gz` (about 5 MB each, in git). The pipeline reads only M1 exports.
+- Older M5 exports stay in `data/` for reference and are not read (EURUSD from Five Percent Online, whose prices differ slightly from FundedNext's; same server clock).
+- FundedNext's M1 records zero spread on 69% of EURUSD minutes, 4% of GBPUSD and 0% of USDJPY (the old Five Percent EURUSD M5: about 95%). Commission is $4 per lot (his broker's figure; treated as round turn, not yet confirmed whether it is per side).
 - Chart clock is India time.
