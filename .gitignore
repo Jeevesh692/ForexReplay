@@ -12,6 +12,9 @@ venv/
 .DS_Store
 Thumbs.db
 
+# 1-minute exports: large (about 27 MB a pair) and not used by the app yet
+data/*_M1_*.csv
+
 # Personal working files
 *.xlsx
 *.pkl

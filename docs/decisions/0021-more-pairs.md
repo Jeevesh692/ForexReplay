@@ -18,9 +18,9 @@ Files written to `data/`, in MT5's own export format:
 |---|---|---|
 | `GBPUSD_M5_mt5_2025-07_2026-10.csv` | 89,686 | 31 Jul 2025 → 14 Oct 2026 |
 | `USDJPY_M5_mt5_2025-07_2026-10.csv` | 89,654 | 31 Jul 2025 → 14 Oct 2026 |
-| `EURUSD_M1_…`, `GBPUSD_M1_…`, `USDJPY_M1_…` | 99,999 each | 8 Jul 2026 → 14 Oct 2026 |
+| `EURUSD_M1_…`, `GBPUSD_M1_…`, `USDJPY_M1_…` | 445,324 to 445,814 | 31 Jul 2025 → 14 Oct 2026 |
 
-The M1 files stop at MT5's "Max bars in chart" limit (100,000); raising it to Unlimited should give more. The app does not use M1 yet.
+The first M1 read stopped at MT5's "Max bars in chart" limit (99,999 candles, from 8 Jul 2026); after Jeevesh set it to Unlimited, the full history came. The app does not use M1 yet.
 
 ## One pair on screen at a time
 
@@ -52,6 +52,6 @@ Checked in the app on USDJPY:
 
 ## Not yet done
 
-- The new data files are not in the public repository yet; Jeevesh decides whether broker data goes there. Until then the website and anyone cloning the project have EURUSD only.
+- Later the same day Jeevesh asked for the GBPUSD and USDJPY M5 files to go in the repository, so his friend and the website have them. With MT5's max bars set to Unlimited, M1 was read again: about 446,000 candles a pair from 31 Jul 2025. The M1 files stay out of git (about 27 MB each, not used yet).
 - M1 candles: not used by the app (finer fills or a 1-minute chart would be a separate piece of work).
 - Two pairs on screen at once, and pairs without the dollar.

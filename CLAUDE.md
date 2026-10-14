@@ -86,6 +86,6 @@ Read `docs/decisions/` before changing how something works; each record says why
 - Data, all M5 from 1 Aug 2025, exported from MT5 into `data/`:
   - EURUSD to 11 Sep 2026 (Five Percent Online)
   - GBPUSD and USDJPY to 14 Oct 2026 (FundedNext demo, read on 14 Oct with the `MetaTrader5` Python package); both brokers' server clocks were checked to agree
-- M1 files for the three pairs (8 Jul to 14 Oct 2026, capped by MT5's max-bars setting) sit in `data/` and are not used yet. Only EURUSD's data is in the repository; the new files are not committed until Jeevesh decides.
+- M1 files for the three pairs (31 Jul 2025 to 14 Oct 2026, about 446,000 candles each) sit in `data/`, are not used yet, and are ignored by git (too large). The GBPUSD and USDJPY M5 files are in the repository (Jeevesh, 14 Oct), so a clone and the website have all three pairs.
 - The EURUSD export records zero spread on about 95% of candles; FundedNext's M5 on 5% (GBPUSD) and 0% (USDJPY). Commission is $4 per lot (his broker's figure; treated as round turn, not yet confirmed whether it is per side).
 - Chart clock is India time.
