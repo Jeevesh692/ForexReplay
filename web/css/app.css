@@ -227,6 +227,7 @@ table.grid .num { text-align: right; }
 body { overflow: hidden; }
 .topbar { min-width: 0; white-space: nowrap; }
 .goto, .brand, .pill, button.plain { flex-shrink: 0; }
+select.symbol-select { cursor: pointer; font: inherit; }
 @media (max-width: 1100px) {
   .topbar .clock { display: none; }
 }

@@ -42,9 +42,9 @@ def build_site(out: Path, web_root: Path = WEB_ROOT, refresh: bool = True) -> di
         raise ValueError(f"{out} is not empty and is not an earlier website build; choose another folder.")
 
     if refresh:
-        from .datapipe import build
+        from .datapipe import build_all
         from .server import ensure_chart_library
-        build()
+        build_all()
         if ensure_chart_library() is None:
             raise RuntimeError("The chart library could not be downloaded; the website would not work without it.")
 

@@ -861,3 +861,45 @@ Each made a test fail.
 1. **The sweep log:** open **Strategies**, press **New session** on Liquidity sweep, replay a New York morning, and take a sweep trade at the close back with the stop beyond the sweep. Replay past 16:00, then open `strategies/liquidity_sweep/sweep_log.csv`: `level_type` and `level_price` should be the level you traded, and `stop_diff_pips` about 0.
 2. **A checklist:** press **Checklist** beside any strategy, add a question, and save. Pick a trade: the question is in the journal box. After a save, `checklist_log.csv` has your answer.
 3. **Sharing:** on GitHub the `strategies` folder shows only its README.
+
+---
+
+## After v2.1.0: Wed 14 Oct 2026 · GBPUSD and USDJPY (v2.2.0)
+
+**Asked for (Jeevesh):** "Add GBP/USD and USD/JPY data too", with 1-minute candles for all three; then "add those data in the app". TradingView was discussed and set aside (its terms forbid scraping, its history is short, and it has no spread). MT5 it was.
+
+**Getting the data:**
+- The Five Percent Online terminal was open but not logged in: its journal said "authorization ... failed (Invalid account)". Jeevesh logged in to a FundedNext demo account.
+- I read the candles with MetaQuotes' `MetaTrader5` Python package, installed with his permission (48 KB, from PyPI, read-only use).
+- FundedNext's EURUSD matched the existing Five Percent Online file to a median 0.1 pip with no time shift (6.5 pips or more with a one-hour shift), so the server clocks agree.
+- The M5 files cover 31 Jul 2025 to 14 Oct 2026. The M1 files stopped at 99,999 candles (8 Jul 2026), MT5's "Max bars in chart" limit.
+
+**Built (Claude):**
+- The data pipeline builds every pair with an M5 export (`SYMBOLS`: EURUSD, GBPUSD, and USDJPY with 3 digits) and writes `web/data/symbols.json`, at app start, in `python -m forex_replay data` and in the website build.
+- A pair picker in the toolbar. Switching saves the session on screen and reloads the app on the other pair. Resume on another pair's session opens that pair first.
+- USDJPY money converted to dollars at each price: size at the entry, closed parts at their exit prices, open trades at the price now. Pips come from the data (`pip_points`), so the chart's ATR and ADR in pips are right on USDJPY too.
+- Leftover "EURUSD" labels on the page now show the pair.
+- See [decision 0021](decisions/0021-more-pairs.md).
+
+**Tests:** 1 new Python test (105 in total) and 3 new JavaScript tests (144 in total).
+- every pair with an export is built with its own digits (147.250 stored as 147250 exactly) and listed; M1 files are left alone; an unchanged pair is not rebuilt
+- a point is worth $1 a lot on pairs quoted in dollars and 100 yen in dollars on USDJPY; a pair without the dollar is refused
+- USDJPY size from risk, profit converted at the exit price, partial closes each at their own price, open trades at the price now; never priced without a price
+- EURUSD money is unchanged
+
+**Built data:**
+- GBPUSD: 89,584 M5 candles, 0 bad, 55 short gaps
+- USDJPY: 89,552 M5 candles, 0 bad, 59 short gaps
+- EURUSD unchanged: 82,569 candles, 229 short gaps
+
+**In the in-app browser:**
+- The picker listed the three pairs. USDJPY loaded with 3-decimal prices.
+- A 10-pip stop with 1% risk sized to 1.58 lots risking $99.82.
+- The trade hit its target 201 points up for +$194.07, the same cent as worked by hand from the saved file. `trades.csv` showed USDJPY, 10.0 pips risk, 20.1 pips profit.
+- Switched to EURUSD, pressed Resume on the USDJPY session: the app reopened on USDJPY with every trade matching.
+- GBPUSD loaded.
+- The test strategy was deleted after leaving the replay and closing the tab.
+
+**Not done:**
+- The new data files are not committed (Jeevesh's call: broker data in a public repository).
+- M1 is not used yet.

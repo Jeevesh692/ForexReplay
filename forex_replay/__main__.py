@@ -89,10 +89,10 @@ def cmd_app(args) -> None:
 
 
 def cmd_data(args) -> None:
-    from .datapipe import build, summary
+    from .datapipe import build_all, summary
 
-    manifest, report = build(start=args.start)
-    print(summary(manifest, report))
+    for manifest, report in build_all(start=args.start):
+        print(summary(manifest, report))
 
 
 def cmd_site(args) -> None:

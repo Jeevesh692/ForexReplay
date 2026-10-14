@@ -166,13 +166,14 @@ export class ChartView {
    *   onLineDrag(id, points) while a trade line is being dragged, onLineDrop(id, points | null) when it is let go
    *   (null = cancelled), onCrosshairTime(utc | null) when the mouse moves over this chart (for the other chart) }
    */
-  constructor(container, { lib, symbol, digits, onHover, onClick, onLineDrag, onLineDrop, onCrosshairTime }) {
+  constructor(container, { lib, symbol, digits, pipPoints, onHover, onClick, onLineDrag, onLineDrop, onCrosshairTime }) {
     this.container = container;
     this.onLineDrag = onLineDrag || (() => {});
     this.onLineDrop = onLineDrop || (() => {});
     this.lib = lib;
     this.symbol = symbol;
     this.digits = digits;
+    this.pip = pipPoints || 10 ** (digits - 4); // points in a pip, from the data (USDJPY's 3 digits: 10)
     this.onHover = onHover || (() => {});
     this.onClick = onClick || (() => {});
     this.onCrosshairTime = onCrosshairTime || (() => {});
@@ -432,7 +433,7 @@ export class ChartView {
     this.onHover(this.barInfo(this.candles.length - 1)); // the legend shows the new set straight away
   }
 
-  get pipPoints() { return 10 ** (this.digits - 4); } // EURUSD: 10 points to a pip
+  get pipPoints() { return this.pip; }
 
   indicatorPoint(line, i) {
     const v = line.values[i];

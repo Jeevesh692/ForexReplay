@@ -12,7 +12,7 @@
 <body>
   <header class="topbar">
     <div class="brand">Forex<span>Replay</span></div>
-    <div class="pill" id="symbol">EURUSD</div>
+    <select class="pill symbol-select" id="symbol" title="Pair: switching saves the session on screen and opens the other pair" aria-label="Pair"><option>EURUSD</option></select>
     <div class="group" id="timeframes" aria-label="Timeframe">
       <button disabled data-tf="M5" title="5 minutes">M5</button>
       <button disabled data-tf="M15" title="15 minutes">M15</button>
@@ -90,7 +90,7 @@
     <div class="error" id="error" hidden></div>
 
     <section class="chart-view" id="chart-view">
-      <div class="legend" id="legend">EURUSD</div>
+      <div class="legend" id="legend"></div>
       <div class="hint" id="hint" hidden></div>
       <input class="text-editor" id="text-editor" type="text" autocomplete="off" hidden aria-label="Text note">
       <div class="draw-bar" id="draw-bar" hidden>
@@ -164,11 +164,11 @@
       <div class="view-head">
         <h1>Market data</h1>
       </div>
-      <p class="lead" id="lead">Loading EURUSD candles...</p>
+      <p class="lead" id="lead">Loading candles...</p>
       <div class="cards" id="cards"></div>
       <div class="block">
-        <h2>EURUSD close, whole dataset</h2>
-        <canvas id="overview" height="220" aria-label="EURUSD close price over the whole dataset"></canvas>
+        <h2 id="overview-title">Close, whole dataset</h2>
+        <canvas id="overview" height="220" aria-label="Close price over the whole dataset"></canvas>
       </div>
       <div class="block">
         <h2>Monthly files</h2>

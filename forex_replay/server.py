@@ -225,11 +225,12 @@ def make_server(port: int = DEFAULT_PORT, root: Path = WEB_ROOT,
 
 
 def run(port: int = DEFAULT_PORT, open_browser: bool = True, rebuild: bool = False) -> None:
-    from .datapipe import build, is_stale, summary
+    from .datapipe import build_all, summary
 
-    if rebuild or is_stale():
-        print("Building market data from your MT5 exports...")
-        manifest, report = build()
+    built = build_all(only_stale=not rebuild)  # every symbol with an MT5 export in data/, rebuilt when out of date
+    if built:
+        print("Built market data from your MT5 exports:")
+    for manifest, report in built:
         print("  " + summary(manifest, report).replace("\n", "\n  "))
     ensure_chart_library()
 

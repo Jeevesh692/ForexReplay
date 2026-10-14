@@ -1,6 +1,6 @@
 # ForexReplay
 
-A forex **bar-replay and backtesting app** for EURUSD, in the style of TradingView's replay and FX Replay. You pick a moment in history, the future disappears, and you trade it candle by candle as if it were live. Every trade, drawing and note is saved so a session can be resumed, and every closed trade lands in a journal with R-multiple statistics.
+A forex **bar-replay and backtesting app** for EURUSD, GBPUSD and USDJPY, in the style of TradingView's replay and FX Replay. You pick a moment in history, the future disappears, and you trade it candle by candle as if it were live. Every trade, drawing and note is saved so a session can be resumed, and every closed trade lands in a journal with R-multiple statistics.
 
 I built it to test my own session-based trading ideas honestly, with no hindsight, before risking money on prop-firm challenges. **v2** (this README) is a browser app built in two weeks with an AI coding agent (Claude), which I directed day by day. **v1** is the earlier Python and matplotlib version, still in the repository.
 

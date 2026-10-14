@@ -15,8 +15,9 @@ export function renderDataView(root, { manifest, quality, candles }) {
   const last = formatDateTime(manifest.last).split(", ");
   const holidays = quality.holiday_closes.map((t) => formatDate(Date.parse(t) / 1000)).join(", ");
 
+  root.querySelector("#overview-title").textContent = `${manifest.symbol} close, whole dataset`;
   root.querySelector("#lead").textContent =
-    `${number(manifest.bars)} five-minute EURUSD candles from your MT5 export, ` +
+    `${number(manifest.bars)} five-minute ${manifest.symbol} candles from your MT5 export, ` +
     `${formatDate(manifest.first)} to ${formatDate(manifest.last)}, shown in India time.`;
 
   root.querySelector("#cards").innerHTML = [

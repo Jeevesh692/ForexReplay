@@ -365,7 +365,7 @@ export class TradingPanel {
 
     const sizeNote = this.el("order-size-note");
     const sized = blocked || !Number.isFinite(risk)
-      ? null : t.account.size(risk, t.balance);
+      ? null : t.account.size(risk, t.balance, entry);
     sizeNote.className = sized && sized.error ? "bad" : "";
     sizeNote.textContent = !sized ? "" : sized.error || `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}` +
       (sized.riskPercent === null ? ` (${(sized.riskMoney / t.balance * 100).toFixed(2)}%)` : "") +

@@ -47,6 +47,13 @@ class SymbolSpec:
 
 
 EURUSD = SymbolSpec()
+# Every symbol the app knows how to price. A symbol is offered in the app once data/ holds an M5 export of it.
+# pip_points: points in one pip (5-digit quotes: 0.0001 = 10 points; USDJPY's 3 digits: 0.01 = 10 points).
+SYMBOLS = {
+    "EURUSD": EURUSD,
+    "GBPUSD": SymbolSpec(symbol="GBPUSD"),
+    "USDJPY": SymbolSpec(symbol="USDJPY", digits=3, pip_points=10),
+}
 
 
 # ----------------------------------------------------------------- reading
@@ -258,6 +265,36 @@ def build(start: str = "2025-08-01", spec: SymbolSpec = EURUSD, data_dir: Path =
         raise ValueError(f"{report['bad_ohlc_candles']} candles have impossible OHLC values; fix the export")
     manifest = write_dataset(merged, spec, out_root, report)
     return manifest, report
+
+
+def specs_with_exports(data_dir: Path = DATA_DIR) -> list[SymbolSpec]:
+    """The known symbols that have at least one M5 export in data/."""
+    return [spec for spec in SYMBOLS.values() if find_exports(data_dir, spec.symbol, spec.timeframe)]
+
+
+def write_index(out_root: Path = WEB_DATA_DIR) -> list[dict]:
+    """web/data/symbols.json: the symbols the app can open, from the manifests built so far."""
+    index = []
+    for symbol in SYMBOLS:
+        path = out_root / symbol / "manifest.json"
+        if path.exists():
+            m = json.loads(path.read_text(encoding="utf-8"))
+            index.append({k: m[k] for k in ("symbol", "digits", "pip_points", "bars", "first", "last")})
+    out_root.mkdir(parents=True, exist_ok=True)
+    (out_root / "symbols.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
+    return index
+
+
+def build_all(start: str = "2025-08-01", data_dir: Path = DATA_DIR, out_root: Path = WEB_DATA_DIR,
+              only_stale: bool = False) -> list[tuple[dict, dict]]:
+    """Build every symbol with an export (only those whose files are out of date, if asked), then the index."""
+    built = []
+    for spec in specs_with_exports(data_dir):
+        if only_stale and not is_stale(spec, data_dir, out_root):
+            continue
+        built.append(build(start=start, spec=spec, data_dir=data_dir, out_root=out_root))
+    write_index(out_root)
+    return built
 
 
 def is_stale(spec: SymbolSpec = EURUSD, data_dir: Path = DATA_DIR, out_root: Path = WEB_DATA_DIR) -> bool:

@@ -116,3 +116,22 @@ def test_reference_candles_bucket_on_the_server_clock_and_stale_check_uses_the_v
         assert second[1:] == [110090, 110095, 109950, 109960, 70]
     # Server midnight on 5 Aug 2025 is 21:00 UTC on 4 Aug (summer: UTC+3)
     assert reference["H4"][1][0] == int(pd.Timestamp("2025-08-04 21:00", tz="UTC").timestamp())
+
+
+def test_every_pair_with_an_export_is_built_with_its_own_digits_and_listed():
+    from forex_replay.datapipe import SYMBOLS, build_all
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        write_export(tmp, "EURUSD_M5_test.csv", [bar("2025.08.04", "10:00:00", 1.08500, 1.08520, 1.08490, 1.08510)])
+        write_export(tmp, "USDJPY_M5_test.csv", [bar("2025.08.04", "10:00:00", 147.250, 147.300, 147.200, 147.280, spread=3)])
+        write_export(tmp, "EURUSD_M1_test.csv", [bar("2025.08.04", "10:00:00", 1.08500, 1.08520, 1.08490, 1.08510)])  # M1: not used
+        built = build_all(data_dir=tmp, out_root=tmp / "web")
+        index = json.loads((tmp / "web" / "symbols.json").read_text())
+        jpy = json.loads((tmp / "web" / "USDJPY" / "manifest.json").read_text())
+        blob = (tmp / "web" / jpy["months"][0]["file"]).read_bytes()
+        assert build_all(data_dir=tmp, out_root=tmp / "web", only_stale=True) == []  # nothing changed: nothing rebuilt
+    assert [m["symbol"] for m, _ in built] == ["EURUSD", "USDJPY"]  # GBPUSD has no export here
+    assert [s["symbol"] for s in index] == ["EURUSD", "USDJPY"]
+    assert (jpy["digits"], jpy["pip_points"]) == (3, 10) == (SYMBOLS["USDJPY"].digits, SYMBOLS["USDJPY"].pip_points)
+    row = from_bytes(blob)[0]
+    assert (row[1], row[2], row[6]) == (147250, 147300, 3)  # 147.250 in points with 3 digits, exactly

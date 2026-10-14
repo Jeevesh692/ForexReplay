@@ -1,6 +1,6 @@
 # ForexReplay
 
-A forex bar-replay and backtesting tool for EURUSD. Owner: Jeevesh Prakash (GitHub `Jeevesh692/ForexReplay`, branch `main`).
+A forex bar-replay and backtesting tool for EURUSD, GBPUSD and USDJPY (one pair on screen at a time; decision 0021). Owner: Jeevesh Prakash (GitHub `Jeevesh692/ForexReplay`, branch `main`).
 
 - **v1** (`forex_replay/`): Python package. Matplotlib replay, event-driven backtest, journal CSV, R-multiple stats.
 - **v2** (`web/`): a TradingView-style browser app in plain JavaScript modules, served by a small Python server. Built to the 14-day plan in `docs/plan.md` and released as v2.0.0 on 4 Oct 2026.
@@ -40,7 +40,7 @@ python -m forex_replay nbb <strategy>  # rebuild a strategy's NBB log from every
 python -m forex_replay sweep <strategy>  # the same for the liquidity-sweep log
 ```
 
-Expected today: 104 Python tests, 141 JavaScript tests, all passing.
+Expected today: 105 Python tests, 144 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -50,7 +50,7 @@ Expected today: 104 Python tests, 141 JavaScript tests, all passing.
 - **Two engines, one truth.** `forex_replay/broker.py` and `web/js/broker.js` implement the same rules. Change Python first, then JavaScript, then run `python -m forex_replay.golden`; the JavaScript parity test must match every recorded trade.
 - **Prices are whole points** in the browser (1.08500 is 108500). Lot sizes are whole numbers of 0.01 lots. No floats for either.
 - **Times are UTC seconds everywhere.** India time (+5:30) is applied only inside `web/js/chart.js` and `web/js/time.js`. MT5 server time is New York + 7 hours; conversion is in `forex_replay/datapipe.py`.
-- **The engine knows prices and R; money lives in `web/js/account.js`.**
+- **The engine knows prices and R; money lives in `web/js/account.js`.** On USDJPY a point's dollar value depends on the price (`pointValueFor`): every amount is converted at the price it happens at, never with a fixed rate.
 - **One set of statistics.** `forex_replay/stats.py` defines them; `web/js/analytics.js` must match `web/tests/fixtures/stats_golden.json`.
 - **Drawings are anchored in time and price**, never pixels or candle numbers.
 - **No build step, no npm packages.** Plain ES modules. The only third-party code is TradingView Lightweight Charts v5 (Apache 2.0) in `web/vendor/`, downloaded on first run; keep `attributionLogo: true`.
@@ -83,6 +83,9 @@ Read `docs/decisions/` before changing how something works; each record says why
 
 ## Facts about the data and account
 
-- Data: EURUSD M5 only, 1 Aug 2025 to 11 Sep 2026, exported from MT5 into `data/`. M1 was not wanted at the start.
-- The export records zero spread on about 95% of candles. Commission is $4 per lot (his broker's figure; treated as round turn, not yet confirmed whether it is per side).
+- Data, all M5 from 1 Aug 2025, exported from MT5 into `data/`:
+  - EURUSD to 11 Sep 2026 (Five Percent Online)
+  - GBPUSD and USDJPY to 14 Oct 2026 (FundedNext demo, read on 14 Oct with the `MetaTrader5` Python package); both brokers' server clocks were checked to agree
+- M1 files for the three pairs (8 Jul to 14 Oct 2026, capped by MT5's max-bars setting) sit in `data/` and are not used yet. Only EURUSD's data is in the repository; the new files are not committed until Jeevesh decides.
+- The EURUSD export records zero spread on about 95% of candles; FundedNext's M5 on 5% (GBPUSD) and 0% (USDJPY). Commission is $4 per lot (his broker's figure; treated as round turn, not yet confirmed whether it is per side).
 - Chart clock is India time.

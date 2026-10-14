@@ -1,6 +1,6 @@
 // App start-up: load data, build the chart, wire the top bar and the replay.
 
-import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
+import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValueFor } from "./account.js";
 import { drawingsBefore, rebuild } from "./backtest.js";
 import { loadRules as loadChallengeRules } from "./challenge.js";
 import { AdrPanel } from "./adrpanel.js";
@@ -32,6 +32,7 @@ import { TradingPanel } from "./tradingpanel.js";
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
 const KEY_TIMEFRAME = "forexreplay.timeframe";
+const KEY_SYMBOL = "forexreplay.symbol";
 const KEY_SESSIONS = "forexreplay.sessions";
 const KEY_MAGNET = "forexreplay.magnet";
 const KEY_LAYOUT = "forexreplay.layout";
@@ -95,9 +96,18 @@ async function boot() {
     ? `<span class="ok">Chart library v${lib.version()} ready</span>`
     : '<span class="bad">Chart library missing</span>';
 
+  // Which pair: ?symbol= in the address (set when switching), else the last one used, else the first built.
+  const symbols = await loadJSON("data/symbols.json").catch(() => [{ symbol: "EURUSD" }]); // older data: EURUSD only
+  const params = new URLSearchParams(location.search);
+  const known = (s) => symbols.some((x) => x.symbol === s);
+  const symbol = [params.get("symbol"), recall(KEY_SYMBOL, null), symbols[0].symbol].find((s) => s && known(s)) || "EURUSD";
+  try { localStorage.setItem(KEY_SYMBOL, symbol); } catch { /* private mode: not kept */ }
+  const symbolBox = $("symbol");
+  symbolBox.innerHTML = symbols.map((s) => `<option${s.symbol === symbol ? " selected" : ""}>${s.symbol}</option>`).join("");
+
   let loaded, quality;
   try {
-    [loaded, quality] = await Promise.all([loadSymbol("EURUSD"), loadJSON("data/EURUSD/quality.json")]);
+    [loaded, quality] = await Promise.all([loadSymbol(symbol), loadJSON(`data/${symbol}/quality.json`)]);
   } catch (err) {
     console.error(err);
     showError(`Could not load the market data.\n${err.message}\n\n` +
@@ -155,6 +165,7 @@ async function boot() {
     lib,
     symbol: manifest.symbol,
     digits: manifest.digits,
+    pipPoints: manifest.pip_points,
     onHover: (info) => renderLegend(pane.legend, manifest.symbol, pane.tf, manifest.digits, info,
       info && info.index === pane.view.display.length - 1 && pane.view.isForming()),
     onCrosshairTime: (time) => { // the other chart puts its crosshair on the same moment
@@ -193,7 +204,7 @@ async function boot() {
   // ------------------------------------------------------------ trading
   const UP = "#26a69a", DOWN = "#ef5350", PENDING = "#ffb74d", ENTRY = "#d1d4dc";
   const trading = new Trading({
-    m5, clock, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits),
+    m5, clock, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits),
     settings: loadSettings(), challenge: loadChallengeRules(), onChange: () => refreshTrading(),
   });
   const formatR = (r) => `${r >= 0 ? "+" : ""}${r.toFixed(2)}R`;
@@ -210,7 +221,7 @@ async function boot() {
     const entry = t.entryPrice ?? t.plannedEntry;
     const points = (price - entry) * (t.side === Side.BUY ? 1 : -1);
     const money = t.status === Status.OPEN
-      ? ` · ${formatSignedMoney(trading.account.money(trading.account.openUnits(t), points))} on what is open` : "";
+      ? ` · ${formatSignedMoney(trading.account.money(trading.account.openUnits(t), points, price))} on what is open` : "";
     return `${text} · ${(points / manifest.pip_points).toFixed(1)} pips from entry (${formatR(points / t.plannedRisk)})${money}`;
   }
 
@@ -422,7 +433,7 @@ async function boot() {
 
   /** Lots and dollars at risk for a long/short drawing, from the account's size settings. */
   function positionNote(d) {
-    const sized = trading.account.size(positionStats(d).risk, trading.balance);
+    const sized = trading.account.size(positionStats(d).risk, trading.balance, d.points[0].price);
     return sized.error ? "" : `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}`;
   }
 
@@ -837,7 +848,11 @@ async function boot() {
   /** Rebuild a saved backtest and open it at the point it had reached. Returns the rebuild's problems. */
   async function resumeBacktest(journal, id) {
     const saved = await store.getBacktest(journal, id);
-    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits) });
+    if ((saved.symbol || "EURUSD") !== manifest.symbol) { // another pair: open the app on it, then resume there
+      await switchSymbol(saved.symbol, `${journal}/${id}`);
+      return [];
+    }
+    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits) });
     await shotQueue;
     if (clock.active && !(await backtests.end())) {
       throw new Error("the replay on screen could not be saved, so it was left open.");
@@ -954,6 +969,32 @@ async function boot() {
   }
   $("backtests-open").addEventListener("click", () => { clock.pause(); backtests.open(); });
   window.addEventListener("pagehide", () => backtests.saveOnUnload());
+
+  /** Open the app on another pair: save and leave the session on screen first. `resume` = "journal/id" to open there. */
+  async function switchSymbol(next, resume = null) {
+    if (!known(next)) { panel.say(`There is no ${next} data. Put an MT5 export of it in data/ and restart the app.`, "bad"); return; }
+    if (clock.active) {
+      clock.pause();
+      await shotQueue;
+      if (!(await backtests.end())) {
+        symbolBox.value = manifest.symbol;
+        panel.say("The session on screen could not be saved (see the bottom bar), so it is still open.", "bad");
+        return;
+      }
+    }
+    try { localStorage.setItem(KEY_SYMBOL, next); } catch { /* private mode: not kept */ }
+    const query = new URLSearchParams({ symbol: next });
+    if (resume) query.set("resume", resume);
+    location.search = query.toString();
+  }
+  symbolBox.addEventListener("change", () => switchSymbol(symbolBox.value));
+
+  // Opened to resume a session of this pair (after switching from another pair).
+  if (params.get("resume")) {
+    const [journal, id] = params.get("resume").split("/");
+    history.replaceState(null, "", `?symbol=${manifest.symbol}`);
+    resumeBacktest(journal, id).catch((err) => panel.say(`Could not resume: ${err.message}`, "bad"));
+  }
   renderReplayUi();
   refreshTrading();
 
