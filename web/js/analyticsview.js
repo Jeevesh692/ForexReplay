@@ -6,7 +6,8 @@
 // escaped first: notes and tags are typed by hand and must never become page markup.
 
 import {
-  applyFilters, breakdown, computeStats, equityCurve, filterChoices, gaveBack, histogram, money, parseRows, propCheck,
+  applyFilters, balanceCurve, breakdown, computeStats, dailyPnl, equityCurve, filterChoices, gaveBack, histogram, money, monthWeeks,
+  parseRows, propCheck,
 } from "./analytics.js";
 
 const UP = "#26a69a", DOWN = "#ef5350", LINE = "#2962ff", GRID = "#2a2e39", MUTED = "#868993";
@@ -18,6 +19,8 @@ const r2 = (v) => (Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(2)}R` :
 const pct = (v) => (Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "–");
 const ratio = (v) => (v === Infinity ? "∞" : Number.isFinite(v) ? v.toFixed(2) : "–");
 const usd = (v) => `${v < -0.004 ? "-" : v >= 0.005 ? "+" : ""}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const shortDay = (day) => `${day.slice(8, 10)} ${MONTHS[Number(day.slice(5, 7)) - 1].slice(0, 3)}`;
 const tone = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
 /** Whole number, halves to even, the way Python's report prints it (32.5 -> 32), so both show the same figure. */
 const roundEven = (v) => { const f = Math.floor(v); const d = v - f; return d > 0.5 + 1e-9 || (Math.abs(d - 0.5) <= 1e-9 && f % 2 !== 0) ? f + 1 : f; };
@@ -44,6 +47,15 @@ export class AnalyticsView {
     }
     this.el("an-risk").value = recall(KEY_RISK, "1");
     this.el("an-risk").addEventListener("change", () => { remember(KEY_RISK, this.el("an-risk").value); this.render(); });
+    this.month = ""; // "YYYY-MM" shown in the P&L calendar
+    this.el("an-month").addEventListener("change", (event) => { this.month = event.target.value; this.render(); });
+    for (const [id, step] of [["an-month-prev", 1], ["an-month-next", -1]]) {
+      this.el(id).addEventListener("click", () => {
+        const select = this.el("an-month"); // months are listed newest first
+        const i = select.selectedIndex + step;
+        if (i >= 0 && i < select.options.length) { this.month = select.options[i].value; this.render(); }
+      });
+    }
     this.el("an-clear").addEventListener("click", () => {
       for (const key of Object.keys(this.filters)) { this.filters[key] = ""; this.el(`an-${key}`).value = ""; }
       this.render();
@@ -119,6 +131,8 @@ export class AnalyticsView {
     const filtered = trades.length !== this.trades.length;
     this.el("an-count").textContent = filtered ? `${trades.length} of ${this.trades.length} trades` : `${trades.length} trades`;
     this.renderTiles(stats, trades);
+    this.renderBalance(trades);
+    this.renderCalendar(trades);
     this.renderEquity(trades);
     this.renderHistogram(trades);
     this.renderInsights(stats, trades);
@@ -146,6 +160,136 @@ export class AnalyticsView {
       `<div class="tile"><div class="tile-label">${label}</div><div class="tile-value ${t}">${escapeHtml(value)}</div>` +
       `<div class="tile-note">${escapeHtml(note)}</div></div>`).join("");
   }
+
+  /**
+   * Dollars over time. With one run picked and no other filter, the run is one account: its starting
+   * balance, and the challenge's max-loss floor and profit target. Otherwise the trades belong to
+   * several accounts (or only part of one), so only the cumulative $ is honest.
+   */
+  renderBalance(trades) {
+    const f = this.filters;
+    const run = f.run && !f.side && !f.session && !f.tag
+      ? this.backtests.find((b) => b.id === f.run && b.journal === this.journal) : null;
+    const start = run && run.settings && Number(run.settings.startingBalance) > 0 ? Number(run.settings.startingBalance) : null;
+    const account = start !== null;
+    const curve = balanceCurve(trades, account ? start : 0);
+    const svg = this.el("an-balance"), tip = this.el("an-balance-tip");
+    this.el("an-balance-title").textContent = account ? "Account balance" : "Cumulative P&L";
+    const skipped = trades.length - curve.length;
+    this.el("an-balance-note").textContent = (account
+      ? "Closed balance after each trade of this run, one step per trade; open trades are not in the journal."
+      : "Total $ won or lost, one step per trade. Pick a single run (and no other filter) to see it as an account with its starting balance and loss limit.") +
+      (skipped ? ` ${skipped} trade${skipped === 1 ? " has" : "s have"} no $ recorded and ${skipped === 1 ? "is" : "are"} left out.` : "");
+    tip.hidden = true;
+    if (curve.length === 0) {
+      this.el("an-balance-figures").innerHTML = "";
+      svg.setAttribute("viewBox", "0 0 760 110");
+      svg.innerHTML = `<text x="380" y="60" text-anchor="middle" class="axis">No trades with $ recorded.</text>`;
+      svg.onpointermove = svg.onpointerleave = null;
+      return;
+    }
+    const end = curve[curve.length - 1].balance;
+    const rules = account && run.challenge ? run.challenge : null;
+    const floor = rules && Number(rules.maxPercent) > 0 ? start * (1 - Number(rules.maxPercent) / 100) : null;
+    const target = rules && Number(rules.targetPercent) > 0 ? start * (1 + Number(rules.targetPercent) / 100) : null;
+    const figure = (label, value, t = "") => `<div><div class="figure-label">${label}</div><div class="figure-value ${t}">${escapeHtml(value)}</div></div>`;
+    const plain = (v) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    this.el("an-balance-figures").innerHTML = account
+      ? figure("P&amp;L", usd(end - start), tone(end - start)) + figure("Starting balance", plain(start)) + figure("Closed balance", plain(end)) +
+        (floor !== null ? figure("Max loss floor", plain(floor), "down") : "") + (target !== null ? figure("Profit target", plain(target), "up") : "")
+      : figure("P&amp;L", usd(end), tone(end)) + figure("Trades with $", `${curve.length}`);
+
+    const W = 760, H = 260, L = 64, R = 16, T = 14, B = 26;
+    const base = account ? start : 0;
+    const values = [base, ...curve.map((p) => p.balance), ...[floor, target].filter((v) => v !== null)];
+    const lo = Math.min(...values), hi = Math.max(...values);
+    const pad = (hi - lo) * 0.08 || Math.max(1, Math.abs(base) * 0.01);
+    const y0 = lo - pad, y1 = hi + pad;
+    const n = curve.length;
+    const X = (i) => L + (i / n) * (W - L - R); // point 0 is the start, point i is after trade i
+    const Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
+    const step = niceStep((y1 - y0) / 4);
+    const ticks = [];
+    for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) ticks.push(+v.toFixed(6));
+    const axisMoney = (v) => `${v < 0 ? "-" : ""}$${Math.abs(v) >= 10000 ? `${+(Math.abs(v) / 1000).toFixed(1)}k` : Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+    // A step line: the balance is flat until a trade closes, then jumps. A smoothed curve would
+    // bulge past values the account never had, which matters right next to a loss limit.
+    let path = `M${X(0).toFixed(1)},${Y(base).toFixed(1)}`;
+    curve.forEach((p, i) => { path += `H${X(i + 1).toFixed(1)}V${Y(p.balance).toFixed(1)}`; });
+    const area = `${path}L${X(n).toFixed(1)},${Y(base).toFixed(1)}Z`;
+    const limit = (v, colour, text) => (v === null ? "" :
+      `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${colour}" stroke-width="1.5" stroke-dasharray="6 5"/>` +
+      `<text x="${L + 6}" y="${Y(v) - 5}" class="axis" style="fill:${colour}">${escapeHtml(text)}</text>`);
+    // Date labels under evenly spaced trades, each the trading day that trade closed.
+    const marks = Math.min(5, n);
+    const dateTicks = [...new Set(Array.from({ length: marks }, (_, k) => Math.round(1 + (k * (n - 1)) / Math.max(1, marks - 1))))];
+    const years = new Set(curve.map((p) => p.trade.exitDay.slice(0, 4))).size > 1;
+    const dayLabel = (day) => `${shortDay(day)}${years ? ` ${day.slice(2, 4)}` : ""}`;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML =
+      ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${GRID}" stroke-width="1"/>` +
+        `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" class="axis">${axisMoney(v)}</text>`).join("") +
+      `<line x1="${L}" x2="${W - R}" y1="${Y(base)}" y2="${Y(base)}" stroke="${MUTED}" stroke-width="1"/>` +
+      limit(floor, DOWN, floor === null ? "" : `Max loss ${axisMoney(floor)}`) +
+      limit(target, UP, target === null ? "" : `Profit target ${axisMoney(target)}`) +
+      `<path d="${area}" fill="${LINE}" fill-opacity="0.10"/>` +
+      `<path d="${path}" fill="none" stroke="${LINE}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+      `<circle cx="${X(n)}" cy="${Y(end)}" r="4" fill="${LINE}" stroke="#1e222d" stroke-width="2"/>` +
+      dateTicks.map((i) => `<text x="${X(i)}" y="${H - 6}" text-anchor="${i === 1 ? "start" : i === n ? "end" : "middle"}" class="axis">` +
+        `${escapeHtml(dayLabel(curve[i - 1].trade.exitDay))}</text>`).join("") +
+      `<line class="crosshair" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="${MUTED}" stroke-width="1" visibility="hidden"/>` +
+      `<circle class="hover-dot" r="4" fill="${LINE}" stroke="#1e222d" stroke-width="2" visibility="hidden"/>`;
+    svg.onpointermove = (event) => {
+      const box = svg.getBoundingClientRect();
+      const x = ((event.clientX - box.left) / box.width) * W;
+      const i = Math.max(1, Math.min(n, Math.round(((x - L) / (W - L - R)) * n)));
+      const p = curve[i - 1];
+      for (const attr of ["x1", "x2"]) svg.querySelector(".crosshair").setAttribute(attr, X(i));
+      svg.querySelector(".crosshair").setAttribute("visibility", "visible");
+      const dot = svg.querySelector(".hover-dot");
+      dot.setAttribute("cx", X(i)); dot.setAttribute("cy", Y(p.balance)); dot.setAttribute("visibility", "visible");
+      tip.hidden = false;
+      tip.innerHTML = `<b>${escapeHtml(account ? plain(p.balance) : usd(p.balance))}</b> after trade ${i}<br><span class="muted">` +
+        `#${escapeHtml(p.trade.row.trade_id)} ${escapeHtml(p.trade.side)} ${escapeHtml(usd(p.trade.money))} · closed ${escapeHtml(p.trade.row.exit_time)}</span>`;
+      tip.style.left = `${Math.min(box.width - 260, Math.max(0, (X(i) / W) * box.width + 10))}px`;
+      tip.style.top = `${(Y(p.balance) / H) * box.height - 40}px`;
+    };
+    svg.onpointerleave = () => {
+      tip.hidden = true;
+      svg.querySelector(".crosshair").setAttribute("visibility", "hidden");
+      svg.querySelector(".hover-dot").setAttribute("visibility", "hidden");
+    };
+  }
+
+  /** A month of trading days, each with its $ (or R when no $ was recorded) and trade count, and a total per week. */
+  renderCalendar(trades) {
+    const days = dailyPnl(trades);
+    const months = [...new Set([...days.keys()].map((d) => d.slice(0, 7)))].sort().reverse();
+    const select = this.el("an-month");
+    if (!months.includes(this.month)) this.month = months[0] || "";
+    select.innerHTML = months.map((m) => `<option value="${m}"${m === this.month ? " selected" : ""}>` +
+      `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}</option>`).join("");
+    const i = months.indexOf(this.month);
+    this.el("an-month-prev").disabled = i < 0 || i === months.length - 1;
+    this.el("an-month-next").disabled = i <= 0;
+    const table = this.el("an-calendar");
+    if (!this.month) { table.innerHTML = ""; return; }
+    const value = (d) => (d.withMoney === d.trades ? d.money : d.r); // $ only when every trade has it
+    const result = (d) => {
+      if (!d || !d.trades) return "";
+      const hasMoney = d.withMoney === d.trades;
+      return `<div class="amount ${tone(value(d))}">${escapeHtml(hasMoney ? usd(d.money) : r2(d.r))}</div>` +
+        `<div class="count">${d.trades} trade${d.trades === 1 ? "" : "s"}</div>`;
+    };
+    const cellTone = (d) => (!d || !d.trades ? "" : value(d) > 0 ? "win" : value(d) < 0 ? "loss" : "");
+    const weeks = monthWeeks(Number(this.month.slice(0, 4)), Number(this.month.slice(5, 7)), days);
+    table.innerHTML = `<thead><tr>${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<th>${d}</th>`).join("")}<th>Week</th></tr></thead><tbody>` +
+      weeks.map((w) => `<tr>${w.days.map((d) => `<td class="${[d.inMonth ? "" : "out", cellTone(d.result)].join(" ").trim()}">` +
+        `<div class="date">${Number(d.date.slice(8, 10))}</div>${result(d.result)}</td>`).join("")}` +
+        `<td class="week ${cellTone(w.total)}">${w.total.trades ? result(w.total) : `<div class="count">no trades</div>`}</td></tr>`).join("") +
+      "</tbody>";
+  }
+
 
   /** Cumulative R after each trade: one line, a light wash under it, a crosshair with the trade under the pointer. */
   renderEquity(trades) {

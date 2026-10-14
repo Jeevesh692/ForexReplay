@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  applyFilters, breakdown, computeStats, equityCurve, filterChoices, gaveBack, histogram, longestStreak, maxDrawdown,
-  money, num, parseRows, propCheck,
+  applyFilters, balanceCurve, breakdown, computeStats, dailyPnl, equityCurve, filterChoices, gaveBack, histogram, longestStreak,
+  maxDrawdown, money, monthWeeks, num, parseRows, propCheck,
 } from "../js/analytics.js";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/stats_golden.json", import.meta.url), "utf-8"));
@@ -72,4 +72,28 @@ test("histogram buckets, give-backs, money and filters", () => {
   assert.equal(applyFilters(trades, { tag: "FOMO", session: "London" }).length, 1);
   assert.equal(applyFilters(trades, { session: "Asia", side: "SELL" }).length, 0);
   assert.deepEqual(filterChoices(trades).session, ["London", "Asia"]);
+});
+
+test("balance curve: in the order trades closed, from the starting balance, skipping trades without $", () => {
+  const at = (exit, money, r = 1) => t(r, { money, exitDay: exit.slice(0, 10), row: { exit_time: exit } });
+  const trades = [at("2026-03-03 10:00:00", 50), at("2026-03-02 09:00:00", -20), at("2026-03-02 11:00:00", NaN), at("2026-03-04 08:00:00", 30)];
+  assert.deepEqual(balanceCurve(trades, 1000).map((p) => p.balance), [980, 1030, 1060]);
+  assert.deepEqual(balanceCurve(trades).map((p) => p.balance), [-20, 30, 60]);
+  assert.deepEqual(balanceCurve([]), []);
+});
+
+test("P&L calendar: days summed, $ counted only where recorded, weeks Sunday first with week totals", () => {
+  const trades = [t(1, { money: 100, exitDay: "2026-09-01" }), t(-1, { money: -40, exitDay: "2026-09-01" }), t(2, { exitDay: "2026-09-03" }),
+    t(1, { money: 25, exitDay: "2026-10-02" })];
+  const days = dailyPnl(trades);
+  assert.deepEqual(days.get("2026-09-01"), { money: 60, r: 0, trades: 2, withMoney: 2 });
+  assert.deepEqual(days.get("2026-09-03"), { money: 0, r: 2, trades: 1, withMoney: 0 });
+  const weeks = monthWeeks(2026, 9, days); // 1 Sep 2026 is a Tuesday
+  assert.equal(weeks.length, 5);
+  assert.equal(weeks[0].days[0].date, "2026-08-30");
+  assert.equal(weeks[0].days[0].inMonth, false);
+  assert.deepEqual(weeks[0].total, { money: 60, r: 2, trades: 3, withMoney: 2 });
+  assert.equal(weeks[4].days[6].date, "2026-10-03");
+  assert.deepEqual(weeks[4].total, { money: 25, r: 1, trades: 1, withMoney: 1 }); // the week runs into October
+  assert.equal(monthWeeks(2026, 2, new Map()).length, 4); // February 2026 starts on a Sunday and fills four rows exactly
 });
