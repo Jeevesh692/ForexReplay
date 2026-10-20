@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import {
   applyFilters, breakdown, computeStats, equityCurve, filterChoices, gaveBack, histogram, longestStreak, maxDrawdown,
-  maxDrawdownMoney, money, num, parseRows, periodTable, propCheck,
+  maxDrawdownMoney, money, moneyStats, num, parseRows, periodTable, propCheck,
 } from "../js/analytics.js";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/stats_golden.json", import.meta.url), "utf-8"));
@@ -26,7 +26,7 @@ test(`every statistic matches stats.py on ${fixture.journals.length} recorded jo
       const table = breakdown(trades, { exit_reason: "exitReason" }[by] || by); // journal column -> trade field
       assert.equal(table.length, Object.keys(j.breakdowns[by]).length, `journal ${n} ${by}`);
       for (const row of table) {
-        for (const key of ["trades", "win_rate", "total_r", "expectancy_r"]) {
+        for (const key of ["trades", "win_rate", "total_r", "expectancy_r", "net_usd"]) {
           close(row[key], j.breakdowns[by][row.group][key], `journal ${n} ${by}=${row.group} ${key}`);
           compared++;
         }
@@ -36,6 +36,16 @@ test(`every statistic matches stats.py on ${fixture.journals.length} recorded jo
     for (const key of ["return_pct", "max_drawdown_pct", "worst_day_pct"]) close(prop[key], j.prop[key], `journal ${n} ${key}`);
   });
   assert.ok(compared > 2000, `only ${compared} numbers compared`);
+});
+
+test("the dollar figures (gross, averages, largest, best day, balance, return, drawdown %) match stats.py", () => {
+  let compared = 0;
+  fixture.journals.forEach((j, n) => {
+    if (j.money === null) return;
+    const got = moneyStats(parseRows(j.rows), fixture.start_balance);
+    for (const [key, value] of Object.entries(j.money)) { close(got[key], value, `journal ${n} ${key}`); compared++; }
+  });
+  assert.ok(compared > 500, `only ${compared} numbers compared`);
 });
 
 test("profit by day and month, and the dollar drawdown, match stats.py on the same journals", () => {

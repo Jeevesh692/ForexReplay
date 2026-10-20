@@ -29,3 +29,18 @@ On the analytics page, "By month" and "By day" come before the other breakdowns,
 ## Not yet done
 
 Drawdown in % of the balance per session (the prop-firm check gives % at a fixed risk per trade), a calendar view, and the new tables on the website's analytics (they work there too, since the page is shared, but only the desktop app was checked).
+
+## Added the same day: the dollar figures other replay tools show (v2.3.2)
+
+Asked for: "every basic data like P&L, etc. for that session which are normally given in other FX replays". Compared with what replay tools usually show (FX Replay itself was not opened to check item by item). Added in `stats.py` (`money_stats`, and a net-dollar column on `breakdown`) and held to the browser by `stats_golden.json`:
+- **Gross profit and gross loss, profit factor in dollars.**
+- **Average win and loss, largest win and loss** (in dollars, the largest also in R).
+- **Best day** (dollars and R), **worst day in dollars.**
+- **Average planned reward:risk.**
+- **Starting and ending balance, return %, and the largest fall of the balance from a peak, in % of that peak.** These are shown when one session is on the page; every saved session now records its starting balance (`result.startBalance`).
+- **A Net $ column** on every breakdown (so long vs short, market sessions, weekdays and tags all show dollars).
+- **An R / $ switch** on the equity curve.
+
+Dollar wins and losses go by the sign of the dollar result after commission, so a breakeven trade in R that paid commission counts as a small dollar loss. Days are per session and closing date, as the worst day in R already was.
+
+The comparison file's first journal is now always empty, so that case stays covered whatever the random rows turn out to be.

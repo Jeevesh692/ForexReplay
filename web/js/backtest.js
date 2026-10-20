@@ -105,6 +105,7 @@ export function resultOf(trading) {
     closed: s.closed, open: s.open, pending: s.pending, wins: s.wins, losses: s.losses,
     totalR: Math.round(s.totalR * 100) / 100,
     money: Math.round(s.totalMoney * 100) / 100,
+    startBalance: trading.startSettings.startingBalance, // for the return % and drawdown % on the analytics page
     balance: Math.round(trading.balance * 100) / 100,
   };
 }

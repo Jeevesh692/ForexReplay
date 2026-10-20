@@ -996,3 +996,34 @@ Each made a test fail.
 1. Switch off Wi-Fi and start the app.
 2. Open **Strategies**, press **New session**, and trade.
 3. Open **Analytics**, pick the strategy in **Journal** and the session in the run menu: the totals, the drawdown in R and $, **By month** and **By day** are there.
+
+---
+
+## Same day: the dollar figures other replay tools show (v2.3.2)
+
+**Asked for (Jeevesh):** why start the app online before a trip, and whether he can close the laptop and come back hours later; and "every basic data like P&L etc. for that session which are normally given in other FX replays", added if missing.
+
+**Answered:**
+- Starting online first is not needed on his computer. The chart library is already in `web/vendor/`, and data builds from `data/` on the computer. Only a brand-new copy needs the internet once, for the chart library.
+- Closing the lid (sleep) keeps everything open. A full shutdown is fine too: sessions save a moment after every change, and Resume brings them back.
+
+**Missing, compared with what replay tools usually show:** gross profit and loss, average and largest win and loss in dollars, profit factor in dollars, best day, long vs short in dollars, starting and ending balance, return %, drawdown % of the balance, an equity curve in dollars, and average planned reward:risk.
+
+**Built (Claude):**
+- `stats.py` `money_stats` and a net-dollar column on `breakdown`, held to `analytics.js` by `stats_golden.json`.
+- Sessions record their starting balance.
+- A Money row of tiles on the analytics page, a Net $ column on every breakdown, and an R / $ switch on the equity curve.
+- See [decision 0023](decisions/0023-profit-by-period-and-offline.md).
+
+**Tests:** 1 new Python test (112 in total) and 1 new JavaScript test (146 in total).
+- **Worked by hand:** a breakeven trade that paid $4 commission is a dollar loss; the balance 10,000 → 10,196 → … → 10,130 gives return 1.3% and drawdown 212 / 10,196 = 2.08%.
+- **Browser against Python:** every dollar figure and every breakdown's net dollars match on the 40 random journals.
+- The regenerated comparison file happened to lose its empty journal, which the coverage test caught; journal 0 is now always empty.
+
+**In the in-app browser:** a session with 6 closed trades on EURUSD minutes.
+- The Money tiles read: gross +$376.30 / −$406.60, profit factor 0.93, average +$188.15 / −$101.65, largest +$189.15 (+2.01R) / −$103.00 (−1.01R), best day +$189.15, worst day −$204.92, balance $10,000.00 → $9,969.70, return −0.30%, drawdown 4.07%.
+- By side: BUY +$173.50, SELL −$203.80. The equity curve in dollars ended at −$30.30.
+- Python's `money_stats`, run on the saved journal file, gave the same numbers.
+- No console errors. The test session was deleted after leaving the replay and closing the tab.
+
+**How to check:** open **Analytics**, pick a strategy, and pick one session in the run menu. Then look at the **Money** tiles, the **Net $** columns, and press **$** above the equity curve.

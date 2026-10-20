@@ -572,6 +572,10 @@ button.primary {
 .breakdowns { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
 .breakdowns .block { margin: 0; }
 .periods { margin-bottom: 12px; }
+.tiles-title { font-size: 13px; margin: 12px 0 6px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; vertical-align: middle; }
+.seg button { background: none; border: 0; color: var(--muted); padding: 0 8px; font: inherit; cursor: pointer; }
+.seg button.on { background: var(--panel-2); color: var(--text); }
 .periods .scroll { max-height: 320px; overflow-y: auto; }
 .periods thead th { position: sticky; top: 0; background: var(--panel); }
 .divbar { position: relative; height: 18px; min-width: 90px; }
