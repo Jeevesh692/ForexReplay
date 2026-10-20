@@ -6,7 +6,8 @@
 // escaped first: notes and tags are typed by hand and must never become page markup.
 
 import {
-  applyFilters, breakdown, computeStats, equityCurve, filterChoices, gaveBack, histogram, money, parseRows, propCheck,
+  applyFilters, breakdown, computeStats, equityCurve, filterChoices, gaveBack, histogram, maxDrawdownMoney, money, parseRows,
+  periodTable, propCheck,
 } from "./analytics.js";
 
 const UP = "#26a69a", DOWN = "#ef5350", LINE = "#2962ff", GRID = "#2a2e39", MUTED = "#868993";
@@ -122,8 +123,26 @@ export class AnalyticsView {
     this.renderEquity(trades);
     this.renderHistogram(trades);
     this.renderInsights(stats, trades);
+    this.renderPeriods(trades);
     this.renderBreakdowns(trades);
     this.renderTrades(trades);
+  }
+
+  /** Profit by month and by day (newest first), in R and dollars: stats.py period_table. */
+  renderPeriods(trades) {
+    const block = (title, period) => {
+      const table = periodTable(trades, period);
+      const wins = table.filter((row) => row.total_r > 0).length;
+      const note = table.length ? `${wins} of ${table.length} ${period === "day" ? "days" : "months"} up` : "";
+      const rows = table.map((row) => `<tr><td class="nowrap">${escapeHtml(row.group)}</td><td class="num">${row.trades}</td>` +
+        `<td class="num">${pct(row.win_rate)}</td><td class="num ${tone(row.total_r)}">${r2(row.total_r)}</td>` +
+        `<td class="num ${tone(row.net_usd)}">${Number.isFinite(row.net_usd) ? usd(row.net_usd) : "–"}</td></tr>`).join("");
+      return `<div class="block"><h2>By ${title} <span class="muted">${note}</span></h2><div class="scroll"><table class="grid">` +
+        `<thead><tr><th>${title === "day" ? "Day (closed)" : "Month"}</th><th class="num">Trades</th><th class="num">Win rate</th>` +
+        `<th class="num">Total R</th><th class="num">Net $</th></tr></thead><tbody>` +
+        (rows || '<tr><td colspan="5" class="muted">No closed trades.</td></tr>') + "</tbody></table></div></div>";
+    };
+    this.el("an-periods").innerHTML = block("month", "month") + block("day", "day");
   }
 
   renderTiles(s, trades) {
@@ -135,7 +154,8 @@ export class AnalyticsView {
       ["Total", r2(s.total_r), m.trades ? `${usd(m.net)} on ${m.trades} trade${m.trades === 1 ? "" : "s"} with $` : "no $ recorded", tone(s.total_r)],
       ["Profit factor", ratio(s.profit_factor), "won R ÷ lost R"],
       ["Payoff", ratio(s.payoff_ratio), `avg win ${r2(s.avg_win_r)} · avg loss ${r2(s.avg_loss_r)}`],
-      ["Max drawdown", Number.isFinite(s.max_drawdown_r) ? `${s.max_drawdown_r.toFixed(2)}R` : "–", "largest fall from a peak"],
+      ["Max drawdown", Number.isFinite(s.max_drawdown_r) ? `${s.max_drawdown_r.toFixed(2)}R` : "–",
+        Number.isFinite(maxDrawdownMoney(trades)) ? `largest fall from a peak · ${usd(-maxDrawdownMoney(trades))}` : "largest fall from a peak"],
       ["Streaks", `${s.longest_win_streak} / ${s.longest_loss_streak}`, "longest wins / losses in a row"],
       ["Average MFE", Number.isFinite(s.avg_mfe_r) ? `${s.avg_mfe_r.toFixed(2)}R` : "–", mfeNote(trades)],
       ["Worst day", r2(s.worst_day_r), "results summed per run and day", tone(s.worst_day_r)],

@@ -56,3 +56,22 @@ def test_prop_firm_check_flags_breaches():
 
 def test_report_handles_empty_journal():
     assert format_report(journal([])) == "No closed trades yet."
+
+
+def test_profit_by_day_and_month_and_the_dollar_drawdown():
+    import pandas as pd
+    from forex_replay.stats import max_drawdown_usd, period_table
+    journal = pd.DataFrame({
+        "result_r": [2.0, -1.0, -1.0, 0.0, 1.5],
+        "pnl_usd": [196.0, -104.0, -104.0, None, 146.0],  # the fourth row is an old one without dollars
+        "exit_time": pd.to_datetime(["2026-03-02 10:00", "2026-03-02 15:00", "2026-03-03 09:00", "2026-03-03 11:00", "2026-04-01 12:00"]),
+    })
+    days = period_table(journal, "day")
+    assert list(days.index) == ["2026-04-01", "2026-03-03", "2026-03-02"]  # newest first
+    assert days.loc["2026-03-02"].tolist() == [2, 0.5, 1.0, 92.0]
+    assert days.loc["2026-03-03", "net_usd"] == -104.0 and days.loc["2026-03-03", "trades"] == 2
+    months = period_table(journal, "month")
+    assert months.loc["2026-03"].tolist() == [4, 0.25, 0.0, -12.0] and months.loc["2026-04", "net_usd"] == 146.0
+    # dollars 0 -> 196 -> 92 -> -12 -> 134: the largest fall from a peak is 196 - (-12) = 208
+    assert max_drawdown_usd(journal) == 208.0
+    assert pd.isna(max_drawdown_usd(journal.assign(pnl_usd=None)))

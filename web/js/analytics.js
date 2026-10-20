@@ -57,6 +57,42 @@ export function equityCurve(trades) {
   return trades.map((t) => (total += t.r));
 }
 
+/**
+ * Trades, win rate, total R and net dollars per day or month (period "day" or "month"), newest first,
+ * as forex_replay/stats.py period_table: by the broker-server date the trade closed; rows with no dollars
+ * add to trades and R only; every run on a date is added together. Returns [{ group, trades, win_rate, total_r, net_usd }].
+ */
+export function periodTable(trades, period) {
+  const width = period === "day" ? 10 : 7; // "2026-03-11" or "2026-03"
+  const groups = new Map();
+  for (const t of trades) {
+    const key = (t.row.exit_time || "").slice(0, width);
+    if (key.length !== width) continue; // no exit time
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  return [...groups].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([group, list]) => {
+    const withMoney = list.filter((t) => Number.isFinite(t.money));
+    return {
+      group, trades: list.length, win_rate: list.filter((t) => t.r > BREAKEVEN_R).length / list.length,
+      total_r: sum(list.map((t) => t.r)), net_usd: withMoney.length ? sum(withMoney.map((t) => t.money)) : NaN,
+    };
+  });
+}
+
+/** Largest fall from a peak of the dollar equity curve (from 0, in logged order); NaN when no trade has dollars. */
+export function maxDrawdownMoney(trades) {
+  const values = trades.filter((t) => Number.isFinite(t.money)).map((t) => t.money);
+  if (!values.length) return NaN;
+  let total = 0, peak = 0, worst = 0;
+  for (const v of values) {
+    total += v;
+    peak = Math.max(peak, total);
+    worst = Math.max(worst, peak - total);
+  }
+  return worst;
+}
+
 /** Largest fall from a peak of the equity curve (which starts at 0), in R, as a positive number. */
 export function maxDrawdown(trades) {
   let peak = 0, worst = 0;

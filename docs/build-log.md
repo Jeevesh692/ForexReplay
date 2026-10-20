@@ -960,3 +960,39 @@ Each made a test fail.
 1. Start the app and press **M1**.
 2. Start a replay, then press Shift + → to step a minute at a time, or Space to play.
 3. Jump to an old date with **Go to**, scroll left and right, then press **Latest**.
+
+---
+
+## After v2.3.0: Tue 20 Oct 2026 · offline check, profit by day and month, drawdown in dollars (v2.3.1)
+
+**Asked for (Jeevesh):** backtest on a train with no internet, and know whether he can start a session, trade, and see trades, P&L, profit by day and month, drawdown and the rest per strategy and session; build whatever is missing.
+
+**What was already there:** offline use, new sessions and trading, and the analytics page per strategy (Journal menu) and per session (Run filter), with trades, win rate, expectancy, total R and dollars, profit factor, drawdown in R, streaks, worst day, an equity curve, and breakdowns by market session, weekday, side, exit and tag. **Missing:** profit by day, profit by month, and drawdown in dollars.
+
+**Built (Claude):**
+- In `forex_replay/stats.py`, held to the browser by `stats_golden.json` (whose random journals now have dollar amounts):
+  - `period_table` (trades, win rate, total R, net $ per day or month, by the day the trade closed, newest first)
+  - `max_drawdown_usd`
+- `web/js/analytics.js`: `periodTable` and `maxDrawdownMoney`, the same rules.
+- The analytics page: "By month" and "By day" tables (each says how many periods were up), and the dollar drawdown beside the R drawdown.
+- See [decision 0023](decisions/0023-profit-by-period-and-offline.md).
+
+**Tests:** 1 new Python test (111 in total) and 1 new JavaScript test (145 in total).
+- by day, by month and the dollar drawdown worked by hand: a day with +$196 and -$104 is +$92; a row without dollars counts in trades and R only; dollars going 0, 196, 92, -12, 134 have a largest fall of $208
+- every day, month and dollar drawdown of the 40 random journals matches stats.py
+
+**In the in-app browser:**
+- Made a strategy and a session on EURUSD minutes and took 5 trades over four days.
+- The analytics page for that strategy showed:
+  - 5 trades, +0.97R, +$72.05
+  - max drawdown 1.02R / -$106.00
+  - May 2026: 5 trades, +$72.05
+  - by day: -$106.00, +$192.08, +$90.00, -$104.03, which add up to +$72.05
+- The session appeared in the Run filter.
+- **Offline:** every request of the session went to `localhost`, and no `https://` request was made. The page, stylesheet, chart library (`vendor/`), code and data are all files on this computer.
+- The test session was deleted after leaving the replay and closing the tab.
+
+**How to check:**
+1. Switch off Wi-Fi and start the app.
+2. Open **Strategies**, press **New session**, and trade.
+3. Open **Analytics**, pick the strategy in **Journal** and the session in the run menu: the totals, the drawdown in R and $, **By month** and **By day** are there.

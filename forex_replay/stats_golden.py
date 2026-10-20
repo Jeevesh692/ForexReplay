@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .config import PROJECT_ROOT
 from .journal import COLUMNS, load_journal
-from .stats import breakdown, compute_stats, prop_firm_check
+from .stats import breakdown, compute_stats, max_drawdown_usd, period_table, prop_firm_check
 
 FIXTURE = PROJECT_ROOT / "web" / "tests" / "fixtures" / "stats_golden.json"
 SEED = 20261004
@@ -59,6 +59,7 @@ def random_rows(rng: random.Random) -> list[dict]:
             "weekday": rng.choice(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]),
             "duration_min": "" if legacy and rng.random() < 0.5 else str(rng.randint(5, 600)),
             "note": rng.choice(["", "a, b \"quoted\"", "line one\nline two"]),  # the CSV must survive these
+            "pnl_usd": "" if legacy else str(round(result * 100 - 4, 2)),  # v1 rows have no dollars
         })
     return rows
 
@@ -67,7 +68,7 @@ def expected(path: Path) -> dict:
     journal = load_journal(path)
     stats = compute_stats(journal)
     if stats is None:
-        return {"stats": None, "breakdowns": {}, "prop": None}
+        return {"stats": None, "breakdowns": {}, "prop": None, "periods": {}, "max_drawdown_usd": "nan"}
     breakdowns = {}
     for by in GROUPS:
         table = breakdown(journal, by)
@@ -78,6 +79,9 @@ def expected(path: Path) -> dict:
         "breakdowns": breakdowns,
         "prop": {"return_pct": check.return_pct, "max_drawdown_pct": check.max_drawdown_pct,
                  "worst_day_pct": number(check.worst_day_pct)},
+        "periods": {period: [[str(key), *(number(float(v)) for v in row.values)] for key, row in period_table(journal, period).iterrows()]
+                    for period in ("day", "month")},  # [key, trades, win_rate, total_r, net_usd], newest first
+        "max_drawdown_usd": number(max_drawdown_usd(journal)),
     }
 
 

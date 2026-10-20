@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import {
   applyFilters, breakdown, computeStats, equityCurve, filterChoices, gaveBack, histogram, longestStreak, maxDrawdown,
-  money, num, parseRows, propCheck,
+  maxDrawdownMoney, money, num, parseRows, periodTable, propCheck,
 } from "../js/analytics.js";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/stats_golden.json", import.meta.url), "utf-8"));
@@ -36,6 +36,23 @@ test(`every statistic matches stats.py on ${fixture.journals.length} recorded jo
     for (const key of ["return_pct", "max_drawdown_pct", "worst_day_pct"]) close(prop[key], j.prop[key], `journal ${n} ${key}`);
   });
   assert.ok(compared > 2000, `only ${compared} numbers compared`);
+});
+
+test("profit by day and month, and the dollar drawdown, match stats.py on the same journals", () => {
+  let compared = 0;
+  fixture.journals.forEach((j, n) => {
+    const trades = parseRows(j.rows);
+    close(maxDrawdownMoney(trades), j.max_drawdown_usd, `journal ${n} max_drawdown_usd`);
+    for (const period of ["day", "month"]) {
+      const table = periodTable(trades, period);
+      const want = j.periods[period] || [];
+      assert.deepEqual(table.map((row) => row.group), want.map((row) => row[0]), `journal ${n} ${period} order`);
+      table.forEach((row, k) => {
+        ["trades", "win_rate", "total_r", "net_usd"].forEach((key, c) => { close(row[key], want[k][c + 1], `journal ${n} ${period} ${row.group} ${key}`); compared++; });
+      });
+    }
+  });
+  assert.ok(compared > 1000, `only ${compared} numbers compared`);
 });
 
 test("an empty cell is no value, never zero", () => {

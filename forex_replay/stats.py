@@ -120,6 +120,44 @@ def breakdown(journal: pd.DataFrame, by: str) -> pd.DataFrame:
     return table.sort_values("trades", ascending=False)
 
 
+def period_table(journal: pd.DataFrame, period: str) -> pd.DataFrame:
+    """Trades, win rate, total R and net dollars per day or month, newest first.
+
+    A trade counts on the day (or month) it closed, when its result was banked. Days are the
+    broker server's dates (a day ends 17:00 New York), as the journal's times are. A row with no
+    dollar amount (older journals) adds to the trades and R but not to the dollars. Trades of every
+    run on that date are added together: filter one run to see one session.
+    """
+    if period not in ("day", "month"):
+        raise ValueError(f"period must be 'day' or 'month', not {period!r}")
+    df = journal.dropna(subset=["result_r"])
+    df = df[df["exit_time"].notna()] if "exit_time" in df else df.iloc[0:0]
+    columns = ["trades", "win_rate", "total_r", "net_usd"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    key = df["exit_time"].dt.strftime("%Y-%m-%d" if period == "day" else "%Y-%m")
+    r = df["result_r"].astype(float)
+    usd = pd.to_numeric(df["pnl_usd"], errors="coerce") if "pnl_usd" in df else pd.Series(np.nan, index=df.index)
+    table = pd.DataFrame({
+        "trades": r.groupby(key).size(),
+        "win_rate": (r > BREAKEVEN_TOLERANCE_R).groupby(key).mean(),
+        "total_r": r.groupby(key).sum(),
+        "net_usd": usd.groupby(key).sum(min_count=1),  # NaN when no row of the period has dollars
+    })
+    return table.sort_index(ascending=False)
+
+
+def max_drawdown_usd(journal: pd.DataFrame) -> float:
+    """Largest fall from a peak of the dollar equity curve (from 0, in logged order), as a positive number.
+    Only rows with a dollar amount count; NaN when none has one."""
+    df = journal.dropna(subset=["result_r"])
+    usd = pd.to_numeric(df["pnl_usd"], errors="coerce").dropna() if "pnl_usd" in df else pd.Series(dtype=float)
+    if usd.empty:
+        return float("nan")
+    equity = np.concatenate([[0.0], usd.to_numpy().cumsum()])
+    return float((np.maximum.accumulate(equity) - equity).max())
+
+
 @dataclass
 class PropFirmCheck:
     risk_per_trade_pct: float
