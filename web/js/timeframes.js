@@ -131,10 +131,31 @@ export function aggregate(base, tfId, upTo = base.length) {
  * the replay position can ever reach the chart.
  */
 export class TimeframeView {
-  constructor(base, tfId) {
+  /**
+   * `history` (optional): older candles of this timeframe, all closed before the first base candle
+   * (decision 0024). They come first and never change; a replay cannot start inside them.
+   */
+  constructor(base, tfId, history = null) {
     this.base = base;
     this.id = tfId;
-    const { candles, firstIndex, bucketOf } = aggregate(base, tfId);
+    const built = aggregate(base, tfId);
+    const first = built.candles.length ? built.candles.time[0] : Infinity;
+    let pre = 0;
+    if (history) while (pre < history.length && history.time[pre] < first) pre++;
+    this.historyLength = pre;
+    if (pre > 0) { // history first, then the candles built from the base candles
+      const joined = new Candles(pre + built.candles.length, base.digits);
+      for (const f of ["time", "open", "high", "low", "close", "volume", "spread"]) {
+        joined[f].set(history[f].subarray(0, pre), 0);
+        joined[f].set(built.candles[f].subarray(0, built.candles.length), pre);
+      }
+      const firstIndex = new Int32Array(joined.length).fill(-1); // history candles have no base candles
+      firstIndex.set(built.firstIndex, pre);
+      built.candles = joined;
+      built.firstIndex = firstIndex;
+      built.bucketOf = built.bucketOf.map((k) => k + pre);
+    }
+    const { candles, firstIndex, bucketOf } = built;
     this.full = candles;
     this.firstIndex = firstIndex;
     this.bucketOf = bucketOf;
@@ -145,7 +166,12 @@ export class TimeframeView {
 
   /** Number of timeframe candles visible when `position` M5 candles are revealed. */
   countAt(position) {
-    return position <= 0 ? 0 : this.bucketOf[position - 1] + 1;
+    return position <= 0 ? this.historyLength : this.bucketOf[position - 1] + 1;
+  }
+
+  /** True for a candle of the older history (before the base candles begin). */
+  isHistory(k) {
+    return k < this.historyLength;
   }
 
   /** Index one past the last M5 candle of timeframe candle k. */
@@ -193,10 +219,10 @@ export class TimeframeView {
 
     if (before < 0 || p < before) {
       this.copyFull(0, this.full.length); // jumping or moving back: start from clean candles
-      if (count > 0) this.buildForming(count - 1, p);
+      if (count > this.historyLength) this.buildForming(count - 1, p); // history candles are never forming
       return { reset: true };
     }
-    if (count === 0 || p === before) return { reset: false, from: count, to: count - 1 };
+    if (count <= this.historyLength || p === before) return { reset: false, from: count, to: count - 1 };
 
     // Moving forward: candles passed along the way are now complete; the last one is forming.
     const from = Math.max(0, oldCount - 1);
@@ -208,7 +234,7 @@ export class TimeframeView {
   /** True when the last displayed candle still lacks some of its M5 candles. */
   isForming() {
     const k = this.display.length - 1;
-    return k >= 0 && this.position < this.endOf(k);
+    return k >= this.historyLength && this.position < this.endOf(k);
   }
 }
 

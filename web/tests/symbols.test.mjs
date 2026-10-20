@@ -15,6 +15,9 @@ test("a point is worth $1 a lot on pairs quoted in dollars, and 100 yen in dolla
   const jpy = pointValueFor("USDJPY", 3);
   near(jpy(150000), 100000 / 150000, "at 150.000"); // 100 yen / 150 = $0.667 a point, $6.67 a pip
   near(jpy(100000) * 10, 10, "a pip at 100.000 is $10");
+  assert.equal(pointValueFor("AUDUSD", 5), 1); // quoted in dollars, like EURUSD
+  const cad = pointValueFor("USDCAD", 5); // profit in Canadian dollars: 1 CAD a point per lot, / price = US dollars
+  near(cad(137000), 100000 / 137000, "at 1.37000"); // $0.73 a point, $7.30 a pip
   assert.throws(() => pointValueFor("EURGBP", 5), /needs another rate/);
 });
 

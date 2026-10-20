@@ -142,3 +142,25 @@ def test_every_pair_with_an_export_is_built_with_its_own_digits_and_listed():
     assert (SYMBOLS["USDJPY"].digits, SYMBOLS["USDJPY"].pip_points) == (3, 10)
     row = from_bytes(blob)[0]
     assert (row[1], row[2], row[6]) == (147250, 147300, 3)  # 147.250 in points with 3 digits, exactly
+
+
+def test_history_keeps_older_candles_that_closed_before_the_first_minute_and_at_most_four_years():
+    from forex_replay.datapipe import SymbolSpec, write_history
+    spec = SymbolSpec(timeframe="M1", bar_seconds=60)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        rows = [  # server time; the first minute (below) is 2025.08.04 10:00 server
+            bar("2021.01.04", "00:00:00", 1.2, 1.21, 1.19, 1.205),   # more than 4 years before "today": left out
+            bar("2025.08.01", "00:00:00", 1.1, 1.11, 1.09, 1.105),   # a whole day before the minutes: kept
+            bar("2025.08.04", "00:00:00", 1.1, 1.11, 1.09, 1.105),   # the day the minutes begin: overlaps them, left out
+        ]
+        write_export(tmp, "EURUSD_D1_test.csv", rows)
+        (tmp / "web" / "EURUSD").mkdir(parents=True)
+        first = int(pd.Timestamp("2025-08-04 07:00", tz="UTC").timestamp())  # 10:00 server (EDT + 7)
+        manifest = write_history(spec, tmp, tmp / "web", {"first": first}, today=pd.Timestamp("2026-10-20", tz="UTC"))
+        blob = (tmp / "web" / manifest["history"]["D1"]["file"]).read_bytes()
+    assert list(manifest["history"]) == ["D1"]  # no H1 or H4 export here
+    data = from_bytes(blob)
+    assert manifest["history"]["D1"]["bars"] == len(data) == 1
+    assert data[0, 0] == int(pd.Timestamp("2025-07-31 21:00", tz="UTC").timestamp())  # server midnight = 17:00 New York
+    assert data[0, 1] == 110000

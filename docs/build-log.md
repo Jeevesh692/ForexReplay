@@ -1027,3 +1027,41 @@ Each made a test fail.
 - No console errors. The test session was deleted after leaving the replay and closing the tab.
 
 **How to check:** open **Analytics**, pick a strategy, and pick one session in the run menu. Then look at the **Money** tiles, the **Net $** columns, and press **$** above the equity curve.
+
+---
+
+## Same day: longer H1, H4 and D1 history, and USDCAD and AUDUSD (v2.4.0)
+
+**Asked for (Jeevesh):** as much higher-timeframe data as possible for the three pairs, up to 4 years of daily candles, and two more of the most liquid pairs.
+
+**Chosen:** USDCAD and AUDUSD. After EURUSD, USDJPY and GBPUSD come USDCNY, USDCAD and AUDUSD; USDCNY is not offered by FundedNext or most brokers.
+
+**What MT5 had:** asked repeatedly, FundedNext's server gave H1, H4 and D1 history from 1 Jan 2024 for EURUSD, GBPUSD, USDJPY and USDCAD, and much further for AUDUSD (D1 back to 1993), capped here at 4 years (20 Oct 2022).
+
+**Checked before building:** where MT5's own H1, H4 and D1 candles overlap the minutes, they equal the candles built from the minutes: 100% of 7,224 H1, 1,806 H4 and 301 D1 candles each for EURUSD, USDJPY and AUDUSD.
+
+**Built (Claude):**
+- **Data:**
+  - Exported H1, H4 and D1 for five pairs, and M1 for USDCAD and AUDUSD; 17 compressed files, about 11 MB.
+  - The pipeline writes each pair's older candles (those closed before its first minute, at most 4 years back) to `<pair>/<tf>/history.bin` and lists them in the manifest. A newer history export counts as new data.
+- **The app:** `TimeframeView` puts the history in front of the candles built from the minutes (it never changes and is never forming), and loads it per pair. A click on a history candle to start a replay says where the minutes begin.
+- **The pairs:** USDCAD and AUDUSD added. USDCAD money is converted from Canadian dollars at each price, as USDJPY's is from yen.
+- See [decision 0024](decisions/0024-longer-history-and-two-more-pairs.md).
+
+**Tests:** 1 new Python test (113 in total) and 1 new JavaScript test (147 in total), plus new cases in an existing one.
+- the history step keeps a day that closed before the first minute, and drops one more than 4 years old and one overlapping the minutes
+- the joined view: history first; an overlapping history hour replaced by the one built from minutes; only the forming hour changes as the replay moves; before any minute, the history alone with nothing forming
+- AUDUSD priced like EURUSD; USDCAD at 1.37000 = $0.73 a point per lot
+
+**Built data:**
+- USDCAD 450,512 and AUDUSD 450,830 minutes from 1 Aug 2025
+- history H1 9,836 / H4 2,467 / D1 412 candles for four pairs, and H1 17,218 / H4 4,328 / D1 723 for AUDUSD
+
+**In the in-app browser:**
+- The pair menu listed five pairs.
+- AUDUSD's D1 chart showed Nov 2022 to Jan 2023 after a jump (switching to D1: 263 ms).
+- Clicking a 2022 daily candle to start a replay gave "A replay can start from Fri 01 Aug 2025, 05:30 IST, where the 1-minute candles begin."
+- USDCAD: a 10-pip stop at 1.3669 with 1% risk sized to 1.36 lots risking $99.49, matching the hand calculation.
+- No console errors. The test strategy was deleted after leaving the replay and closing the tab.
+
+**How to check:** pick AUDUSD, press **D1**, and scroll left to October 2022. On EURUSD, D1 goes back to January 2024.

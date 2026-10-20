@@ -1,3 +1,3 @@
 """ForexReplay: bar-by-bar forex replay simulator and backtester."""
 
-__version__ = "2.3.2"
+__version__ = "2.4.0"

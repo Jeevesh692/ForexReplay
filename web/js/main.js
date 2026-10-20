@@ -114,7 +114,7 @@ async function boot() {
       "Fix: close this tab, then run  python -m forex_replay app --rebuild");
     return;
   }
-  const { manifest, candles: m5 } = loaded;
+  const { manifest, candles: m5, history } = loaded;
 
   $("status-data").textContent =
     `${manifest.symbol} · ${number(manifest.bars)} ${manifest.timeframe} candles · ` +
@@ -134,7 +134,7 @@ async function boot() {
   const clock = new ReplayClock(m5.length);
   const views = new Map();
   const viewFor = (tf) => {
-    if (!views.has(tf)) views.set(tf, new TimeframeView(m5, tf));
+    if (!views.has(tf)) views.set(tf, new TimeframeView(m5, tf, history[tf] || null));
     return views.get(tf);
   };
 
@@ -176,6 +176,11 @@ async function boot() {
     onClick: (index, price) => {
       if (picking) {
         if (index === null) return;
+        if (pane.view.isHistory(index)) { // older history has no 1-minute candles to replay
+          setHint(`A replay can start from ${formatDateTime(m5.time[0])} IST, where the 1-minute candles begin. ` +
+            "Click a later candle, or press Esc to cancel.");
+          return;
+        }
         setPicking(false);
         clock.start(pane.view.endOf(index)); // the clicked candle is the last one shown, on whichever chart
       } else if (panel && price !== null) {
@@ -671,7 +676,7 @@ async function boot() {
   /** The side chart's timeframe. It starts at the same moment as the main chart's right edge. */
   function setSideTimeframe(tf) {
     sidePane.tf = tf;
-    sidePane.view = new TimeframeView(m5, tf);
+    sidePane.view = new TimeframeView(m5, tf, history[tf] || null);
     sidePane.view.setPosition(clock.position);
     sideSelect.value = tf;
     remember(KEY_SIDE_TF, tf);

@@ -56,7 +56,14 @@ SYMBOLS = {
     "EURUSD": EURUSD,
     "GBPUSD": SymbolSpec(symbol="GBPUSD", timeframe="M1", bar_seconds=60),
     "USDJPY": SymbolSpec(symbol="USDJPY", digits=3, pip_points=10, timeframe="M1", bar_seconds=60),
+    "USDCAD": SymbolSpec(symbol="USDCAD", timeframe="M1", bar_seconds=60),
+    "AUDUSD": SymbolSpec(symbol="AUDUSD", timeframe="M1", bar_seconds=60),
 }
+
+# History before the 1-minute candles begin, shown on these charts for context (decision 0024): MT5's own
+# candles of the timeframe, up to HISTORY_YEARS before today, only where they end before the first minute.
+HISTORY_TIMEFRAMES = {"H1": 3600, "H4": 14400, "D1": 86400}
+HISTORY_YEARS = 4
 
 
 # ----------------------------------------------------------------- reading
@@ -174,7 +181,7 @@ def from_bytes(blob: bytes) -> np.ndarray:
 def write_dataset(df: pd.DataFrame, spec: SymbolSpec, out_root: Path, report: dict) -> dict:
     out_dir = out_root / spec.symbol / spec.timeframe
     for other in (out_root / spec.symbol).glob("*"):  # files of another base timeframe (the M5 of before) go
-        if other.is_dir() and other.name != spec.timeframe:
+        if other.is_dir() and other.name != spec.timeframe and other.name not in HISTORY_TIMEFRAMES:
             for f in other.glob("*.bin"):
                 f.unlink()
             try:
@@ -276,7 +283,42 @@ def build(start: str = "2025-08-01", spec: SymbolSpec = EURUSD, data_dir: Path =
     if report["bad_ohlc_candles"]:
         raise ValueError(f"{report['bad_ohlc_candles']} candles have impossible OHLC values; fix the export")
     manifest = write_dataset(merged, spec, out_root, report)
+    manifest = write_history(spec, data_dir, out_root, manifest)
     return manifest, report
+
+
+def write_history(spec: SymbolSpec, data_dir: Path, out_root: Path, manifest: dict,
+                  today: pd.Timestamp | None = None) -> dict:
+    """Older H1, H4 and D1 candles (MT5's own) for the charts, ending before the first base candle.
+
+    They are written to <symbol>/<timeframe>/history.bin and listed in the manifest under "history".
+    A candle counts only if it closed before the first minute, so history and the candles built from
+    the minutes never overlap or disagree about the same period.
+    """
+    today = today if today is not None else pd.Timestamp.now(tz="UTC")
+    since = today - pd.DateOffset(years=HISTORY_YEARS)
+    first_base = pd.Timestamp(manifest["first"], unit="s", tz="UTC")
+    history = {}
+    for tf, seconds in HISTORY_TIMEFRAMES.items():
+        files = find_exports(data_dir, spec.symbol, tf)
+        out_dir = out_root / spec.symbol / tf
+        if not files:
+            if (out_dir / "history.bin").exists():
+                (out_dir / "history.bin").unlink()
+            continue
+        df, _ = merge_exports([read_mt5_csv(f) for f in files])
+        df.index = server_to_utc(df.index)
+        df = df[(df.index >= since) & (df.index + pd.Timedelta(seconds=seconds) <= first_base)]
+        if df.empty:
+            continue
+        rows = to_rows(df, spec)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "history.bin").write_bytes(rows.tobytes())
+        history[tf] = {"file": f"{spec.symbol}/{tf}/history.bin", "bars": int(len(rows)),
+                       "first": int(rows[0, 0]), "last": int(rows[-1, 0])}
+    manifest["history"] = history
+    (out_root / spec.symbol / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
 
 
 def specs_with_exports(data_dir: Path = DATA_DIR) -> list[SymbolSpec]:
@@ -317,6 +359,7 @@ def is_stale(spec: SymbolSpec = EURUSD, data_dir: Path = DATA_DIR, out_root: Pat
         return True
     if json.loads(manifest.read_text(encoding="utf-8")).get("version") != PIPELINE_VERSION:
         return True
+    exports = exports + [f for tf in HISTORY_TIMEFRAMES for f in find_exports(data_dir, spec.symbol, tf)]
     return any(f.stat().st_mtime > manifest.stat().st_mtime for f in exports)
 
 
