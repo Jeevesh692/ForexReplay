@@ -28,7 +28,7 @@ On the analytics page, "By month" and "By day" come before the other breakdowns,
 
 ## Not yet done
 
-Drawdown in % of the balance per session (the prop-firm check gives % at a fixed risk per trade), a calendar view, and the new tables on the website's analytics (they work there too, since the page is shared, but only the desktop app was checked).
+A calendar view, and checking the new tables on the website's analytics (they should work there too, since the page is shared, but only the desktop app was checked). Drawdown in % of the balance per session was added later the same day (below).
 
 ## Added the same day: the dollar figures other replay tools show (v2.3.2)
 
