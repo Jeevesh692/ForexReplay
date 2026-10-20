@@ -238,6 +238,23 @@ export class TimeframeView {
   }
 }
 
+/**
+ * Hourly candles for a swing replay (decision 0025): the older H1 history first, then the hours built
+ * from the minutes. History stops where the minutes begin, so the two never cover the same hour.
+ */
+export function hourlyBase(minutes, olderHours) {
+  const built = aggregate(minutes, "H1").candles;
+  const first = built.length ? built.time[0] : Infinity;
+  let pre = 0;
+  if (olderHours) while (pre < olderHours.length && olderHours.time[pre] < first) pre++;
+  const out = new Candles(pre + built.length, minutes.digits);
+  for (const f of ["time", "open", "high", "low", "close", "volume", "spread"]) {
+    if (pre) out[f].set(olderHours[f].subarray(0, pre), 0);
+    out[f].set(built[f].subarray(0, built.length), pre);
+  }
+  return out;
+}
+
 /** Index of the last candle whose time is <= t (binary search); -1 if none. */
 export function indexAtOrBefore(candles, utcSeconds) {
   let lo = 0, hi = candles.length - 1, answer = -1;

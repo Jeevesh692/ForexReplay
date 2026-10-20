@@ -40,7 +40,7 @@ python -m forex_replay nbb <strategy>  # rebuild a strategy's NBB log from every
 python -m forex_replay sweep <strategy>  # the same for the liquidity-sweep log
 ```
 
-Expected today: 113 Python tests, 147 JavaScript tests, all passing.
+Expected today: 113 Python tests, 148 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 

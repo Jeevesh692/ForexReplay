@@ -24,8 +24,8 @@ import { renderDataView } from "./dataview.js";
 import { OrderType } from "./broker.js";
 import { ReplayClock, SPEEDS } from "./replay.js";
 import { loadSavedSessions, renderSessionKey, setupSessionSettings } from "./sessionsettings.js";
-import { formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
-import { TIMEFRAMES, TimeframeView } from "./timeframes.js";
+import { formatDate, formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
+import { hourlyBase, timeframe as timeframeOf, TIMEFRAMES, TimeframeView } from "./timeframes.js";
 import { InvalidOrder, Side, Status, Trading } from "./trading.js";
 import { TradingPanel } from "./tradingpanel.js";
 
@@ -33,6 +33,7 @@ const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
 const KEY_TIMEFRAME = "forexreplay.timeframe";
 const KEY_SYMBOL = "forexreplay.symbol";
+const KEY_BASE = "forexreplay.base"; // "M1" (the default) or "H1" for swing replays over the older history
 const KEY_SESSIONS = "forexreplay.sessions";
 const KEY_MAGNET = "forexreplay.magnet";
 const KEY_LAYOUT = "forexreplay.layout";
@@ -114,7 +115,19 @@ async function boot() {
       "Fix: close this tab, then run  python -m forex_replay app --rebuild");
     return;
   }
-  const { manifest, candles: m5, history } = loaded;
+  // The candles the replay steps through: minutes, or hours for swing replays that reach back over the older
+  // H1 history (decision 0025). Everything below works on `m5` as the base, whatever its size.
+  const canSwing = !!loaded.history.H1;
+  const baseMode = [params.get("base"), recall(KEY_BASE, "M1")].find((b) => b === "M1" || (b === "H1" && canSwing)) || "M1";
+  try { localStorage.setItem(KEY_BASE, baseMode); } catch { /* private mode: not kept */ }
+  const m5 = baseMode === "H1" ? hourlyBase(loaded.candles, loaded.history.H1) : loaded.candles;
+  const manifest = baseMode === "H1"
+    ? { ...loaded.manifest, timeframe: "H1", bar_seconds: 3600, bars: m5.length, first: m5.time[0], last: m5.time[m5.length - 1] }
+    : loaded.manifest;
+  const history = baseMode === "H1" ? {} : loaded.history; // the hours already reach as far back as the H4 and D1 history
+  const baseBox = $("base");
+  baseBox.innerHTML = `<option value="M1"${baseMode === "M1" ? " selected" : ""}>1-minute candles · from ${formatDate(loaded.manifest.first)}</option>` +
+    (canSwing ? `<option value="H1"${baseMode === "H1" ? " selected" : ""}>1-hour candles (swing) · from ${formatDate(loaded.history.H1.time[0])}</option>` : "");
 
   $("status-data").textContent =
     `${manifest.symbol} · ${number(manifest.bars)} ${manifest.timeframe} candles · ` +
@@ -138,8 +151,10 @@ async function boot() {
     return views.get(tf);
   };
 
+  // Only timeframes at least as long as the replay's candles: in 1-hour mode, H1, H4 and D1.
+  const usable = TIMEFRAMES.filter((t) => t.seconds >= manifest.bar_seconds);
   let current = recall(KEY_TIMEFRAME, "M15");
-  if (!TIMEFRAMES.some((t) => t.id === current)) current = "M15";
+  if (!usable.some((t) => t.id === current)) current = usable.some((t) => t.id === "M15") ? "M15" : usable[0].id;
   let view = viewFor(current);
   let picking = false; // waiting for a click on the candle to start the replay from
   let panel = null; // trading panel (created below, once the chart exists)
@@ -158,7 +173,7 @@ async function boot() {
   let layoutTwo = recall(KEY_LAYOUT, "one") === "two";
   const mainPane = { id: "main", legend: $("legend"), get tf() { return current; }, get view() { return view; }, chart: null, layer: null };
   const sideTf = recall(KEY_SIDE_TF, "H4");
-  const sidePane = { id: "side", legend: $("legend-side"), tf: TIMEFRAMES.some((t) => t.id === sideTf) ? sideTf : "H4", view: null, chart: null, layer: null };
+  const sidePane = { id: "side", legend: $("legend-side"), tf: usable.some((t) => t.id === sideTf) ? sideTf : "H4", view: null, chart: null, layer: null };
   const panes = () => (layoutTwo && sidePane.chart ? [mainPane, sidePane] : [mainPane]);
 
   const chartOptions = (pane) => ({
@@ -663,7 +678,8 @@ async function boot() {
     drawTrades();
   }
   tfButtons.forEach((b) => {
-    b.disabled = false;
+    b.disabled = timeframeOf(b.dataset.tf).seconds < manifest.bar_seconds; // no candles finer than the replay's
+    if (b.disabled) b.title = `${b.title}: not in 1-hour (swing) mode`;
     b.addEventListener("click", () => setTimeframe(b.dataset.tf));
   });
   setTimeframe(current, { keepPlace: false });
@@ -671,7 +687,7 @@ async function boot() {
   // ------------------------------------------------------------ second chart
   const layoutButton = $("layout-toggle");
   const sideSelect = $("side-tf");
-  sideSelect.innerHTML = TIMEFRAMES.map((t) => `<option value="${t.id}">${t.id}</option>`).join("");
+  sideSelect.innerHTML = usable.map((t) => `<option value="${t.id}">${t.id}</option>`).join("");
 
   /** The side chart's timeframe. It starts at the same moment as the main chart's right edge. */
   function setSideTimeframe(tf) {
@@ -853,8 +869,9 @@ async function boot() {
   /** Rebuild a saved backtest and open it at the point it had reached. Returns the rebuild's problems. */
   async function resumeBacktest(journal, id) {
     const saved = await store.getBacktest(journal, id);
-    if ((saved.symbol || "EURUSD") !== manifest.symbol) { // another pair: open the app on it, then resume there
-      await switchSymbol(saved.symbol, `${journal}/${id}`);
+    const savedBase = saved.barSeconds === 3600 ? "H1" : "M1"; // swing sessions replayed hours
+    if ((saved.symbol || "EURUSD") !== manifest.symbol || (saved.barSeconds && savedBase !== baseMode)) {
+      await switchSymbol(saved.symbol || "EURUSD", `${journal}/${id}`, savedBase); // open the app on its pair and candles, then resume there
       return [];
     }
     const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits), barSeconds: manifest.bar_seconds });
@@ -976,28 +993,31 @@ async function boot() {
   window.addEventListener("pagehide", () => backtests.saveOnUnload());
 
   /** Open the app on another pair: save and leave the session on screen first. `resume` = "journal/id" to open there. */
-  async function switchSymbol(next, resume = null) {
+  async function switchSymbol(next, resume = null, base = baseMode) {
     if (!known(next)) { panel.say(`There is no ${next} data. Put an MT5 export of it in data/ and restart the app.`, "bad"); return; }
     if (clock.active) {
       clock.pause();
       await shotQueue;
       if (!(await backtests.end())) {
         symbolBox.value = manifest.symbol;
+        baseBox.value = baseMode;
         panel.say("The session on screen could not be saved (see the bottom bar), so it is still open.", "bad");
         return;
       }
     }
     try { localStorage.setItem(KEY_SYMBOL, next); } catch { /* private mode: not kept */ }
-    const query = new URLSearchParams({ symbol: next });
+    try { localStorage.setItem(KEY_BASE, base); } catch { /* private mode: not kept */ }
+    const query = new URLSearchParams({ symbol: next, base });
     if (resume) query.set("resume", resume);
     location.search = query.toString();
   }
   symbolBox.addEventListener("change", () => switchSymbol(symbolBox.value));
+  baseBox.addEventListener("change", () => switchSymbol(manifest.symbol, null, baseBox.value));
 
   // Opened to resume a session of this pair (after switching from another pair).
   if (params.get("resume")) {
     const [journal, id] = params.get("resume").split("/");
-    history.replaceState(null, "", `?symbol=${manifest.symbol}`);
+    window.history.replaceState(null, "", `?symbol=${manifest.symbol}&base=${baseMode}`); // window.history: `history` here is the older candles
     resumeBacktest(journal, id).catch((err) => panel.say(`Could not resume: ${err.message}`, "bad"));
   }
   renderReplayUi();

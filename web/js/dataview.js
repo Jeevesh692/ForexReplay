@@ -17,7 +17,7 @@ export function renderDataView(root, { manifest, quality, candles }) {
 
   root.querySelector("#overview-title").textContent = `${manifest.symbol} close, whole dataset`;
   root.querySelector("#lead").textContent =
-    `${number(manifest.bars)} five-minute ${manifest.symbol} candles from your MT5 export, ` +
+    `${number(manifest.bars)} ${manifest.timeframe} ${manifest.symbol} candles from your MT5 export, ` +
     `${formatDate(manifest.first)} to ${formatDate(manifest.last)}, shown in India time.`;
 
   root.querySelector("#cards").innerHTML = [
