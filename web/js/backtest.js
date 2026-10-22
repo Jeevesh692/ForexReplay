@@ -105,6 +105,7 @@ export function resultOf(trading) {
     closed: s.closed, open: s.open, pending: s.pending, wins: s.wins, losses: s.losses,
     totalR: Math.round(s.totalR * 100) / 100,
     money: Math.round(s.totalMoney * 100) / 100,
+    startBalance: trading.startSettings.startingBalance, // for the return % and drawdown % on the analytics page
     balance: Math.round(trading.balance * 100) / 100,
   };
 }
@@ -118,6 +119,7 @@ export function snapshot(meta, { trading, drawings, notes = null, m5, clock, man
     version: FORMAT_VERSION,
     ...meta,
     symbol: manifest.symbol, digits: manifest.digits, pipPoints: manifest.pip_points,
+    barSeconds: manifest.bar_seconds, // the replay's base candle: 60 since v2.3 (sessions without it were M5)
     saved: new Date().toISOString(),
     furthestTime: m5.time[clock.furthest - 1],
     timeframe,
@@ -161,8 +163,12 @@ class StepClock {
  *   problems  plain-language list of anything that did not repeat or does not match the save
  * Throws BacktestError when the save cannot be used at all (wrong format, or the candles are not in the data).
  */
-export function rebuild(saved, { m5, pipPoints, pointValue }) {
+export function rebuild(saved, { m5, pipPoints, pointValue, barSeconds = null }) {
   if (!saved || saved.version !== FORMAT_VERSION) throw new BacktestError("This backtest was saved in a format this app does not know.");
+  if (barSeconds !== null && (saved.barSeconds || 300) !== barSeconds) { // sessions before v2.3 replayed 5-minute candles
+    throw new BacktestError(`This session was replayed on ${(saved.barSeconds || 300) / 60}-minute candles and the app now replays ` +
+      `${barSeconds / 60}-minute ones, so it cannot be rebuilt exactly.`);
+  }
   for (const key of ["actions", "drawings", "trades"]) {
     if (!Array.isArray(saved[key])) throw new BacktestError(`This backtest file is damaged: '${key}' is missing.`);
   }

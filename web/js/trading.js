@@ -195,7 +195,7 @@ export class Trading {
    */
   preview({ side, type, price, stopLoss }) {
     const entry = this.plannedEntry({ side, type, price });
-    return this.account.size(Math.abs(entry - stopLoss), this.balance);
+    return this.account.size(Math.abs(entry - stopLoss), this.balance, entry);
   }
 
   /**
@@ -256,7 +256,7 @@ export class Trading {
       const entry = trade.orderType === OrderType.MARKET ? trade.plannedEntry : (changes.price ?? trade.orderPrice);
       const stop = changes.stopLoss ?? trade.stopLoss;
       Broker.validate(trade.side, entry, stop, changes.takeProfit ?? trade.takeProfit);
-      sized = this.account.size(Math.abs(entry - stop), this.balance);
+      sized = this.account.size(Math.abs(entry - stop), this.balance, entry);
       if (sized.error) throw new InvalidOrder(sized.error);
     }
     this.broker.modify(trade, this.bid, { price: null, ...changes }, this.spread);

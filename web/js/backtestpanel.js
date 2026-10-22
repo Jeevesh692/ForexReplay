@@ -1,13 +1,15 @@
-// Saving backtests as you go, and the "Backtests" dialog (resume or delete a saved one).
+// Saving backtests (sessions) as you go, and the "Strategies" dialog: every strategy with its
+// sessions; switch strategy, resume where you left off, start a new session, or delete one.
 //
-// Each replay is a backtest. Once it has a trade or a drawing, it is saved to the
+// Each replay is a backtest of one strategy. Once it has a trade or a drawing, it is saved to the
 // local server a moment after anything changes, when you leave it, and when the
-// tab closes. The server writes it to strategies/<journal>/backtests/<id>.json and
-// adds its closed trades to strategies/<journal>/trades.csv.
-// The rules for what is saved and how a run is rebuilt live in backtest.js.
+// tab closes. The server writes it to strategies/<strategy>/backtests/<id>.json and
+// adds its closed trades to strategies/<strategy>/trades.csv.
+// The rules for what is saved and how a run is rebuilt live in backtest.js; strategies in strategies.js.
 
 import { formatSignedMoney } from "./account.js";
 import { newId, snapshot, validName } from "./backtest.js";
+import { cleanChecklist, KINDS, LOGGERS, MAX_QUESTIONS, slug } from "./strategies.js";
 import { formatDateTime } from "./time.js";
 
 export const DEFAULT_JOURNAL = "manual_backtests";
@@ -21,18 +23,28 @@ export class Backtests {
    *   dialog, status   the dialog element and the status-bar element
    *   collect()        { trading, drawings, m5, clock, manifest, timeframe } for a save
    *   onResume(journal, id)  rebuilds and opens a saved backtest; returns its list of problems
+   *   onNewSession(journal)  saves and leaves the session on screen, then lets you pick a start candle
+   *   chip             the toolbar element that shows the strategy in use
+   *   onStrategiesChanged()  a strategy's settings (its checklist) changed
    */
-  constructor({ dialog, status, collect, onResume, store }) {
+  constructor({ dialog, status, collect, onResume, onNewSession, chip, store, onStrategiesChanged }) {
     this.store = store; // files on disk (desktop app) or this browser (online): see store.js
     if (store.kind === "browser") {
-      dialog.querySelector("#backtests-about").textContent = "Online, each replay with a trade or a drawing is saved in this browser as you go, " +
-        "with its trades, its drawings and where it got to. Only this browser on this computer can see them; clearing the site's data removes them. " +
-        "Resume rebuilds a run by repeating every action on the same candles.";
+      dialog.querySelector("#backtests-about").textContent = "Online, each strategy's sessions are saved in this browser as you go, " +
+        "with their trades, drawings and where they got to. Only this browser on this computer can see them; clearing the site's data removes them. " +
+        "Resume rebuilds a session by repeating every action on the same candles. Switching saves the session on screen first.";
     }
     this.dialog = dialog;
     this.status = status;
     this.collect = collect;
     this.onResume = onResume;
+    this.onNewSession = onNewSession;
+    this.chip = chip;
+    this.labels = {}; // strategy name -> label, from the last list
+    this.configs = {}; // strategy name -> { label, logger, checklist }
+    this.onStrategiesChanged = onStrategiesChanged || (() => {});
+    this.editing = null; // { name, questions } while a checklist is being edited
+    this.selected = null; // the strategy whose sessions the dialog lists (null = all)
     this.current = null; // { id, name, journal, created, startTime } of the run on screen
     this.everSaved = false;
     this.drawingsTouched = false;
@@ -41,27 +53,121 @@ export class Backtests {
     this.armedDelete = null;
 
     this.el = (id) => dialog.querySelector(`#${id}`);
-    this.el("backtest-journal").value = this.journal;
-    this.el("backtest-journal").addEventListener("change", (event) => {
-      const name = event.target.value.trim();
-      if (validName(name)) {
-        try { localStorage.setItem(KEY_JOURNAL, name); } catch { /* private mode: not kept */ }
-        this.say(`New replays will be journaled in strategies/${name}/trades.csv.`, "ok");
-      } else {
-        this.say("A journal name may use only letters, digits, - and _.", "bad");
-      }
-      event.target.value = this.journal;
+    this.el("strategy-logger").innerHTML = LOGGERS.map((l) => `<option value="${l.id}">${escapeHtml(l.label)}</option>`).join("");
+    this.el("strategy-new").addEventListener("submit", (event) => { event.preventDefault(); this.create(); });
+    this.el("strategy-rows").addEventListener("click", (event) => this.handleStrategyClick(event));
+    this.el("checklist-add").addEventListener("click", () => {
+      if (this.editing.questions.length >= MAX_QUESTIONS) return;
+      this.editing.questions.push({ text: "", kind: "yesno", options: [] });
+      this.renderChecklistEditor(this.editing.questions.length - 1);
+    });
+    this.el("checklist-cancel").addEventListener("click", () => this.closeChecklist());
+    this.el("checklist-save").addEventListener("click", () => this.saveChecklist());
+    const rows = this.el("checklist-rows");
+    rows.addEventListener("input", (event) => this.editChecklist(event));
+    rows.addEventListener("change", (event) => this.editChecklist(event));
+    rows.addEventListener("click", (event) => {
+      const x = event.target.closest("[data-q-remove]");
+      if (!x) return;
+      this.editing.questions.splice(Number(x.dataset.qRemove), 1);
+      this.renderChecklistEditor();
+    });
+    this.el("backtest-filter").addEventListener("click", (event) => {
+      if (event.target.closest("[data-show-all]")) { this.selected = null; this.refresh(); }
     });
     this.el("backtest-close").addEventListener("click", () => dialog.close());
     this.el("backtest-rows").addEventListener("click", (event) => this.handleRowClick(event));
     this.renderStatus();
   }
 
+  /** The strategy new sessions go to: the last one chosen. */
   get journal() {
     try {
       const saved = localStorage.getItem(KEY_JOURNAL);
       return validName(saved) ? saved : DEFAULT_JOURNAL;
     } catch { return DEFAULT_JOURNAL; }
+  }
+
+  set journal(name) {
+    if (!validName(name)) return;
+    try { localStorage.setItem(KEY_JOURNAL, name); } catch { /* private mode: not kept */ }
+    this.renderChip();
+  }
+
+  label(name) { return this.labels[name] || name; }
+
+  /** The toolbar shows the strategy of the session on screen, or the one new sessions go to. */
+  renderChip() {
+    if (this.chip) this.chip.textContent = `· ${this.label(this.current ? this.current.journal : this.journal)}`;
+  }
+
+  /** Learn the strategies' labels (for the toolbar) without opening the dialog. */
+  async loadLabels() {
+    try { this.remember(await this.store.listStrategies()); } catch { /* the toolbar shows folder names */ }
+    this.renderChip();
+  }
+
+  remember(list) {
+    this.labels = Object.fromEntries(list.map((s) => [s.name, s.label]));
+    this.configs = Object.fromEntries(list.map((s) => [s.name, { label: s.label, logger: s.logger, checklist: s.checklist || [] }]));
+  }
+
+  /** A strategy's checklist questions (none if it has no checklist). */
+  checklist(name) { return (this.configs[name] || {}).checklist || []; }
+
+  // ----- checklist editor ---------------------------------------------------
+  openChecklist(name) {
+    this.editing = { name, questions: this.checklist(name).map((q) => ({ ...q, options: [...(q.options || [])] })) };
+    if (this.editing.questions.length === 0) this.editing.questions.push({ text: "", kind: "yesno", options: [] });
+    this.el("checklist-for").textContent = this.label(name);
+    this.el("checklist-editor").hidden = false;
+    this.renderChecklistEditor(0);
+  }
+
+  closeChecklist() {
+    this.editing = null;
+    this.el("checklist-editor").hidden = true;
+  }
+
+  renderChecklistEditor(focus = null) {
+    const rows = this.el("checklist-rows");
+    rows.innerHTML = this.editing.questions.map((q, i) => `<div class="checklist-row">
+      <input type="text" maxlength="80" data-q-text="${i}" value="${escapeHtml(q.text)}" placeholder="Question, e.g. Asian high swept?" aria-label="Question">
+      <select data-q-kind="${i}" aria-label="Answer type">${KINDS.map((k) => `<option value="${k.id}"${k.id === q.kind ? " selected" : ""}>${k.label}</option>`).join("")}</select>
+      <input type="text" class="options" data-q-options="${i}" value="${escapeHtml((q.options || []).join(", "))}" placeholder="Choices, separated by commas"${q.kind === "choice" ? "" : " hidden"} aria-label="Choices">
+      <button type="button" class="plain small" data-q-remove="${i}" title="Remove this question">&times;</button>
+    </div>`).join("") || '<p class="muted small">No questions. Add one, or save to remove the checklist.</p>';
+    if (focus !== null) { const box = rows.querySelector(`[data-q-text="${focus}"]`); if (box) box.focus(); }
+  }
+
+  editChecklist(event) {
+    const t = event.target;
+    const q = (key) => this.editing.questions[Number(t.dataset[key])];
+    if (t.dataset.qText !== undefined) q("qText").text = t.value;
+    else if (t.dataset.qOptions !== undefined) q("qOptions").options = t.value.split(",").map((o) => o.trim()).filter(Boolean);
+    else if (t.dataset.qKind !== undefined && event.type === "change") {
+      q("qKind").kind = t.value;
+      t.closest(".checklist-row").querySelector("[data-q-options]").hidden = t.value !== "choice";
+    }
+  }
+
+  async saveChecklist() {
+    const { name } = this.editing;
+    const questions = this.editing.questions.filter((q) => q.text.trim()); // empty rows are dropped
+    const clean = cleanChecklist(questions.map((q) => (q.kind === "choice" ? q : { id: q.id, text: q.text, kind: q.kind })));
+    if (clean.error) { this.say(clean.error, "bad"); return; }
+    const config = this.configs[name] || { label: this.label(name), logger: "none" };
+    try {
+      await this.store.putStrategy(name, { label: config.label, logger: config.logger, checklist: clean });
+    } catch (err) {
+      this.say(`Could not save the checklist: ${err.message}`, "bad");
+      return;
+    }
+    this.closeChecklist();
+    await this.refresh();
+    this.onStrategiesChanged();
+    this.say(clean.length ? `Saved ${clean.length} question(s) for ${this.label(name)}. Answer them for each trade in the journal box.`
+      : `${this.label(name)} has no checklist now.`, "ok");
   }
 
   // ----- the run on screen ------------------------------------------------
@@ -82,6 +188,7 @@ export class Backtests {
     this.stopTimer();
     const { id, name, journal, created, startTime } = saved;
     this.current = { id, name, journal, created, startTime };
+    this.journal = journal; // new sessions follow the strategy you came back to
     this.everSaved = true;
     this.drawingsTouched = false;
     this.renderStatus(`resumed · saved ${new Date(saved.saved).toLocaleTimeString("en-IN")}`);
@@ -129,7 +236,13 @@ export class Backtests {
       const reply = await this.store.putBacktest(data);
       if (this.current && this.current.id === data.id) this.everSaved = true;
       const added = reply.journalAdded ? ` · ${reply.journalAdded} trade(s) added to ${reply.journal}` : "";
-      this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added}`, "ok", data);
+      if (reply.logError) {
+        this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added} · ${reply.logError}`, "bad", data);
+        return true; // the session itself is safe; only its automatic log failed
+      }
+      const log = (reply.log ? ` · ${reply.log.logger.toUpperCase()} log: ${reply.log.trades} trade(s), ${reply.log.days} day(s)` : "") +
+        (reply.checklist ? ` · checklist: ${reply.checklist.trades} trade(s)` : "");
+      this.renderStatus(`saved ${new Date().toLocaleTimeString("en-IN")}${added}${log}`, "ok", data);
       return true;
     } catch (err) {
       const offline = err.message.includes("fetch") && this.store.kind === "server";
@@ -161,10 +274,12 @@ export class Backtests {
   }
 
   renderStatus(text = "", tone = "", data = null) {
-    const name = (data && data.name) || (this.current && this.current.name);
+    const run = data || this.current;
+    const name = run && run.name;
     this.status.hidden = !name;
     this.status.className = tone;
-    this.status.textContent = name ? `Backtest "${name}"${text ? ` · ${text}` : ""}` : "";
+    this.status.textContent = name ? `${this.label(run.journal)} · "${name}"${text ? ` · ${text}` : ""}` : "";
+    this.renderChip();
   }
 
   // ----- dialog -----------------------------------------------------------
@@ -177,7 +292,8 @@ export class Backtests {
   async open() {
     this.armedDelete = null;
     this.say("");
-    this.el("backtest-journal").value = this.journal;
+    this.selected = this.current ? this.current.journal : this.journal;
+    this.closeChecklist();
     if (!this.dialog.open) this.dialog.showModal();
     if (this.current) await this.save(); // so the list shows the run on screen as it is now
     await this.refresh();
@@ -185,17 +301,103 @@ export class Backtests {
 
   async refresh() {
     const rows = this.el("backtest-rows");
-    let list;
+    let list, strategies;
     try {
-      list = await this.store.listBacktests();
+      [list, strategies] = await Promise.all([this.store.listBacktests(), this.store.listStrategies()]);
     } catch (err) {
       rows.innerHTML = "";
-      this.say(`Could not read the saved backtests: ${err.message}`, "bad");
+      this.say(`Could not read the saved sessions: ${err.message}`, "bad");
       return;
     }
-    rows.innerHTML = list.length === 0
-      ? '<tr><td colspan="7" class="muted">No saved backtests yet. Start a replay and place a trade or draw something.</td></tr>'
-      : list.map((b) => this.row(b)).join("");
+    this.remember(strategies);
+    if (this.selected && !strategies.some((s) => s.name === this.selected)) { // chosen, nothing saved in it yet
+      strategies.push({ name: this.selected, label: this.selected, logger: "none", sessions: 0, latest: null, trades: 0, workbooks: [] });
+    }
+    this.el("strategy-rows").innerHTML = strategies.length === 0
+      ? '<tr><td colspan="6" class="muted">No strategies yet. Add one below.</td></tr>'
+      : strategies.map((s) => this.strategyRow(s)).join("");
+    const shown = this.selected ? list.filter((b) => b.journal === this.selected) : list;
+    this.el("backtest-filter").innerHTML = this.selected
+      ? `of ${escapeHtml(this.label(this.selected))} · <button type="button" class="plain small" data-show-all="1">show every strategy</button>`
+      : "of every strategy";
+    rows.innerHTML = shown.length === 0
+      ? '<tr><td colspan="7" class="muted">No saved sessions yet. Press New session, pick a start candle, then place a trade or draw something.</td></tr>'
+      : shown.map((b) => this.row(b)).join("");
+    this.el("backtest-target").textContent = `New sessions go to: ${this.label(this.journal)}`;
+    this.renderChip();
+  }
+
+  strategyRow(s) {
+    const name = escapeHtml(s.name);
+    const logger = LOGGERS.find((l) => l.id === s.logger) || LOGGERS[0];
+    const onScreen = !!this.current && this.current.journal === s.name;
+    const latestOnScreen = onScreen && !!s.latest && s.latest.id === this.current.id;
+    const books = (s.workbooks || []).map((w) => `<div class="file">&#128196; ${escapeHtml(w)}</div>`).join("");
+    return `<tr class="${s.name === this.selected ? "selected" : ""}" data-select="${name}" title="Click to list this strategy's sessions">
+      <td><b>${escapeHtml(s.label)}</b>${onScreen ? ' <span class="tag">on screen</span>' : ""}<div class="file">strategies/${name}/</div>${books}</td>
+      <td>${s.logger === "none" ? '<span class="muted">none</span>' : `${escapeHtml(logger.label)}<div class="file">${escapeHtml(logger.file)}</div>`}</td>
+      <td class="num">${s.sessions}</td>
+      <td class="num">${s.trades}</td>
+      <td class="nowrap">${s.latest ? formatDateTime(s.latest.furthestTime) : '<span class="muted">not started</span>'}</td>
+      <td class="actions">
+        ${s.latest ? `<button type="button" class="plain bordered small" data-strategy-resume="${name}/${escapeHtml(s.latest.id)}"${latestOnScreen ? " disabled" : ""} title="Open the session saved most recently, where it stopped">Resume</button>` : ""}
+        <button type="button" class="plain small" data-strategy-checklist="${name}" title="Your own questions to answer for each trade of this strategy">Checklist${(s.checklist || []).length ? ` (${s.checklist.length})` : ""}</button>
+        <button type="button" class="plain bordered small" data-strategy-new="${name}" title="Save the session on screen, then start a new session of this strategy from a candle you pick">New session</button>
+      </td></tr>`;
+  }
+
+  async create() {
+    const input = this.el("strategy-label");
+    const label = input.value.trim();
+    const name = slug(label);
+    if (!name) { this.say("Give the strategy a name with at least one letter or digit.", "bad"); return; }
+    if (this.labels[name] !== undefined) { this.say(`There is already a strategy in strategies/${name}/.`, "bad"); return; }
+    try {
+      await this.store.putStrategy(name, { label, logger: this.el("strategy-logger").value });
+    } catch (err) {
+      this.say(`Could not add it: ${err.message}`, "bad");
+      return;
+    }
+    input.value = "";
+    this.selected = name;
+    await this.refresh();
+    this.say(`Added "${label}" in strategies/${name}/. Press New session to start testing it.`, "ok");
+  }
+
+  async handleStrategyClick(event) {
+    const button = event.target.closest("button");
+    if (button && button.dataset.strategyNew) {
+      this.journal = button.dataset.strategyNew;
+      this.dialog.close();
+      await this.onNewSession(button.dataset.strategyNew);
+      return;
+    }
+    if (button && button.dataset.strategyResume) {
+      await this.resume(button.dataset.strategyResume);
+      return;
+    }
+    if (button && button.dataset.strategyChecklist) {
+      this.openChecklist(button.dataset.strategyChecklist);
+      return;
+    }
+    const row = event.target.closest("tr[data-select]");
+    if (row && row.dataset.select !== this.selected) {
+      this.selected = row.dataset.select;
+      this.armedDelete = null;
+      await this.refresh();
+    }
+  }
+
+  async resume(key) {
+    const [journal, id] = key.split("/");
+    this.say("Saving the session on screen, then rebuilding this one from its saved actions...");
+    try {
+      const problems = await this.onResume(journal, id);
+      if (problems.length === 0) this.dialog.close();
+      else this.say(`Resumed, but the rebuild does not match the save: ${problems.join(" ")}`, "bad");
+    } catch (err) {
+      this.say(`Could not resume: ${err.message}`, "bad");
+    }
   }
 
   row(b) {
@@ -210,7 +412,7 @@ export class Backtests {
     const trades = `${r.closed || 0}` + (r.open || r.pending ? ` + ${(r.open || 0) + (r.pending || 0)} active` : "");
     return `<tr>
       <td>${escapeHtml(b.name)}${running ? ' <span class="tag">on screen</span>' : ""}</td>
-      <td>${escapeHtml(b.journal)}</td>
+      <td>${escapeHtml(this.label(b.journal))}</td>
       <td class="nowrap">${formatDateTime(b.furthestTime)}</td>
       <td class="num">${trades}</td>
       <td class="num ${tone}">${r.challenge ? `<span class="tag ${r.challenge.toLowerCase()}" title="Prop-firm challenge">${r.challenge === "RUNNING" ? "challenge" : r.challenge}</span> ` : ""}${(r.totalR || 0) >= 0 ? "+" : ""}${(r.totalR || 0).toFixed(2)}R · ${formatSignedMoney(r.money || 0)}</td>
@@ -225,15 +427,7 @@ export class Backtests {
     const button = event.target.closest("button");
     if (!button) return;
     if (button.dataset.resume) {
-      const [journal, id] = button.dataset.resume.split("/");
-      this.say("Rebuilding the run from its saved actions...");
-      try {
-        const problems = await this.onResume(journal, id);
-        if (problems.length === 0) this.dialog.close();
-        else this.say(`Resumed, but the rebuild does not match the save: ${problems.join(" ")}`, "bad");
-      } catch (err) {
-        this.say(`Could not resume: ${err.message}`, "bad");
-      }
+      await this.resume(button.dataset.resume);
     } else if (button.dataset.delete) {
       if (this.armedDelete !== button.dataset.delete) { // deleting cannot be undone, so it takes a second click
         this.armedDelete = button.dataset.delete;

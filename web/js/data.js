@@ -78,5 +78,13 @@ export async function loadSymbol(symbol = "EURUSD", base = "data", fetchFn = fet
       return candles;
     }),
   );
-  return { manifest, candles: Candles.concat(months, manifest.digits) };
+  // Older H1, H4 and D1 candles before the minutes begin (decision 0024): context for those charts only.
+  const history = {};
+  await Promise.all(Object.entries(manifest.history || {}).map(async ([tf, h]) => {
+    const response = await fetchFn(`${base}/${h.file}`);
+    if (!response.ok) throw new Error(`${h.file}: HTTP ${response.status}`);
+    history[tf] = Candles.fromBuffer(await response.arrayBuffer(), manifest.digits);
+    if (history[tf].length !== h.bars) throw new Error(`${h.file}: expected ${h.bars} bars, got ${history[tf].length}`);
+  }));
+  return { manifest, candles: Candles.concat(months, manifest.digits), history };
 }

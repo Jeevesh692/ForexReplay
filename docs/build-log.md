@@ -699,3 +699,369 @@ In the in-app browser:
 - Building the website inside the OneDrive folder failed: OneDrive had turned the earlier build's `css` folder into a read-only synced placeholder that could not be deleted. The build now clears read-only flags before deleting. Locally the site was built outside OneDrive; Cloudflare builds on its own machines.
 
 **How to check:** run `python -m forex_replay site --out` with a folder outside OneDrive, then `python -m http.server --directory` that folder, and open it. The status bar says "online", and backtests save in the browser.
+
+---
+
+## Journal day 1: Tue 13 Oct 2026 · strategies, each with its own sessions
+
+**Asked for (Jeevesh):** "I have 10 different strategies in my mind, so I want them stored in sessions: one backtesting session for liquidity sweep, one for Asian sweep, one for dollar reversal." Each with its Excel journal filled automatically, with screenshots, and progress saved so he can leave a strategy, test another and come back, "even when I close my computer and open it after 1 week". He had already written two logger specs and workbooks (NBB and liquidity sweep) in another chat. Asked where he will backtest, he chose **the desktop app** (the workbooks refresh from CSV files beside them).
+
+**Planned:** `docs/plan-strategy-journals.md`, seven days. Day 1 is the strategies themselves; days 2 to 6 build the NBB and sweep loggers exactly to his specs (copied in as `docs/plan-nbb-logger.md` and `docs/plan-sweep-logger.md`, with their decision numbers moved to 0018 and 0019 because 0016 and 0017 were taken); day 7 is a checklist for strategies without a logger.
+
+**Built (Claude):**
+- `forex_replay/strategy_folders.py`: lists every strategy folder with its label, logger, sessions, latest session, journal rows and workbooks; creates a strategy or changes its label or logger (`strategy.json`). Named so as not to clash with v1's `forex_replay/strategies/` package.
+- Server: `GET /api/strategies`, `PUT /api/strategies/<name>` (JSON only, like the other writes).
+- `web/js/strategies.js`: the same folder-name rule as Python, checks, and the list built from saved sessions for the online version. Both stores gained `listStrategies` and `putStrategy`.
+- The Backtests dialog became **Strategies**: every strategy (most recently used first) with Resume (its latest session) and New session, a form to add one with its log, and the chosen strategy's sessions below. The toolbar shows the strategy in use; the status bar names it with the session.
+- Set up Jeevesh's two strategies with their logs and workbooks: `strategies/nbb/` (NBB Trader playbook, NBB log, `NBB_Backtest_Log.xlsx`) and `strategies/liquidity_sweep/` (Liquidity sweep (Marco), sweep log, `Sweep_Backtest_Log.xlsx`). The workbooks are not committed (git ignores `.xlsx`).
+
+**Tests:** 4 new Python tests (72 in total) and 5 new JavaScript tests (139 in total).
+- folder names from labels, the same examples in both languages
+- the list: sessions counted per strategy, the newest one to resume, journal rows, workbooks (Excel's `~$` lock files left out), most recently used first, older journals included, empty folders left out
+- changing a strategy keeps its sessions and journal; unsafe names, empty or long labels, unknown logs and a damaged `strategy.json` are handled
+- the server refuses non-JSON writes and unknown logs
+- online, strategies are kept with the sessions in the browser
+- the desktop store calls `fetch` as a plain function (failed before the fix with "Illegal invocation", passes after)
+
+In the in-app browser, on the desktop app:
+- the dialog listed impulse_candle (24 trades), NBB and Liquidity sweep with their logs and workbooks
+- added "Asian sweep" (folder `asian_sweep`), pressed New session, picked a candle, placed a buy; reloaded the page: the session was listed with its open trade
+- resumed it, stepped forward, then New session on NBB: the Asian sweep session was saved first, the NBB session started, a sell filled and its automatic screenshot was written to `strategies/nbb/screenshots/`
+- Resume on Asian sweep brought it back at 02:40 IST with the buy open: "1 action(s) repeated; every trade matches the save"
+- the test sessions were then deleted from disk
+
+**Found along the way:**
+- Automatic and manual screenshots had been failing since v2.0.5 with "Failed to execute 'fetch' on 'Window': Illegal invocation", and the save when a tab closes was failing silently for the same reason. Cause and fix in [decision 0017](decisions/0017-strategies.md). Every other save worked, so no session was lost, but no screenshot has been written since 4 Oct.
+- Disabled Resume buttons looked the same as enabled ones; they are now dimmed.
+
+**How to check:** start the app, press **Strategies** in the toolbar. Add a strategy, press New session, pick a candle and place a trade. Then New session on another strategy, and Resume on the first: it opens where you left it. Close the app, open it again: the Strategies list still has both.
+
+---
+
+## Journal days 2 to 4: Tue 13 Oct 2026 · the NBB log
+
+**Asked for (Jeevesh):** "I want to automatically measure for all of my trades... start day 2 and build until day 4 is complete." The contract is his spec, `docs/plan-nbb-logger.md`, and his workbook `NBB_Backtest_Log.xlsx`.
+
+**Built (Claude):**
+- **Day 2, groundwork and pre-session fields.**
+  - `forex_replay/loglib.py`, shared with the sweep logger: New York and server clocks, M5 candles read once from the app's own data files, 15m/H4/D1/weekly candles built from a cut of them, Wilder ATR as in the browser, swings, and CSV files rewritten safely and keyed by session.
+  - In `forex_replay/nbb.py`: ADR(5), daily and weekly structure, bias, Asian range, the 00:00 open, PDH/PDL/PWH/PWL, the PD arrays (FVG, order block and breaker on D1 and H4) and the nearest one, and `nbb_days.csv`.
+  - A save of a strategy with `"logger": "nbb"` writes the log. A logger error is reported and never blocks the save. Added `python -m forex_replay nbb <strategy>` to rebuild.
+- **Day 3, setup fields.** H2, H1, L1, the displacement candle with its size against ATR and its body, the rule Fibonacci walk (moved by lower lows, fixed by a close above the previous high, final at the first 0.62 touch in a killzone), opposite arrays in the way, your entry and stop on the rule Fibonacci, and your own Fibonacci drawing.
+- **Day 4, after the setup.**
+  - PENDING until 16:00 New York has been replayed.
+  - The 0.62 fill time, deepest levels in the killzone and in total, resolution, the level at 16:00, break-even, target momentum, and the Phase 2 simulation.
+  - Finished rows are reused on later saves, so saving every 1.5 seconds stays quick.
+  - The status bar says "NBB log: N trade(s), N day(s)" after each save.
+- Buys are measured on mirrored candles, so the rules exist once. Every judgment call where the spec left room is listed in [decision 0018](decisions/0018-nbb-logger.md).
+
+**Tests:** 14 new Python tests (86 in total); JavaScript unchanged at 139. They run on a hand-built day (`tests/nbb_day.py`) whose every expected number is worked out in its comments.
+- every field of a built sell setup, down to Phase 2 = 2.95R (half at 0.0: 0.82R; the runner to H2 minus ADR: 2.13R)
+- the same day upside down gives the buy mirror, field by field
+- no look-ahead: deleting every candle after the order, with price running above H2 later, changes no PRE or SETUP field; a replay stopped at 12:00 gives PENDING and blank POST fields
+- a weak displacement is still logged; no H1 gives NO_SETUP
+- one candle through both ends resolves as the stop
+- a lower low after the leg was fixed moves the 0.0
+- saving twice gives identical files; PENDING turns COMPLETE; another session's rows are kept
+- reusing finished rows gives byte-for-byte the files a full recompute gives
+- the headers are the spec's column lists, read from the spec file
+- day rows from Monday 00:00 to Wednesday 12:00 are Monday, Tuesday and Wednesday
+- the structure rule; Wilder ATR; the save hook (and that a logger failure keeps the save); the rebuild command
+
+I broke four rules on purpose, one at a time:
+- reading past the order
+- checking the target before the stop
+- not waiting for 16:00
+- never moving the leg after it is fixed
+
+Each made a test fail. The first one at first did not: the setup code guards against reading past the order in two places. I added a price spike after the order to the test, and removing both guards then failed it.
+
+**In the in-app browser:**
+- Started an NBB session on 11 Mar 2026 from the Strategies dialog, sold at market at 07:30 New York, and replayed past 16:00.
+- The status bar said "NBB log: 1 trade(s), 0 day(s)". There were no day rows because the session started after that day's 00:00.
+- `strategies/nbb/nbb_log.csv` had every column filled, for example:
+  - H2 1.16456 at 03:15, H1 1.16410, L1 1.16276
+  - displacement at 03:30, 2.36 × ATR
+  - resolution TARGET at 11:00
+- The test session was deleted afterwards.
+
+**Checked with the workbook:** 80 made-up trades on real candles were logged and pasted into a copy of `NBB_Backtest_Log.xlsx` in Excel. Every sheet recalculated with no error cells, and every Stats section filled. Details in [decision 0018](decisions/0018-nbb-logger.md).
+
+**Found along the way:**
+- **Speed.** The first version spent most of its time looking up New York daylight saving for every hour of history. Caching it took a day's pre-session fields from 0.08 to 0.03 seconds.
+- **Saves were too slow.** A save recomputed every trade, which would have slowed saves to seconds in long sessions. Finished rows are now reused.
+- **A leftover test session came back.** After journal day 1, the in-app browser still had the test Asian sweep session open, and saved it again when the app's server restarted. That is the app keeping work safe, as designed. It was test data, so it was deleted.
+
+**How to check:**
+1. Start the app and open **Strategies**. Press **New session** on **NBB Trader playbook** and replay a morning: draw your Fibonacci, place the 0.62 limit with the stop at H2, and let it close. Carry on past 16:00 New York.
+2. Open `strategies/nbb/nbb_log.csv`. `h2_price`, `fib_0` and `user_fib_*` should match your chart, and `entry_fib_level` should be about 0.62.
+3. In `strategies/nbb/NBB_Backtest_Log.xlsx`, do the one-time setup on its Start here sheet, then Data > Refresh All.
+
+---
+
+## Journal days 5 to 7: Tue 13 Oct 2026 · the sweep log, checklists, and sharing the features (v2.1.0)
+
+**Asked for (Jeevesh):** "start day 5 and build until day 7 is complete, and I want to add this as a feature in github, so that my friend can use it too, but not with same strategies... he should only have access to features, not the strategy excel file, as he may mistakenly enter into my session and update the wrong trades."
+
+**Built (Claude):**
+- **Days 5 and 6, the sweep log** (`forex_replay/sweep.py`, to `docs/plan-sweep-logger.md`):
+  - **The 08:00 map:** PDH/PDL, overnight high and low, 30m swings untaken and moved away at least 0.5 × ATR within 5 weekdays, and equal levels; the rulebook map at 1.0 × ATR and 2 days.
+  - **The sweep before the entry:** break, close back, extreme, closes beyond; the rule entry and stop; the six nearest opposite levels; whether the big move had already happened.
+  - **After the setup:** PENDING until 16:00 is replayed; stop hit, best move before the stop, the 16:00 result, and the Phase 2 simulation.
+  - **Counts:** trade of the day and attempt at the same level, and `sweep_days.csv` with the sweeps in the 08:00 to 11:00 window.
+  - **Shared parts** (the trade columns, mirroring for buys, reading earlier rows) moved into `loglib.py`; the NBB output is unchanged, checked by its 14 exact-value tests.
+  - **Rebuild command:** `python -m forex_replay sweep <strategy>`.
+- **Day 7, checklists:**
+  - Your own questions per strategy (Yes/No, a choice, or a number), edited from **Checklist** in the Strategies dialog and answered in the journal box.
+  - The answers are saved with the trade's note, and written to `checklist_log.csv`, one column per question.
+- **Sharing:**
+  - `strategies/` is ignored by git except its README. The personal files that were in the repository (`impulse_candle`, and the NBB and sweep `strategy.json`) were untracked; they are still on Jeevesh's computer.
+  - The README has the steps for a friend to use the app for their own strategies.
+  - See [decision 0020](decisions/0020-checklists-and-sharing.md).
+- **Release v2.1.0.**
+
+**Tests:** 18 new Python tests (104 in total) and 2 new JavaScript tests (141 in total).
+- **The sweep:** a hand-built day with every number worked out in `tests/sweep_day.py`:
+  - every field of a sell, down to Phase 2 = 2.08R; its buy mirror; no look-ahead (a spike through ONH after the entry changes nothing measured before it); PENDING before 16:00
+  - a run of 3 closes is still logged; a candle through the stop and the target is the stop, and its low is not counted in the best move
+  - the map rules (a swing taken before 08:00 is off the map, two close swings are one EQ level, a swing at the overnight high is dropped, a swing that moved away 0.74 × ATR is on the app's map but not the rulebook's); ONH outranks a swing when both are swept
+  - saving twice is identical; reused rows give the same files as a full recompute; trade-of-day and level-attempt counts
+  - the headers; day rows; only the strategy's own log runs; rebuild; weekday ages
+- **Checklists:** questions cleaned the same way in both languages; answers kept and written as the browser keeps them; one column per question; a renamed question keeps its old column; no checklist, no file.
+- **File locks:** a file held by another program is retried, then explained.
+
+I broke four sweep rules on purpose, one at a time:
+- reading past the entry
+- checking the target before the stop
+- not waiting for 16:00
+- keeping taken swings on the map
+
+Each made a test fail.
+
+**In the in-app browser:**
+- Gave Liquidity sweep a checklist of two questions through the real editor ("Was it the first sweep of the day?" Yes/No; "Entry trigger": Close back inside, Engulfing, FVG).
+- Started a session on 11 Mar 2026, sold at 08:40 New York, and answered both questions in the journal box.
+- Restarted the server, resumed: the answers were still there. Replayed past 16:00.
+- The status bar said "SWEEP log: 1 trade(s), 1 day(s) · checklist: 1 trade(s)":
+  - `checklist_log.csv` had Yes and Engulfing under the two questions.
+  - `sweep_log.csv` had the trade (NO_SETUP: the sell did not follow a sweep above).
+  - `sweep_days.csv` counted 2 sweeps in the window.
+- The test session and checklist were removed afterwards.
+
+**Checked with the workbook:** 80 made-up trades on real candles were logged and pasted into a copy of `Sweep_Backtest_Log.xlsx` in Excel. There were no error cells and every Stats section filled. "Days with at least one sweep" (30) matched the logger's own count. Details in [decision 0019](decisions/0019-sweep-logger.md).
+
+**Found along the way:**
+- **The app would not start.** The new checklist code in the journal box used a helper before it was defined. No test covers that panel; the browser check caught it at once.
+- **Checklist answers saved but did not show.** The journal box skipped redrawing while anything inside it had focus, which was meant to protect a number being typed. A clicked Yes button kept focus, so it never lit up. It now holds back only while a number box has focus.
+- **"Access is denied" writing `sweep_log.csv`.** OneDrive was uploading the file a moment after it was created, and Windows will not replace a file another program holds. This would have happened in real use, and with Excel holding the CSV too. Log files are now moved into place with retries, and the status bar explains if one stays locked.
+- **My first Excel check of the sweep workbook showed all zeros.** That was my check, not the logger: I cut the checking script's output short, which stopped it before it saved the copy. Rerun properly, it filled.
+- **Two old test sessions came back.** The built-in browser kept pages from earlier checks open, and they saved their sessions again when the server restarted: the NBB one from days 2 to 4, and the Asian sweep one from day 1. That is the app protecting unsaved work, as designed; they were test data and were deleted. Browser checks now end by closing the tab with the server stopped, which CLAUDE.md now says.
+
+**How to check:**
+1. **The sweep log:** open **Strategies**, press **New session** on Liquidity sweep, replay a New York morning, and take a sweep trade at the close back with the stop beyond the sweep. Replay past 16:00, then open `strategies/liquidity_sweep/sweep_log.csv`: `level_type` and `level_price` should be the level you traded, and `stop_diff_pips` about 0.
+2. **A checklist:** press **Checklist** beside any strategy, add a question, and save. Pick a trade: the question is in the journal box. After a save, `checklist_log.csv` has your answer.
+3. **Sharing:** on GitHub the `strategies` folder shows only its README.
+
+---
+
+## After v2.1.0: Wed 14 Oct 2026 · GBPUSD and USDJPY (v2.2.0)
+
+**Asked for (Jeevesh):** "Add GBP/USD and USD/JPY data too", with 1-minute candles for all three; then "add those data in the app". TradingView was discussed and set aside (its terms forbid scraping, its history is short, and it has no spread). MT5 it was.
+
+**Getting the data:**
+- The Five Percent Online terminal was open but not logged in: its journal said "authorization ... failed (Invalid account)". Jeevesh logged in to a FundedNext demo account.
+- I read the candles with MetaQuotes' `MetaTrader5` Python package, installed with his permission (48 KB, from PyPI, read-only use).
+- FundedNext's EURUSD matched the existing Five Percent Online file to a median 0.1 pip with no time shift (6.5 pips or more with a one-hour shift), so the server clocks agree.
+- The M5 files cover 31 Jul 2025 to 14 Oct 2026. The M1 files stopped at 99,999 candles (8 Jul 2026), MT5's "Max bars in chart" limit.
+
+**Built (Claude):**
+- The data pipeline builds every pair with an M5 export (`SYMBOLS`: EURUSD, GBPUSD, and USDJPY with 3 digits) and writes `web/data/symbols.json`, at app start, in `python -m forex_replay data` and in the website build.
+- A pair picker in the toolbar. Switching saves the session on screen and reloads the app on the other pair. Resume on another pair's session opens that pair first.
+- USDJPY money converted to dollars at each price: size at the entry, closed parts at their exit prices, open trades at the price now. Pips come from the data (`pip_points`), so the chart's ATR and ADR in pips are right on USDJPY too.
+- Leftover "EURUSD" labels on the page now show the pair.
+- See [decision 0021](decisions/0021-more-pairs.md).
+
+**Tests:** 1 new Python test (105 in total) and 3 new JavaScript tests (144 in total).
+- every pair with an export is built with its own digits (147.250 stored as 147250 exactly) and listed; M1 files are left alone; an unchanged pair is not rebuilt
+- a point is worth $1 a lot on pairs quoted in dollars and 100 yen in dollars on USDJPY; a pair without the dollar is refused
+- USDJPY size from risk, profit converted at the exit price, partial closes each at their own price, open trades at the price now; never priced without a price
+- EURUSD money is unchanged
+
+**Built data:**
+- GBPUSD: 89,584 M5 candles, 0 bad, 55 short gaps
+- USDJPY: 89,552 M5 candles, 0 bad, 59 short gaps
+- EURUSD unchanged: 82,569 candles, 229 short gaps
+
+**In the in-app browser:**
+- The picker listed the three pairs. USDJPY loaded with 3-decimal prices.
+- A 10-pip stop with 1% risk sized to 1.58 lots risking $99.82.
+- The trade hit its target 201 points up for +$194.07, the same cent as worked by hand from the saved file. `trades.csv` showed USDJPY, 10.0 pips risk, 20.1 pips profit.
+- Switched to EURUSD, pressed Resume on the USDJPY session: the app reopened on USDJPY with every trade matching.
+- GBPUSD loaded.
+- The test strategy was deleted after leaving the replay and closing the tab.
+
+**Not done:**
+- The new data files are not committed (Jeevesh's call: broker data in a public repository).
+- M1 is not used yet.
+
+---
+
+## After v2.2.0: Wed 14 Oct 2026 · the replay runs on 1-minute candles (v2.3.0)
+
+**Asked for (Jeevesh):** "make the app use 1-minute candles", after MT5's max bars was set to Unlimited and the full M1 history was read (about 446,000 candles a pair).
+
+**Checked first:**
+- M5 built from FundedNext's GBPUSD minutes matched FundedNext's own GBPUSD M5 on 100% of candles.
+- For EURUSD, the same comparison against the old Five Percent Online M5 file matched on only 0.25%: same clock, different broker prices. So all three pairs now come from FundedNext.
+- There were no saved sessions to convert.
+
+**Built (Claude):**
+- **Data:**
+  - The pipeline reads only M1 exports, plain or compressed (`.csv.gz`), into `web/data/<pair>/M1`.
+  - The three M1 files are kept compressed in git (about 5 MB each).
+  - Built: EURUSD 445,308, GBPUSD 445,279, USDJPY 444,818 minutes, 0 bad candles, fewer than 1% of minutes missing (quiet minutes).
+- **The replay:**
+  - An M1 button; the clock steps one minute; every timeframe is built from the minutes; fills happen on the minutes.
+  - Replay speeds up to 300 minutes a second.
+  - Sessions record `barSeconds`, and Resume refuses a session replayed on another candle size.
+- **The logs:**
+  - They measure M5 built from the minutes, counting only 5-minute candles that had closed at the moment in question (`loglib.closed_cut`).
+  - The entry's spread comes from its exact minute.
+- **The chart:**
+  - It holds a window of candles (3,000, at most 6,000) that moves as you scroll or jump, instead of all 445,000.
+  - Indicators are still worked out on every candle.
+- See [decision 0022](decisions/0022-one-minute-candles.md).
+
+**Tests:** 5 new Python tests (110 in total); JavaScript at 144. The JavaScript real-data test still found the browser's H4 and D1 candles, now built from the minutes, equal to pandas.
+- M5 built from minutes equals the original candles
+- the closed-candle rule, at 08:37 and 08:39
+- a minute session logs exactly what the 5-minute one did when the times line up (NBB and sweep, trades and days)
+- an entry at 08:38 does not see a sweep confirmed on the candle closing at 08:40, one at 08:40 does, and deleting later minutes changes nothing measured before
+- the entry spread from the fill minute
+- letting the logs see the forming candle on purpose made 2 tests fail
+
+**In the in-app browser (GBPUSD, 445,279 minutes):**
+- The app loaded in about 4 to 7 seconds, with M1 in the timeframe bar.
+- **First version, too slow:** switching timeframe took 2 to 5 seconds, and a replay step took 114 ms.
+- **Finding the cause:**
+  - My own code took nearly nothing; the time was inside the chart library's `update`.
+  - A bare chart with the same candles and the same options updated in 0.7 ms, and a brand-new chart built with the app's own code in 0.5 ms.
+  - The difference was the mouse: with it over the chart, the library works out the crosshair again across every candle it holds. That costs about 1 ms per 1,000 candles: 96 ms at 89,000.
+- **After the window:** switching timeframe 0.2 to 0.6 s, jumping to Aug 2025 0.76 s, back to the newest candles 0.43 s, one step with the mouse over the chart 9 ms.
+- **A trade:** placed 08:38 New York, filled on the 08:39 minute; the session saved with `barSeconds: 60`. No console errors.
+- The test session was deleted after leaving the replay and closing the tab.
+
+**Found along the way:**
+- The mouse-over-chart cost was already there with M5: about 90 ms a step at 83,000 candles. The day-13 figure of about 3 ms a step was measured with the mouse elsewhere.
+- **The first window was still too big.** It ran from a jump back to the newest candle (430,000 candles, 4 seconds). It now has limits on both sides.
+- OneDrive held the old `web/data/<pair>/M5` folder, so deleting it failed. The build now removes the files and leaves an empty folder if it must.
+
+**How to check:**
+1. Start the app and press **M1**.
+2. Start a replay, then press Shift + → to step a minute at a time, or Space to play.
+3. Jump to an old date with **Go to**, scroll left and right, then press **Latest**.
+
+---
+
+## After v2.3.0: Tue 20 Oct 2026 · offline check, profit by day and month, drawdown in dollars (v2.3.1)
+
+**Asked for (Jeevesh):** backtest on a train with no internet, and know whether he can start a session, trade, and see trades, P&L, profit by day and month, drawdown and the rest per strategy and session; build whatever is missing.
+
+**What was already there:** offline use, new sessions and trading, and the analytics page per strategy (Journal menu) and per session (Run filter), with trades, win rate, expectancy, total R and dollars, profit factor, drawdown in R, streaks, worst day, an equity curve, and breakdowns by market session, weekday, side, exit and tag. **Missing:** profit by day, profit by month, and drawdown in dollars.
+
+**Built (Claude):**
+- In `forex_replay/stats.py`, held to the browser by `stats_golden.json` (whose random journals now have dollar amounts):
+  - `period_table` (trades, win rate, total R, net $ per day or month, by the day the trade closed, newest first)
+  - `max_drawdown_usd`
+- `web/js/analytics.js`: `periodTable` and `maxDrawdownMoney`, the same rules.
+- The analytics page: "By month" and "By day" tables (each says how many periods were up), and the dollar drawdown beside the R drawdown.
+- See [decision 0023](decisions/0023-profit-by-period-and-offline.md).
+
+**Tests:** 1 new Python test (111 in total) and 1 new JavaScript test (145 in total).
+- by day, by month and the dollar drawdown worked by hand: a day with +$196 and -$104 is +$92; a row without dollars counts in trades and R only; dollars going 0, 196, 92, -12, 134 have a largest fall of $208
+- every day, month and dollar drawdown of the 40 random journals matches stats.py
+
+**In the in-app browser:**
+- Made a strategy and a session on EURUSD minutes and took 5 trades over four days.
+- The analytics page for that strategy showed:
+  - 5 trades, +0.97R, +$72.05
+  - max drawdown 1.02R / -$106.00
+  - May 2026: 5 trades, +$72.05
+  - by day: -$106.00, +$192.08, +$90.00, -$104.03, which add up to +$72.05
+- The session appeared in the Run filter.
+- **Offline:** every request of the session went to `localhost`, and no `https://` request was made. The page, stylesheet, chart library (`vendor/`), code and data are all files on this computer.
+- The test session was deleted after leaving the replay and closing the tab.
+
+**How to check:**
+1. Switch off Wi-Fi and start the app.
+2. Open **Strategies**, press **New session**, and trade.
+3. Open **Analytics**, pick the strategy in **Journal** and the session in the run menu: the totals, the drawdown in R and $, **By month** and **By day** are there.
+
+---
+
+## Same day: the dollar figures other replay tools show (v2.3.2)
+
+**Asked for (Jeevesh):** why start the app online before a trip, and whether he can close the laptop and come back hours later; and "every basic data like P&L etc. for that session which are normally given in other FX replays", added if missing.
+
+**Answered:**
+- Starting online first is not needed on his computer. The chart library is already in `web/vendor/`, and data builds from `data/` on the computer. Only a brand-new copy needs the internet once, for the chart library.
+- Closing the lid (sleep) keeps everything open. A full shutdown is fine too: sessions save a moment after every change, and Resume brings them back.
+
+**Missing, compared with what replay tools usually show:** gross profit and loss, average and largest win and loss in dollars, profit factor in dollars, best day, long vs short in dollars, starting and ending balance, return %, drawdown % of the balance, an equity curve in dollars, and average planned reward:risk.
+
+**Built (Claude):**
+- `stats.py` `money_stats` and a net-dollar column on `breakdown`, held to `analytics.js` by `stats_golden.json`.
+- Sessions record their starting balance.
+- A Money row of tiles on the analytics page, a Net $ column on every breakdown, and an R / $ switch on the equity curve.
+- See [decision 0023](decisions/0023-profit-by-period-and-offline.md).
+
+**Tests:** 1 new Python test (112 in total) and 1 new JavaScript test (146 in total).
+- **Worked by hand:** a breakeven trade that paid $4 commission is a dollar loss; the balance 10,000 → 10,196 → … → 10,130 gives return 1.3% and drawdown 212 / 10,196 = 2.08%.
+- **Browser against Python:** every dollar figure and every breakdown's net dollars match on the 40 random journals.
+- The regenerated comparison file happened to lose its empty journal, which the coverage test caught; journal 0 is now always empty.
+
+**In the in-app browser:** a session with 6 closed trades on EURUSD minutes.
+- The Money tiles read: gross +$376.30 / −$406.60, profit factor 0.93, average +$188.15 / −$101.65, largest +$189.15 (+2.01R) / −$103.00 (−1.01R), best day +$189.15, worst day −$204.92, balance $10,000.00 → $9,969.70, return −0.30%, drawdown 4.07%.
+- By side: BUY +$173.50, SELL −$203.80. The equity curve in dollars ended at −$30.30.
+- Python's `money_stats`, run on the saved journal file, gave the same numbers.
+- No console errors. The test session was deleted after leaving the replay and closing the tab.
+
+**How to check:** open **Analytics**, pick a strategy, and pick one session in the run menu. Then look at the **Money** tiles, the **Net $** columns, and press **$** above the equity curve.
+
+---
+
+## Same day: longer H1, H4 and D1 history, and USDCAD and AUDUSD (v2.4.0)
+
+**Asked for (Jeevesh):** as much higher-timeframe data as possible for the three pairs, up to 4 years of daily candles, and two more of the most liquid pairs.
+
+**Chosen:** USDCAD and AUDUSD. After EURUSD, USDJPY and GBPUSD come USDCNY, USDCAD and AUDUSD; USDCNY is not offered by FundedNext or most brokers.
+
+**What MT5 had:** asked repeatedly, FundedNext's server gave H1, H4 and D1 history from 1 Jan 2024 for EURUSD, GBPUSD, USDJPY and USDCAD, and much further for AUDUSD (D1 back to 1993), capped here at 4 years (20 Oct 2022).
+
+**Checked before building:** where MT5's own H1, H4 and D1 candles overlap the minutes, they equal the candles built from the minutes: 100% of 7,224 H1, 1,806 H4 and 301 D1 candles each for EURUSD, USDJPY and AUDUSD.
+
+**Built (Claude):**
+- **Data:**
+  - Exported H1, H4 and D1 for five pairs, and M1 for USDCAD and AUDUSD; 17 compressed files, about 11 MB.
+  - The pipeline writes each pair's older candles (those closed before its first minute, at most 4 years back) to `<pair>/<tf>/history.bin` and lists them in the manifest. A newer history export counts as new data.
+- **The app:** `TimeframeView` puts the history in front of the candles built from the minutes (it never changes and is never forming), and loads it per pair. A click on a history candle to start a replay says where the minutes begin.
+- **The pairs:** USDCAD and AUDUSD added. USDCAD money is converted from Canadian dollars at each price, as USDJPY's is from yen.
+- See [decision 0024](decisions/0024-longer-history-and-two-more-pairs.md).
+
+**Tests:** 1 new Python test (113 in total) and 1 new JavaScript test (147 in total), plus new cases in an existing one.
+- the history step keeps a day that closed before the first minute, and drops one more than 4 years old and one overlapping the minutes
+- the joined view: history first; an overlapping history hour replaced by the one built from minutes; only the forming hour changes as the replay moves; before any minute, the history alone with nothing forming
+- AUDUSD priced like EURUSD; USDCAD at 1.37000 = $0.73 a point per lot
+
+**Built data:**
+- USDCAD 450,512 and AUDUSD 450,830 minutes from 1 Aug 2025
+- history H1 9,836 / H4 2,467 / D1 412 candles for four pairs, and H1 17,218 / H4 4,328 / D1 723 for AUDUSD
+
+**In the in-app browser:**
+- The pair menu listed five pairs.
+- AUDUSD's D1 chart showed Nov 2022 to Jan 2023 after a jump (switching to D1: 263 ms).
+- Clicking a 2022 daily candle to start a replay gave "A replay can start from Fri 01 Aug 2025, 05:30 IST, where the 1-minute candles begin."
+- USDCAD: a 10-pip stop at 1.3669 with 1% risk sized to 1.36 lots risking $99.49, matching the hand calculation.
+- No console errors. The test strategy was deleted after leaving the replay and closing the tab.
+
+**How to check:** pick AUDUSD, press **D1**, and scroll left to October 2022. On EURUSD, D1 goes back to January 2024.

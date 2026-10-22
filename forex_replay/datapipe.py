@@ -19,6 +19,7 @@ a stop at 1.08500 is hit by a low of 1.08500, never missed by float rounding.
 
 from __future__ import annotations
 
+import gzip
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -32,7 +33,7 @@ from .config import PROJECT_ROOT
 SERVER_OFFSET_FROM_NEW_YORK = pd.Timedelta(hours=7)
 FIELDS = ["time", "open", "high", "low", "close", "volume", "spread"]
 BYTES_PER_BAR = 4 * len(FIELDS)
-PIPELINE_VERSION = 2  # bump when the output files change, so existing installs rebuild
+PIPELINE_VERSION = 3  # bump when the output files change, so existing installs rebuild (3: M1 base, 14 Oct 2026)
 WEB_DATA_DIR = PROJECT_ROOT / "web" / "data"
 DATA_DIR = PROJECT_ROOT / "data"
 
@@ -46,14 +47,31 @@ class SymbolSpec:
     bar_seconds: int = 300
 
 
-EURUSD = SymbolSpec()
+# The app replays 1-minute candles (decision 0022): every timeframe, every fill and every log is built from them.
+EURUSD = SymbolSpec(timeframe="M1", bar_seconds=60)
+# Every symbol the app knows how to price. A symbol is offered in the app once data/ holds an M1 export of it
+# (plain .csv or compressed .csv.gz). pip_points: points in one pip (5-digit quotes: 0.0001 = 10 points;
+# USDJPY's 3 digits: 0.01 = 10 points).
+SYMBOLS = {
+    "EURUSD": EURUSD,
+    "GBPUSD": SymbolSpec(symbol="GBPUSD", timeframe="M1", bar_seconds=60),
+    "USDJPY": SymbolSpec(symbol="USDJPY", digits=3, pip_points=10, timeframe="M1", bar_seconds=60),
+    "USDCAD": SymbolSpec(symbol="USDCAD", timeframe="M1", bar_seconds=60),
+    "AUDUSD": SymbolSpec(symbol="AUDUSD", timeframe="M1", bar_seconds=60),
+}
+
+# History before the 1-minute candles begin, shown on these charts for context (decision 0024): MT5's own
+# candles of the timeframe, up to HISTORY_YEARS before today, only where they end before the first minute.
+HISTORY_TIMEFRAMES = {"H1": 3600, "H4": 14400, "D1": 86400}
+HISTORY_YEARS = 4
 
 
 # ----------------------------------------------------------------- reading
 def read_mt5_csv(path: str | Path) -> pd.DataFrame:
     """Read an MT5 export. Returns server-time-indexed OHLC with volume and spread (points)."""
     path = Path(path)
-    with path.open(encoding="utf-8-sig") as f:
+    opener = gzip.open if path.suffix == ".gz" else open  # exports may be kept compressed (.csv.gz)
+    with opener(path, "rt", encoding="utf-8-sig") as f:
         first = f.readline()
 
     if first.startswith("<DATE>"):  # MetaTrader "Export Bars" (tab separated)
@@ -162,6 +180,14 @@ def from_bytes(blob: bytes) -> np.ndarray:
 
 def write_dataset(df: pd.DataFrame, spec: SymbolSpec, out_root: Path, report: dict) -> dict:
     out_dir = out_root / spec.symbol / spec.timeframe
+    for other in (out_root / spec.symbol).glob("*"):  # files of another base timeframe (the M5 of before) go
+        if other.is_dir() and other.name != spec.timeframe and other.name not in HISTORY_TIMEFRAMES:
+            for f in other.glob("*.bin"):
+                f.unlink()
+            try:
+                other.rmdir()
+            except OSError:
+                pass  # a synced folder (OneDrive) can hold an empty directory a while; it is harmless
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob("*.bin"):
         old.unlink()
@@ -237,7 +263,7 @@ def reference_candles(df: pd.DataFrame, spec: SymbolSpec) -> dict:
 # ----------------------------------------------------------------- entry point
 def find_exports(data_dir: Path = DATA_DIR, symbol: str = "EURUSD", timeframe: str = "M5") -> list[Path]:
     """Exports for a symbol/timeframe, oldest file first so newer exports win overlaps."""
-    files = [p for p in data_dir.glob(f"{symbol}_{timeframe}*.csv")]
+    files = [p for p in data_dir.glob(f"{symbol}_{timeframe}_*") if p.name.endswith((".csv", ".csv.gz"))]
     return sorted(files, key=lambda p: p.stat().st_mtime)
 
 
@@ -257,7 +283,72 @@ def build(start: str = "2025-08-01", spec: SymbolSpec = EURUSD, data_dir: Path =
     if report["bad_ohlc_candles"]:
         raise ValueError(f"{report['bad_ohlc_candles']} candles have impossible OHLC values; fix the export")
     manifest = write_dataset(merged, spec, out_root, report)
+    manifest = write_history(spec, data_dir, out_root, manifest)
     return manifest, report
+
+
+def write_history(spec: SymbolSpec, data_dir: Path, out_root: Path, manifest: dict,
+                  today: pd.Timestamp | None = None) -> dict:
+    """Older H1, H4 and D1 candles (MT5's own) for the charts, ending before the first base candle.
+
+    They are written to <symbol>/<timeframe>/history.bin and listed in the manifest under "history".
+    A candle counts only if it closed before the first minute, so history and the candles built from
+    the minutes never overlap or disagree about the same period.
+    """
+    today = today if today is not None else pd.Timestamp.now(tz="UTC")
+    since = today - pd.DateOffset(years=HISTORY_YEARS)
+    first_base = pd.Timestamp(manifest["first"], unit="s", tz="UTC")
+    history = {}
+    for tf, seconds in HISTORY_TIMEFRAMES.items():
+        files = find_exports(data_dir, spec.symbol, tf)
+        out_dir = out_root / spec.symbol / tf
+        if not files:
+            if (out_dir / "history.bin").exists():
+                (out_dir / "history.bin").unlink()
+            continue
+        df, _ = merge_exports([read_mt5_csv(f) for f in files])
+        df.index = server_to_utc(df.index)
+        df = df[(df.index >= since) & (df.index + pd.Timedelta(seconds=seconds) <= first_base)]
+        if df.empty:
+            continue
+        rows = to_rows(df, spec)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "history.bin").write_bytes(rows.tobytes())
+        history[tf] = {"file": f"{spec.symbol}/{tf}/history.bin", "bars": int(len(rows)),
+                       "first": int(rows[0, 0]), "last": int(rows[-1, 0])}
+    manifest["history"] = history
+    (out_root / spec.symbol / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
+
+
+def specs_with_exports(data_dir: Path = DATA_DIR) -> list[SymbolSpec]:
+    """The known symbols that have at least one M5 export in data/."""
+    return [spec for spec in SYMBOLS.values() if find_exports(data_dir, spec.symbol, spec.timeframe)]
+
+
+def write_index(out_root: Path = WEB_DATA_DIR) -> list[dict]:
+    """web/data/symbols.json: the symbols the app can open, from the manifests built so far."""
+    index = []
+    for symbol in SYMBOLS:
+        path = out_root / symbol / "manifest.json"
+        if path.exists():
+            m = json.loads(path.read_text(encoding="utf-8"))
+            index.append({k: m[k] for k in ("symbol", "digits", "pip_points", "bars", "first", "last")})
+    out_root.mkdir(parents=True, exist_ok=True)
+    (out_root / "symbols.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
+    return index
+
+
+def build_all(start: str = "2025-08-01", data_dir: Path = DATA_DIR, out_root: Path = WEB_DATA_DIR,
+              only_stale: bool = False) -> list[tuple[dict, dict]]:
+    """Build every symbol with an export (only those whose files are out of date, if asked), then the index."""
+    built = []
+    for spec in specs_with_exports(data_dir):
+        if only_stale and not is_stale(spec, data_dir, out_root):
+            continue
+        built.append(build(start=start, spec=spec, data_dir=data_dir, out_root=out_root))
+    write_index(out_root)
+    return built
 
 
 def is_stale(spec: SymbolSpec = EURUSD, data_dir: Path = DATA_DIR, out_root: Path = WEB_DATA_DIR) -> bool:
@@ -268,6 +359,7 @@ def is_stale(spec: SymbolSpec = EURUSD, data_dir: Path = DATA_DIR, out_root: Pat
         return True
     if json.loads(manifest.read_text(encoding="utf-8")).get("version") != PIPELINE_VERSION:
         return True
+    exports = exports + [f for tf in HISTORY_TIMEFRAMES for f in find_exports(data_dir, spec.symbol, tf)]
     return any(f.stat().st_mtime > manifest.stat().st_mtime for f in exports)
 
 

@@ -26,7 +26,7 @@ test("a damaged entry keeps what is usable", () => {
   assert.equal(e.tags.length, MAX_TAGS);
   assert.equal(e.tags.filter((t) => t === "London").length, 1);
   assert.deepEqual(e.screenshots, ["bt-1-t1-exit.png"]);
-  assert.deepEqual(cleanEntry(null), { note: "", tags: [], screenshots: [] });
+  assert.deepEqual(cleanEntry(null), { note: "", tags: [], screenshots: [], answers: {} });
 });
 
 test("notes, tags and screenshots are kept per trade, and an emptied entry disappears", () => {
@@ -37,7 +37,7 @@ test("notes, tags and screenshots are kept per trade, and an emptied entry disap
   notes.toggleTag(3, "London");
   notes.toggleTag(5, "FOMO");
   notes.addScreenshot(3, "bt-1-t3-entry.png");
-  assert.deepEqual(notes.get(3), { note: "Swept Asia high, entered on the retest", tags: ["A+ setup", "London"], screenshots: ["bt-1-t3-entry.png"] });
+  assert.deepEqual(notes.get(3), { note: "Swept Asia high, entered on the retest", tags: ["A+ setup", "London"], screenshots: ["bt-1-t3-entry.png"], answers: {} });
   assert.equal(notes.toggleTag(3, "   "), false);
   notes.toggleTag(5, "FOMO"); // off again: nothing left for #5
   assert.equal(notes.has(5), false);
@@ -74,7 +74,7 @@ test("notes are saved with the backtest and on each trade for the journal, and d
   const saved = JSON.parse(JSON.stringify(snapshot(meta, {
     trading, drawings: new DrawingStore(), notes, m5, clock, manifest: { symbol: "EURUSD", digits: 5, pip_points: 10 }, timeframe: "M5",
   })));
-  assert.deepEqual(saved.notes, { 1: { note: "Test note", tags: ["followed plan"], screenshots: [] } });
+  assert.deepEqual(saved.notes, { 1: { note: "Test note", tags: ["followed plan"], screenshots: [], answers: {} } });
   assert.equal(saved.trades[0].note, "Test note");
   assert.deepEqual(saved.trades[0].tags, ["followed plan"]);
   assert.deepEqual(rebuild(saved, { m5, pipPoints: 10, pointValue: 1 }).problems, []);

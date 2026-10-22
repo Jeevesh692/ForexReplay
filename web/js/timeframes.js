@@ -1,4 +1,5 @@
-// Builds higher-timeframe candles (M15 ... D1) from the M5 candles.
+// Builds every timeframe (M1 ... D1) from the base candles the data holds: M1 since v2.3 (decision 0022).
+// Comments below still say "M5 candles" where they mean the base candles; the code does not care which.
 //
 // Candle boundaries follow the broker's server clock, which is New York time
 // + 7 hours (see docs/decisions/0002). That is what makes these candles match
@@ -12,6 +13,7 @@
 import { Candles } from "./data.js";
 
 export const TIMEFRAMES = [
+  { id: "M1", seconds: 60, label: "1 minute" },
   { id: "M5", seconds: 300, label: "5 minutes" },
   { id: "M15", seconds: 900, label: "15 minutes" },
   { id: "M30", seconds: 1800, label: "30 minutes" },
@@ -129,10 +131,31 @@ export function aggregate(base, tfId, upTo = base.length) {
  * the replay position can ever reach the chart.
  */
 export class TimeframeView {
-  constructor(base, tfId) {
+  /**
+   * `history` (optional): older candles of this timeframe, all closed before the first base candle
+   * (decision 0024). They come first and never change; a replay cannot start inside them.
+   */
+  constructor(base, tfId, history = null) {
     this.base = base;
     this.id = tfId;
-    const { candles, firstIndex, bucketOf } = aggregate(base, tfId);
+    const built = aggregate(base, tfId);
+    const first = built.candles.length ? built.candles.time[0] : Infinity;
+    let pre = 0;
+    if (history) while (pre < history.length && history.time[pre] < first) pre++;
+    this.historyLength = pre;
+    if (pre > 0) { // history first, then the candles built from the base candles
+      const joined = new Candles(pre + built.candles.length, base.digits);
+      for (const f of ["time", "open", "high", "low", "close", "volume", "spread"]) {
+        joined[f].set(history[f].subarray(0, pre), 0);
+        joined[f].set(built.candles[f].subarray(0, built.candles.length), pre);
+      }
+      const firstIndex = new Int32Array(joined.length).fill(-1); // history candles have no base candles
+      firstIndex.set(built.firstIndex, pre);
+      built.candles = joined;
+      built.firstIndex = firstIndex;
+      built.bucketOf = built.bucketOf.map((k) => k + pre);
+    }
+    const { candles, firstIndex, bucketOf } = built;
     this.full = candles;
     this.firstIndex = firstIndex;
     this.bucketOf = bucketOf;
@@ -143,7 +166,12 @@ export class TimeframeView {
 
   /** Number of timeframe candles visible when `position` M5 candles are revealed. */
   countAt(position) {
-    return position <= 0 ? 0 : this.bucketOf[position - 1] + 1;
+    return position <= 0 ? this.historyLength : this.bucketOf[position - 1] + 1;
+  }
+
+  /** True for a candle of the older history (before the base candles begin). */
+  isHistory(k) {
+    return k < this.historyLength;
   }
 
   /** Index one past the last M5 candle of timeframe candle k. */
@@ -191,10 +219,10 @@ export class TimeframeView {
 
     if (before < 0 || p < before) {
       this.copyFull(0, this.full.length); // jumping or moving back: start from clean candles
-      if (count > 0) this.buildForming(count - 1, p);
+      if (count > this.historyLength) this.buildForming(count - 1, p); // history candles are never forming
       return { reset: true };
     }
-    if (count === 0 || p === before) return { reset: false, from: count, to: count - 1 };
+    if (count <= this.historyLength || p === before) return { reset: false, from: count, to: count - 1 };
 
     // Moving forward: candles passed along the way are now complete; the last one is forming.
     const from = Math.max(0, oldCount - 1);
@@ -206,8 +234,25 @@ export class TimeframeView {
   /** True when the last displayed candle still lacks some of its M5 candles. */
   isForming() {
     const k = this.display.length - 1;
-    return k >= 0 && this.position < this.endOf(k);
+    return k >= this.historyLength && this.position < this.endOf(k);
   }
+}
+
+/**
+ * Hourly candles for a swing replay (decision 0025): the older H1 history first, then the hours built
+ * from the minutes. History stops where the minutes begin, so the two never cover the same hour.
+ */
+export function hourlyBase(minutes, olderHours) {
+  const built = aggregate(minutes, "H1").candles;
+  const first = built.length ? built.time[0] : Infinity;
+  let pre = 0;
+  if (olderHours) while (pre < olderHours.length && olderHours.time[pre] < first) pre++;
+  const out = new Candles(pre + built.length, minutes.digits);
+  for (const f of ["time", "open", "high", "low", "close", "volume", "spread"]) {
+    if (pre) out[f].set(olderHours[f].subarray(0, pre), 0);
+    out[f].set(built[f].subarray(0, built.length), pre);
+  }
+  return out;
 }
 
 /** Index of the last candle whose time is <= t (binary search); -1 if none. */

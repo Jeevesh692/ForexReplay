@@ -5,9 +5,11 @@
 // commission, balance and equity. Keeping it separate means the fill rules
 // stay small and provable, and the money rules can be read on their own.
 //
-// Assumptions (EURUSD on a US-dollar account):
-//  * 1 standard lot = 100,000 units, so one point (0.00001) is worth $1 per lot
-//    and one pip (0.0001) is worth $10 per lot.
+// Assumptions (a US-dollar account):
+//  * 1 standard lot = 100,000 units. On EURUSD and GBPUSD one point (0.00001) is worth
+//    $1 per lot and one pip (0.0001) $10. On USDJPY one point (0.001) is worth 100 yen per lot,
+//    which in dollars depends on the price: at 150.000 it is $0.667, so a pip is $6.67.
+//    Each amount is converted at the price it happens at (the fill, the exit, the price now).
 //  * Lots come in steps of 0.01. A size worked out from risk is rounded DOWN,
 //    so the money at risk is never more than you asked for.
 //  * Commission is a round-turn charge per lot, taken in full when the trade
@@ -62,9 +64,20 @@ export function saveSettings(settings) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch { /* private mode: not saved */ }
 }
 
-/** Dollars per point of price movement for one lot. EURUSD with 5 digits: $1. */
+/** Dollars per point of price movement for one lot, on a pair quoted in dollars. EURUSD with 5 digits: $1. */
 export function pointValuePerLot(digits) {
   return CONTRACT_SIZE / 10 ** digits;
+}
+
+/**
+ * Dollars per point per lot for a symbol: a number when it is the same at every price (quoted in dollars,
+ * like EURUSD), or a function of the price in points when the profit is in another currency and has to be
+ * converted (dollar first, like USDJPY: 100,000 units x 0.001 yen = 100 yen per point, / price in yen = dollars).
+ */
+export function pointValueFor(symbol, digits) {
+  if (symbol.slice(3) === "USD") return pointValuePerLot(digits);
+  if (symbol.slice(0, 3) === "USD") return (pricePoints) => CONTRACT_SIZE / pricePoints;
+  throw new Error(`${symbol}: money for a pair without the dollar needs another rate; not supported.`);
 }
 
 /**
@@ -92,7 +105,7 @@ export class Account {
    */
   constructor(settings, pointValue) {
     this.settings = cleanSettings(settings);
-    this.pointValue = pointValue;
+    this.pointValue = pointValue; // a number, or a function of the price (pointValueFor)
     this.sizes = new Map(); // trade id -> { units, commissionPerLot, riskPercent | null }
   }
 
@@ -110,31 +123,39 @@ export class Account {
    * Work out the size for a new order with `riskPoints` between entry and stop.
    * Returns { units, riskMoney, commission, riskPercent } or { error }.
    */
-  size(riskPoints, balance) {
+  size(riskPoints, balance, price = null) {
     const s = this.settings;
+    const pointValue = this.pv(price);
     if (!(riskPoints > 0)) return { error: "The stop loss must be away from the entry." };
     let units;
     if (s.sizeMode === "lots") {
       units = Math.round(s.fixedLots * LOT_UNITS);
     } else {
-      units = unitsForRisk({ balance, riskPercent: s.riskPercent, riskPoints, pointValue: this.pointValue });
+      units = unitsForRisk({ balance, riskPercent: s.riskPercent, riskPoints, pointValue });
       if (units < 1) {
         const wanted = formatMoney(balance * s.riskPercent / 100);
-        const smallest = formatMoney(riskPoints * this.pointValue / LOT_UNITS);
+        const smallest = formatMoney(riskPoints * pointValue / LOT_UNITS);
         return { error: `Risking ${s.riskPercent}% (${wanted}) is too little for this stop: even 0.01 lots would risk ${smallest}.` };
       }
     }
     return {
       units,
-      riskMoney: this.money(units, riskPoints),
+      riskMoney: this.money(units, riskPoints, price),
       commission: this.commissionFor(units, s.commissionPerLot),
       riskPercent: s.sizeMode === "risk" ? s.riskPercent : null,
     };
   }
 
-  /** Dollars for `points` of price movement on `units` x 0.01 lots. */
-  money(units, points) {
-    return units * points * this.pointValue / LOT_UNITS;
+  /** Dollars per point per lot at a price (points); the same at every price on a pair quoted in dollars. */
+  pv(price) {
+    if (typeof this.pointValue !== "function") return this.pointValue;
+    if (!(price > 0)) throw new Error("This pair's money needs the price it happens at.");
+    return this.pointValue(price);
+  }
+
+  /** Dollars for `points` of price movement on `units` x 0.01 lots, converted at `price` when the pair needs it. */
+  money(units, points, price = null) {
+    return units * points * this.pv(price) / LOT_UNITS;
   }
 
   commissionFor(units, perLot) {
@@ -165,14 +186,25 @@ export class Account {
 
   /** Money at risk between the planned entry and the stop that defines 1R. */
   riskMoney(trade) {
-    return this.money(this.units(trade), trade.plannedRisk);
+    return this.money(this.units(trade), trade.plannedRisk, trade.plannedEntry);
   }
 
   /** Money already banked: closed parts (or the whole trade once closed), minus commission. */
   realized(trade) {
     if (trade.entryPrice === null) return 0;
-    const points = trade.status === Status.CLOSED ? trade.pnl : trade.realized;
-    return this.money(this.units(trade), points) - this.commission(trade);
+    if (typeof this.pointValue !== "function") {
+      const points = trade.status === Status.CLOSED ? trade.pnl : trade.realized;
+      return this.money(this.units(trade), points) - this.commission(trade);
+    }
+    // Each part is converted at the price it was closed at.
+    const direction = trade.side === Side.BUY ? 1 : -1;
+    const units = this.units(trade);
+    let total = 0;
+    for (const part of trade.partials) total += this.money(units, part.fraction * (part.price - trade.entryPrice) * direction, part.price);
+    if (trade.status === Status.CLOSED) {
+      total += this.money(units, trade.remaining * (trade.exitPrice - trade.entryPrice) * direction, trade.exitPrice);
+    }
+    return total - this.commission(trade);
   }
 
   /** Profit or loss of the part still open, at the current price. */
@@ -180,7 +212,7 @@ export class Account {
     if (trade.status !== Status.OPEN) return 0;
     const exit = trade.side === Side.BUY ? bid : bid + spread;
     const direction = trade.side === Side.BUY ? 1 : -1;
-    return this.money(this.units(trade), trade.remaining * ((exit - trade.entryPrice) * direction));
+    return this.money(this.units(trade), trade.remaining * ((exit - trade.entryPrice) * direction), exit);
   }
 
   /** What the trade is worth in total right now (or was worth when it closed), after commission. */

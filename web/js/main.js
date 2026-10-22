@@ -1,6 +1,6 @@
 // App start-up: load data, build the chart, wire the top bar and the replay.
 
-import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValuePerLot } from "./account.js";
+import { formatLots, formatMoney, formatSignedMoney, loadSettings, pointValueFor } from "./account.js";
 import { drawingsBefore, rebuild } from "./backtest.js";
 import { loadRules as loadChallengeRules } from "./challenge.js";
 import { AdrPanel } from "./adrpanel.js";
@@ -24,14 +24,16 @@ import { renderDataView } from "./dataview.js";
 import { OrderType } from "./broker.js";
 import { ReplayClock, SPEEDS } from "./replay.js";
 import { loadSavedSessions, renderSessionKey, setupSessionSettings } from "./sessionsettings.js";
-import { formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
-import { TIMEFRAMES, TimeframeView } from "./timeframes.js";
+import { formatDate, formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
+import { hourlyBase, timeframe as timeframeOf, TIMEFRAMES, TimeframeView } from "./timeframes.js";
 import { InvalidOrder, Side, Status, Trading } from "./trading.js";
 import { TradingPanel } from "./tradingpanel.js";
 
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
 const KEY_TIMEFRAME = "forexreplay.timeframe";
+const KEY_SYMBOL = "forexreplay.symbol";
+const KEY_BASE = "forexreplay.base"; // "M1" (the default) or "H1" for swing replays over the older history
 const KEY_SESSIONS = "forexreplay.sessions";
 const KEY_MAGNET = "forexreplay.magnet";
 const KEY_LAYOUT = "forexreplay.layout";
@@ -95,19 +97,40 @@ async function boot() {
     ? `<span class="ok">Chart library v${lib.version()} ready</span>`
     : '<span class="bad">Chart library missing</span>';
 
+  // Which pair: ?symbol= in the address (set when switching), else the last one used, else the first built.
+  const symbols = await loadJSON("data/symbols.json").catch(() => [{ symbol: "EURUSD" }]); // older data: EURUSD only
+  const params = new URLSearchParams(location.search);
+  const known = (s) => symbols.some((x) => x.symbol === s);
+  const symbol = [params.get("symbol"), recall(KEY_SYMBOL, null), symbols[0].symbol].find((s) => s && known(s)) || "EURUSD";
+  try { localStorage.setItem(KEY_SYMBOL, symbol); } catch { /* private mode: not kept */ }
+  const symbolBox = $("symbol");
+  symbolBox.innerHTML = symbols.map((s) => `<option${s.symbol === symbol ? " selected" : ""}>${s.symbol}</option>`).join("");
+
   let loaded, quality;
   try {
-    [loaded, quality] = await Promise.all([loadSymbol("EURUSD"), loadJSON("data/EURUSD/quality.json")]);
+    [loaded, quality] = await Promise.all([loadSymbol(symbol), loadJSON(`data/${symbol}/quality.json`)]);
   } catch (err) {
     console.error(err);
     showError(`Could not load the market data.\n${err.message}\n\n` +
       "Fix: close this tab, then run  python -m forex_replay app --rebuild");
     return;
   }
-  const { manifest, candles: m5 } = loaded;
+  // The candles the replay steps through: minutes, or hours for swing replays that reach back over the older
+  // H1 history (decision 0025). Everything below works on `m5` as the base, whatever its size.
+  const canSwing = !!loaded.history.H1;
+  const baseMode = [params.get("base"), recall(KEY_BASE, "M1")].find((b) => b === "M1" || (b === "H1" && canSwing)) || "M1";
+  try { localStorage.setItem(KEY_BASE, baseMode); } catch { /* private mode: not kept */ }
+  const m5 = baseMode === "H1" ? hourlyBase(loaded.candles, loaded.history.H1) : loaded.candles;
+  const manifest = baseMode === "H1"
+    ? { ...loaded.manifest, timeframe: "H1", bar_seconds: 3600, bars: m5.length, first: m5.time[0], last: m5.time[m5.length - 1] }
+    : loaded.manifest;
+  const history = baseMode === "H1" ? {} : loaded.history; // the hours already reach as far back as the H4 and D1 history
+  const baseBox = $("base");
+  baseBox.innerHTML = `<option value="M1"${baseMode === "M1" ? " selected" : ""}>1-minute candles · from ${formatDate(loaded.manifest.first)}</option>` +
+    (canSwing ? `<option value="H1"${baseMode === "H1" ? " selected" : ""}>1-hour candles (swing) · from ${formatDate(loaded.history.H1.time[0])}</option>` : "");
 
   $("status-data").textContent =
-    `${manifest.symbol} · ${number(manifest.bars)} M5 candles · ` +
+    `${manifest.symbol} · ${number(manifest.bars)} ${manifest.timeframe} candles · ` +
     `${formatDateTime(manifest.first)} → ${formatDateTime(manifest.last)} IST`;
 
   const redrawData = renderDataView($("data-view"), { manifest, quality, candles: m5 });
@@ -124,12 +147,14 @@ async function boot() {
   const clock = new ReplayClock(m5.length);
   const views = new Map();
   const viewFor = (tf) => {
-    if (!views.has(tf)) views.set(tf, new TimeframeView(m5, tf));
+    if (!views.has(tf)) views.set(tf, new TimeframeView(m5, tf, history[tf] || null));
     return views.get(tf);
   };
 
+  // Only timeframes at least as long as the replay's candles: in 1-hour mode, H1, H4 and D1.
+  const usable = TIMEFRAMES.filter((t) => t.seconds >= manifest.bar_seconds);
   let current = recall(KEY_TIMEFRAME, "M15");
-  if (!TIMEFRAMES.some((t) => t.id === current)) current = "M15";
+  if (!usable.some((t) => t.id === current)) current = usable.some((t) => t.id === "M15") ? "M15" : usable[0].id;
   let view = viewFor(current);
   let picking = false; // waiting for a click on the candle to start the replay from
   let panel = null; // trading panel (created below, once the chart exists)
@@ -148,13 +173,14 @@ async function boot() {
   let layoutTwo = recall(KEY_LAYOUT, "one") === "two";
   const mainPane = { id: "main", legend: $("legend"), get tf() { return current; }, get view() { return view; }, chart: null, layer: null };
   const sideTf = recall(KEY_SIDE_TF, "H4");
-  const sidePane = { id: "side", legend: $("legend-side"), tf: TIMEFRAMES.some((t) => t.id === sideTf) ? sideTf : "H4", view: null, chart: null, layer: null };
+  const sidePane = { id: "side", legend: $("legend-side"), tf: usable.some((t) => t.id === sideTf) ? sideTf : "H4", view: null, chart: null, layer: null };
   const panes = () => (layoutTwo && sidePane.chart ? [mainPane, sidePane] : [mainPane]);
 
   const chartOptions = (pane) => ({
     lib,
     symbol: manifest.symbol,
     digits: manifest.digits,
+    pipPoints: manifest.pip_points,
     onHover: (info) => renderLegend(pane.legend, manifest.symbol, pane.tf, manifest.digits, info,
       info && info.index === pane.view.display.length - 1 && pane.view.isForming()),
     onCrosshairTime: (time) => { // the other chart puts its crosshair on the same moment
@@ -165,6 +191,11 @@ async function boot() {
     onClick: (index, price) => {
       if (picking) {
         if (index === null) return;
+        if (pane.view.isHistory(index)) { // older history has no 1-minute candles to replay
+          setHint(`A replay can start from ${formatDateTime(m5.time[0])} IST, where the 1-minute candles begin. ` +
+            "Click a later candle, or press Esc to cancel.");
+          return;
+        }
         setPicking(false);
         clock.start(pane.view.endOf(index)); // the clicked candle is the last one shown, on whichever chart
       } else if (panel && price !== null) {
@@ -193,7 +224,7 @@ async function boot() {
   // ------------------------------------------------------------ trading
   const UP = "#26a69a", DOWN = "#ef5350", PENDING = "#ffb74d", ENTRY = "#d1d4dc";
   const trading = new Trading({
-    m5, clock, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits),
+    m5, clock, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits),
     settings: loadSettings(), challenge: loadChallengeRules(), onChange: () => refreshTrading(),
   });
   const formatR = (r) => `${r >= 0 ? "+" : ""}${r.toFixed(2)}R`;
@@ -210,7 +241,7 @@ async function boot() {
     const entry = t.entryPrice ?? t.plannedEntry;
     const points = (price - entry) * (t.side === Side.BUY ? 1 : -1);
     const money = t.status === Status.OPEN
-      ? ` · ${formatSignedMoney(trading.account.money(trading.account.openUnits(t), points))} on what is open` : "";
+      ? ` · ${formatSignedMoney(trading.account.money(trading.account.openUnits(t), points, price))} on what is open` : "";
     return `${text} · ${(points / manifest.pip_points).toFixed(1)} pips from entry (${formatR(points / t.plannedRisk)})${money}`;
   }
 
@@ -422,7 +453,7 @@ async function boot() {
 
   /** Lots and dollars at risk for a long/short drawing, from the account's size settings. */
   function positionNote(d) {
-    const sized = trading.account.size(positionStats(d).risk, trading.balance);
+    const sized = trading.account.size(positionStats(d).risk, trading.balance, d.points[0].price);
     return sized.error ? "" : `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}`;
   }
 
@@ -647,7 +678,8 @@ async function boot() {
     drawTrades();
   }
   tfButtons.forEach((b) => {
-    b.disabled = false;
+    b.disabled = timeframeOf(b.dataset.tf).seconds < manifest.bar_seconds; // no candles finer than the replay's
+    if (b.disabled) b.title = `${b.title}: not in 1-hour (swing) mode`;
     b.addEventListener("click", () => setTimeframe(b.dataset.tf));
   });
   setTimeframe(current, { keepPlace: false });
@@ -655,12 +687,12 @@ async function boot() {
   // ------------------------------------------------------------ second chart
   const layoutButton = $("layout-toggle");
   const sideSelect = $("side-tf");
-  sideSelect.innerHTML = TIMEFRAMES.map((t) => `<option value="${t.id}">${t.id}</option>`).join("");
+  sideSelect.innerHTML = usable.map((t) => `<option value="${t.id}">${t.id}</option>`).join("");
 
   /** The side chart's timeframe. It starts at the same moment as the main chart's right edge. */
   function setSideTimeframe(tf) {
     sidePane.tf = tf;
-    sidePane.view = new TimeframeView(m5, tf);
+    sidePane.view = new TimeframeView(m5, tf, history[tf] || null);
     sidePane.view.setPosition(clock.position);
     sideSelect.value = tf;
     remember(KEY_SIDE_TF, tf);
@@ -760,7 +792,7 @@ async function boot() {
     const now = m5.time[clock.position - 1] + manifest.bar_seconds; // close of the last revealed candle
     const behind = clock.furthest - clock.position;
     ui.clock.textContent = `Replay · ${formatDateTime(now)} IST` +
-      (behind > 0 ? ` · viewing history (${number(behind)} M5 back)` : "");
+      (behind > 0 ? ` · viewing history (${number(behind)} ${manifest.timeframe} back)` : "");
     ui.clock.classList.toggle("history", behind > 0);
   }
 
@@ -837,7 +869,12 @@ async function boot() {
   /** Rebuild a saved backtest and open it at the point it had reached. Returns the rebuild's problems. */
   async function resumeBacktest(journal, id) {
     const saved = await store.getBacktest(journal, id);
-    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValuePerLot(manifest.digits) });
+    const savedBase = saved.barSeconds === 3600 ? "H1" : "M1"; // swing sessions replayed hours
+    if ((saved.symbol || "EURUSD") !== manifest.symbol || (saved.barSeconds && savedBase !== baseMode)) {
+      await switchSymbol(saved.symbol || "EURUSD", `${journal}/${id}`, savedBase); // open the app on its pair and candles, then resume there
+      return [];
+    }
+    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits), barSeconds: manifest.bar_seconds });
     await shotQueue;
     if (clock.active && !(await backtests.end())) {
       throw new Error("the replay on screen could not be saved, so it was left open.");
@@ -924,6 +961,7 @@ async function boot() {
       notes.removeScreenshot(id, name);
     },
     onPick: (id) => { panel.pickedTrade = id; panel.render(); },
+    checklist: () => (backtests && backtests.current ? backtests.checklist(backtests.current.journal) : []),
   });
   backtests = new Backtests({
     store,
@@ -931,9 +969,57 @@ async function boot() {
     status: $("status-backtest"),
     collect: () => ({ trading, drawings, notes, m5, clock, manifest, timeframe: current }),
     onResume: resumeBacktest,
+    onNewSession: newSession,
+    chip: $("strategy-name"),
+    onStrategiesChanged: () => journalBox.render(),
   });
+  backtests.loadLabels();
+
+  /** "New session" in the Strategies dialog: save and leave the session on screen, then pick a start candle. */
+  async function newSession(journal) {
+    if (clock.active) {
+      clock.pause();
+      await shotQueue;
+      if (!(await backtests.end())) {
+        panel.say("The session on screen could not be saved (see the bottom bar), so it is still open.", "bad");
+        return;
+      }
+      leaveReplay();
+    }
+    setPicking(true);
+    setHint(`New ${backtests.label(journal)} session: click the candle you want the replay to start from. Press Esc to cancel.`);
+  }
   $("backtests-open").addEventListener("click", () => { clock.pause(); backtests.open(); });
   window.addEventListener("pagehide", () => backtests.saveOnUnload());
+
+  /** Open the app on another pair: save and leave the session on screen first. `resume` = "journal/id" to open there. */
+  async function switchSymbol(next, resume = null, base = baseMode) {
+    if (!known(next)) { panel.say(`There is no ${next} data. Put an MT5 export of it in data/ and restart the app.`, "bad"); return; }
+    if (clock.active) {
+      clock.pause();
+      await shotQueue;
+      if (!(await backtests.end())) {
+        symbolBox.value = manifest.symbol;
+        baseBox.value = baseMode;
+        panel.say("The session on screen could not be saved (see the bottom bar), so it is still open.", "bad");
+        return;
+      }
+    }
+    try { localStorage.setItem(KEY_SYMBOL, next); } catch { /* private mode: not kept */ }
+    try { localStorage.setItem(KEY_BASE, base); } catch { /* private mode: not kept */ }
+    const query = new URLSearchParams({ symbol: next, base });
+    if (resume) query.set("resume", resume);
+    location.search = query.toString();
+  }
+  symbolBox.addEventListener("change", () => switchSymbol(symbolBox.value));
+  baseBox.addEventListener("change", () => switchSymbol(manifest.symbol, null, baseBox.value));
+
+  // Opened to resume a session of this pair (after switching from another pair).
+  if (params.get("resume")) {
+    const [journal, id] = params.get("resume").split("/");
+    window.history.replaceState(null, "", `?symbol=${manifest.symbol}&base=${baseMode}`); // window.history: `history` here is the older candles
+    resumeBacktest(journal, id).catch((err) => panel.say(`Could not resume: ${err.message}`, "bad"));
+  }
   renderReplayUi();
   refreshTrading();
 

@@ -9,7 +9,7 @@
 // allowed to trade) when position === furthest. That stops you from rewinding
 // to take a trade on a move you have already watched.
 
-export const SPEEDS = [1, 2, 5, 10, 30, 100]; // M5 candles revealed per second
+export const SPEEDS = [1, 2, 5, 10, 30, 100, 300]; // base (1-minute) candles revealed per second; 300x = 5 hours a second
 
 export class ReplayClock {
   /**

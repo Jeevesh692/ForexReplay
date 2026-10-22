@@ -1,3 +1,4 @@
+import gzip
 import json
 import tempfile
 from pathlib import Path
@@ -5,8 +6,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from forex_replay.datapipe import (EURUSD, build, from_bytes, merge_exports, read_mt5_csv,
+from forex_replay.datapipe import (EURUSD, SymbolSpec, build, from_bytes, merge_exports, read_mt5_csv,
                                    server_to_utc)
+
+M5_SPEC = SymbolSpec()  # these tests use five-minute exports; the app's own symbols are M1 since v2.3
 
 EXPORT_HEADER = "<DATE>\t<TIME>\t<OPEN>\t<HIGH>\t<LOW>\t<CLOSE>\t<TICKVOL>\t<VOL>\t<SPREAD>\n"
 
@@ -63,7 +66,7 @@ def test_build_writes_exact_integer_prices_and_reports_gaps():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         src = write_export(tmp, "EURUSD_M5_test.csv", rows)
-        manifest, report = build(start="2025-08-01", files=[src], out_root=tmp / "web")
+        manifest, report = build(start="2025-08-01", spec=M5_SPEC, files=[src], out_root=tmp / "web")
         blob = (tmp / "web" / manifest["months"][0]["file"]).read_bytes()
         stored = json.loads((tmp / "web" / "EURUSD" / "manifest.json").read_text())
     data = from_bytes(blob)
@@ -99,16 +102,16 @@ def test_reference_candles_bucket_on_the_server_clock_and_stale_check_uses_the_v
         data_dir = tmp / "data"
         data_dir.mkdir()
         write_export(data_dir, "EURUSD_M5_test.csv", rows)
-        build(start="2025-08-01", data_dir=data_dir, out_root=tmp / "web")
+        build(start="2025-08-01", spec=M5_SPEC, data_dir=data_dir, out_root=tmp / "web")
         reference = json.loads((tmp / "web" / "EURUSD" / "reference.json").read_text())
-        assert is_stale(data_dir=data_dir, out_root=tmp / "web") is False
+        assert is_stale(M5_SPEC, data_dir=data_dir, out_root=tmp / "web") is False
 
         manifest_path = tmp / "web" / "EURUSD" / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
         assert manifest["version"] == PIPELINE_VERSION
         manifest["version"] = PIPELINE_VERSION - 1
         manifest_path.write_text(json.dumps(manifest))
-        assert is_stale(data_dir=data_dir, out_root=tmp / "web") is True  # older format -> rebuild
+        assert is_stale(M5_SPEC, data_dir=data_dir, out_root=tmp / "web") is True  # older format -> rebuild
 
     for tf in ("H4", "D1"):
         first, second = reference[tf]
@@ -116,3 +119,48 @@ def test_reference_candles_bucket_on_the_server_clock_and_stale_check_uses_the_v
         assert second[1:] == [110090, 110095, 109950, 109960, 70]
     # Server midnight on 5 Aug 2025 is 21:00 UTC on 4 Aug (summer: UTC+3)
     assert reference["H4"][1][0] == int(pd.Timestamp("2025-08-04 21:00", tz="UTC").timestamp())
+
+
+def test_every_pair_with_an_export_is_built_with_its_own_digits_and_listed():
+    from forex_replay.datapipe import SYMBOLS, build_all
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        write_export(tmp, "EURUSD_M1_test.csv", [bar("2025.08.04", "10:00:00", 1.08500, 1.08520, 1.08490, 1.08510)])
+        jpy_csv = write_export(tmp, "USDJPY_M1_test.csv", [bar("2025.08.04", "10:00:00", 147.250, 147.300, 147.200, 147.280, spread=3)])
+        with jpy_csv.open("rb") as src, gzip.open(tmp / "USDJPY_M1_test.csv.gz", "wb") as dst:  # kept compressed in git
+            dst.write(src.read())
+        jpy_csv.unlink()
+        write_export(tmp, "GBPUSD_M5_test.csv", [bar("2025.08.04", "10:00:00", 1.08500, 1.08520, 1.08490, 1.08510)])  # M5: not used
+        built = build_all(data_dir=tmp, out_root=tmp / "web")
+        index = json.loads((tmp / "web" / "symbols.json").read_text())
+        jpy = json.loads((tmp / "web" / "USDJPY" / "manifest.json").read_text())
+        blob = (tmp / "web" / jpy["months"][0]["file"]).read_bytes()
+        assert build_all(data_dir=tmp, out_root=tmp / "web", only_stale=True) == []  # nothing changed: nothing rebuilt
+    assert [m["symbol"] for m, _ in built] == ["EURUSD", "USDJPY"]  # GBPUSD has only an M5 export here: not offered
+    assert [s["symbol"] for s in index] == ["EURUSD", "USDJPY"]
+    assert (jpy["digits"], jpy["pip_points"], jpy["timeframe"], jpy["bar_seconds"]) == (3, 10, "M1", 60)
+    assert (SYMBOLS["USDJPY"].digits, SYMBOLS["USDJPY"].pip_points) == (3, 10)
+    row = from_bytes(blob)[0]
+    assert (row[1], row[2], row[6]) == (147250, 147300, 3)  # 147.250 in points with 3 digits, exactly
+
+
+def test_history_keeps_older_candles_that_closed_before_the_first_minute_and_at_most_four_years():
+    from forex_replay.datapipe import SymbolSpec, write_history
+    spec = SymbolSpec(timeframe="M1", bar_seconds=60)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        rows = [  # server time; the first minute (below) is 2025.08.04 10:00 server
+            bar("2021.01.04", "00:00:00", 1.2, 1.21, 1.19, 1.205),   # more than 4 years before "today": left out
+            bar("2025.08.01", "00:00:00", 1.1, 1.11, 1.09, 1.105),   # a whole day before the minutes: kept
+            bar("2025.08.04", "00:00:00", 1.1, 1.11, 1.09, 1.105),   # the day the minutes begin: overlaps them, left out
+        ]
+        write_export(tmp, "EURUSD_D1_test.csv", rows)
+        (tmp / "web" / "EURUSD").mkdir(parents=True)
+        first = int(pd.Timestamp("2025-08-04 07:00", tz="UTC").timestamp())  # 10:00 server (EDT + 7)
+        manifest = write_history(spec, tmp, tmp / "web", {"first": first}, today=pd.Timestamp("2026-10-20", tz="UTC"))
+        blob = (tmp / "web" / manifest["history"]["D1"]["file"]).read_bytes()
+    assert list(manifest["history"]) == ["D1"]  # no H1 or H4 export here
+    data = from_bytes(blob)
+    assert manifest["history"]["D1"]["bars"] == len(data) == 1
+    assert data[0, 0] == int(pd.Timestamp("2025-07-31 21:00", tz="UTC").timestamp())  # server midnight = 17:00 New York
+    assert data[0, 1] == 110000

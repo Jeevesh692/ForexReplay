@@ -57,6 +57,102 @@ export function equityCurve(trades) {
   return trades.map((t) => (total += t.r));
 }
 
+/**
+ * Trades, win rate, total R and net dollars per day or month (period "day" or "month"), newest first,
+ * as forex_replay/stats.py period_table: by the broker-server date the trade closed; rows with no dollars
+ * add to trades and R only; every run on a date is added together. Returns [{ group, trades, win_rate, total_r, net_usd }].
+ */
+export function periodTable(trades, period) {
+  const width = period === "day" ? 10 : 7; // "2026-03-11" or "2026-03"
+  const groups = new Map();
+  for (const t of trades) {
+    const key = (t.row.exit_time || "").slice(0, width);
+    if (key.length !== width) continue; // no exit time
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  return [...groups].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([group, list]) => {
+    const withMoney = list.filter((t) => Number.isFinite(t.money));
+    return {
+      group, trades: list.length, win_rate: list.filter((t) => t.r > BREAKEVEN_R).length / list.length,
+      total_r: sum(list.map((t) => t.r)), net_usd: withMoney.length ? sum(withMoney.map((t) => t.money)) : NaN,
+    };
+  });
+}
+
+/**
+ * The dollar side of the trades, as forex_replay/stats.py money_stats: wins and losses by the sign of the
+ * dollar result; trades without dollars left out; days per run and closing date; with the session's
+ * starting balance, the ending balance, the return % and the largest fall of the balance in % of its peak.
+ */
+export function moneyStats(trades, startBalance = null) {
+  const withMoney = trades.filter((t) => Number.isFinite(t.money));
+  const usd = withMoney.map((t) => t.money);
+  const won = usd.filter((v) => v > 0), lost = usd.filter((v) => v < 0);
+  const has = usd.length > 0;
+  const grossProfit = has ? sum(won) : NaN, grossLoss = has ? -sum(lost) : NaN;
+  const rs = trades.map((t) => t.r);
+  const planned = trades.map((t) => num(t.row.planned_rr)).filter(Number.isFinite);
+  const out = {
+    trades_with_usd: usd.length,
+    net_usd: has ? sum(usd) : NaN,
+    gross_profit_usd: grossProfit,
+    gross_loss_usd: grossLoss,
+    profit_factor_usd: has ? (grossLoss ? grossProfit / grossLoss : Infinity) : NaN,
+    avg_win_usd: won.length ? mean(won) : NaN,
+    avg_loss_usd: lost.length ? mean(lost) : NaN,
+    largest_win_usd: won.length ? Math.max(...won) : NaN,
+    largest_loss_usd: lost.length ? Math.min(...lost) : NaN,
+    largest_win_r: rs.some((r) => r > BREAKEVEN_R) ? Math.max(...rs) : NaN,
+    largest_loss_r: rs.some((r) => r < -BREAKEVEN_R) ? Math.min(...rs) : NaN,
+    best_day_r: NaN, best_day_usd: NaN, worst_day_usd: NaN,
+    avg_planned_rr: planned.length ? mean(planned) : NaN,
+    max_drawdown_usd: maxDrawdownMoney(trades),
+    start_balance: NaN, end_balance: NaN, return_pct: NaN, max_drawdown_pct: NaN,
+  };
+  const days = new Map(); // "run|date" -> { r, usd, hasUsd }
+  for (const t of trades) {
+    if (!t.exitDay) continue;
+    const key = `${t.run}|${t.exitDay}`;
+    const d = days.get(key) || { r: 0, usd: 0, hasUsd: false };
+    d.r += t.r;
+    if (Number.isFinite(t.money)) { d.usd += t.money; d.hasUsd = true; }
+    days.set(key, d);
+  }
+  if (days.size) {
+    out.best_day_r = Math.max(...[...days.values()].map((d) => d.r));
+    const dollarDays = [...days.values()].filter((d) => d.hasUsd).map((d) => d.usd);
+    if (has && dollarDays.length) { out.best_day_usd = Math.max(...dollarDays); out.worst_day_usd = Math.min(...dollarDays); }
+  }
+  if (Number.isFinite(startBalance) && startBalance > 0) {
+    const net = has ? out.net_usd : 0;
+    out.start_balance = startBalance;
+    out.end_balance = startBalance + net;
+    out.return_pct = (net / startBalance) * 100;
+    let balance = startBalance, peak = startBalance, worst = 0;
+    for (const v of usd) {
+      balance += v;
+      peak = Math.max(peak, balance);
+      worst = Math.max(worst, (peak - balance) / peak);
+    }
+    out.max_drawdown_pct = worst * 100;
+  }
+  return out;
+}
+
+/** Largest fall from a peak of the dollar equity curve (from 0, in logged order); NaN when no trade has dollars. */
+export function maxDrawdownMoney(trades) {
+  const values = trades.filter((t) => Number.isFinite(t.money)).map((t) => t.money);
+  if (!values.length) return NaN;
+  let total = 0, peak = 0, worst = 0;
+  for (const v of values) {
+    total += v;
+    peak = Math.max(peak, total);
+    worst = Math.max(worst, peak - total);
+  }
+  return worst;
+}
+
 /** Largest fall from a peak of the equity curve (which starts at 0), in R, as a positive number. */
 export function maxDrawdown(trades) {
   let peak = 0, worst = 0;
@@ -127,13 +223,17 @@ export function breakdown(trades, by) {
     const keys = typeof by === "function" ? by(t) : [t[by]];
     for (const key of keys) {
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(t.r);
+      groups.get(key).push(t);
     }
   }
-  const table = [...groups].map(([group, rs]) => ({
-    group, trades: rs.length, win_rate: rs.filter((r) => r > BREAKEVEN_R).length / rs.length,
-    total_r: sum(rs), expectancy_r: mean(rs),
-  }));
+  const table = [...groups].map(([group, list]) => {
+    const rs = list.map((t) => t.r);
+    const dollars = list.filter((t) => Number.isFinite(t.money)).map((t) => t.money);
+    return {
+      group, trades: rs.length, win_rate: rs.filter((r) => r > BREAKEVEN_R).length / rs.length,
+      total_r: sum(rs), expectancy_r: mean(rs), net_usd: dollars.length ? sum(dollars) : NaN,
+    };
+  });
   return table.sort((a, b) => b.trades - a.trades); // a stable sort: ties keep the order first seen
 }
 

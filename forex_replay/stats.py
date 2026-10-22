@@ -111,13 +111,106 @@ def breakdown(journal: pd.DataFrame, by: str) -> pd.DataFrame:
     """Trades, win rate, total R and expectancy per group (session, weekday, side...)."""
     df = journal.dropna(subset=["result_r"])
     grouped = df.groupby(by, sort=False)["result_r"]
+    usd = pd.to_numeric(df["pnl_usd"], errors="coerce") if "pnl_usd" in df else pd.Series(np.nan, index=df.index)
     table = pd.DataFrame({
         "trades": grouped.size(),
         "win_rate": grouped.apply(lambda s: (s > BREAKEVEN_TOLERANCE_R).mean()),
         "total_r": grouped.sum(),
         "expectancy_r": grouped.mean(),
+        "net_usd": usd.groupby(df[by], sort=False).sum(min_count=1),  # NaN when no row of the group has dollars
     })
     return table.sort_values("trades", ascending=False)
+
+
+def period_table(journal: pd.DataFrame, period: str) -> pd.DataFrame:
+    """Trades, win rate, total R and net dollars per day or month, newest first.
+
+    A trade counts on the day (or month) it closed, when its result was banked. Days are the
+    broker server's dates (a day ends 17:00 New York), as the journal's times are. A row with no
+    dollar amount (older journals) adds to the trades and R but not to the dollars. Trades of every
+    run on that date are added together: filter one run to see one session.
+    """
+    if period not in ("day", "month"):
+        raise ValueError(f"period must be 'day' or 'month', not {period!r}")
+    df = journal.dropna(subset=["result_r"])
+    df = df[df["exit_time"].notna()] if "exit_time" in df else df.iloc[0:0]
+    columns = ["trades", "win_rate", "total_r", "net_usd"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    key = df["exit_time"].dt.strftime("%Y-%m-%d" if period == "day" else "%Y-%m")
+    r = df["result_r"].astype(float)
+    usd = pd.to_numeric(df["pnl_usd"], errors="coerce") if "pnl_usd" in df else pd.Series(np.nan, index=df.index)
+    table = pd.DataFrame({
+        "trades": r.groupby(key).size(),
+        "win_rate": (r > BREAKEVEN_TOLERANCE_R).groupby(key).mean(),
+        "total_r": r.groupby(key).sum(),
+        "net_usd": usd.groupby(key).sum(min_count=1),  # NaN when no row of the period has dollars
+    })
+    return table.sort_index(ascending=False)
+
+
+def max_drawdown_usd(journal: pd.DataFrame) -> float:
+    """Largest fall from a peak of the dollar equity curve (from 0, in logged order), as a positive number.
+    Only rows with a dollar amount count; NaN when none has one."""
+    df = journal.dropna(subset=["result_r"])
+    usd = pd.to_numeric(df["pnl_usd"], errors="coerce").dropna() if "pnl_usd" in df else pd.Series(dtype=float)
+    if usd.empty:
+        return float("nan")
+    equity = np.concatenate([[0.0], usd.to_numpy().cumsum()])
+    return float((np.maximum.accumulate(equity) - equity).max())
+
+
+def money_stats(journal: pd.DataFrame, start_balance: float | None = None) -> dict:
+    """The dollar side of a journal, as replay tools usually show it.
+
+    Wins and losses in dollars go by the sign of the dollar result (after commission), so a trade at
+    breakeven in R that paid commission is a small dollar loss. Rows without dollars (older journals)
+    are left out of the dollar figures. Days, as for the worst day in R, are per run and closing date.
+    With the session's starting balance: the ending balance, the return and the largest fall from a
+    peak of the balance, in % of that peak.
+    """
+    df = journal.dropna(subset=["result_r"])
+    r = df["result_r"].astype(float)
+    usd_all = pd.to_numeric(df["pnl_usd"], errors="coerce") if "pnl_usd" in df else pd.Series(np.nan, index=df.index)
+    usd = usd_all.dropna()
+    won, lost = usd[usd > 0], usd[usd < 0]
+    nan = float("nan")
+    gross_profit = float(won.sum()) if len(usd) else nan
+    gross_loss = float(-lost.sum()) if len(usd) else nan
+    out = {
+        "trades_with_usd": int(len(usd)),
+        "net_usd": float(usd.sum()) if len(usd) else nan,
+        "gross_profit_usd": gross_profit,
+        "gross_loss_usd": gross_loss,
+        "profit_factor_usd": (gross_profit / gross_loss if gross_loss else float("inf")) if len(usd) else nan,
+        "avg_win_usd": float(won.mean()) if len(won) else nan,
+        "avg_loss_usd": float(lost.mean()) if len(lost) else nan,
+        "largest_win_usd": float(won.max()) if len(won) else nan,
+        "largest_loss_usd": float(lost.min()) if len(lost) else nan,
+        "largest_win_r": float(r.max()) if (r > BREAKEVEN_TOLERANCE_R).any() else nan,
+        "largest_loss_r": float(r.min()) if (r < -BREAKEVEN_TOLERANCE_R).any() else nan,
+        "best_day_r": nan, "best_day_usd": nan, "worst_day_usd": nan,
+        "avg_planned_rr": float(pd.to_numeric(df["planned_rr"], errors="coerce").mean())
+        if "planned_rr" in df and pd.to_numeric(df["planned_rr"], errors="coerce").notna().any() else nan,
+        "max_drawdown_usd": max_drawdown_usd(journal),
+        "start_balance": nan, "end_balance": nan, "return_pct": nan, "max_drawdown_pct": nan,
+    }
+    if "exit_time" in df and df["exit_time"].notna().any():
+        run = df["run_id"].fillna("").astype(str) if "run_id" in df else pd.Series("", index=df.index)
+        day = df["exit_time"].dt.date
+        out["best_day_r"] = float(r.groupby([run, day]).sum().max())
+        if len(usd):
+            per_day = usd_all.groupby([run, day]).sum(min_count=1).dropna()
+            out["best_day_usd"], out["worst_day_usd"] = float(per_day.max()), float(per_day.min())
+    if start_balance is not None and start_balance > 0:
+        out["start_balance"] = float(start_balance)
+        net = out["net_usd"] if len(usd) else 0.0
+        out["end_balance"] = float(start_balance + net)
+        out["return_pct"] = float(net / start_balance * 100)
+        balance = np.concatenate([[start_balance], start_balance + usd.to_numpy().cumsum()])
+        peaks = np.maximum.accumulate(balance)
+        out["max_drawdown_pct"] = float(((peaks - balance) / peaks).max() * 100)
+    return out
 
 
 @dataclass

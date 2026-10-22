@@ -10,6 +10,25 @@ import { rgb, sessionsBetween } from "./sessions.js";
 import { formatDate, formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
 import { indexAtOrBefore, timeframe as timeframeInfo } from "./timeframes.js";
 
+// The chart library is handed a window of candles, not all of them. Measured 14 Oct 2026: 445,000 one-minute
+// candles took about 2 seconds to load, and while the mouse is over the chart every update costs about 1 ms
+// per 1,000 candles the chart holds (the library works out the crosshair again across all of them): 26 ms at
+// 30,000 candles, 96 ms at 89,000, 3 ms at 2,000. So the window is small and moves as you scroll: near either
+// edge it reaches further, holding at most 2 x WINDOW candles. Indicators are still worked out on every
+// candle, so their values never depend on the window.
+const WINDOW = 3000;
+const EXTEND_AT = 300; // candles from an edge of the window that make it reach further
+const FIELDS = ["time", "open", "high", "low", "close", "volume", "spread"];
+
+/** Candles offset..end-1 of `full`, without copying: what the library, the drawing layer and the overlays see. */
+function windowOf(full, offset, end) {
+  const w = Object.create(Object.getPrototypeOf(full));
+  w.length = end - offset;
+  w.digits = full.digits;
+  for (const f of FIELDS) w[f] = full[f].subarray(offset, end);
+  return w;
+}
+
 const COLOURS = {
   background: "#131722",
   text: "#b2b5be",
@@ -166,18 +185,22 @@ export class ChartView {
    *   onLineDrag(id, points) while a trade line is being dragged, onLineDrop(id, points | null) when it is let go
    *   (null = cancelled), onCrosshairTime(utc | null) when the mouse moves over this chart (for the other chart) }
    */
-  constructor(container, { lib, symbol, digits, onHover, onClick, onLineDrag, onLineDrop, onCrosshairTime }) {
+  constructor(container, { lib, symbol, digits, pipPoints, onHover, onClick, onLineDrag, onLineDrop, onCrosshairTime }) {
     this.container = container;
     this.onLineDrag = onLineDrag || (() => {});
     this.onLineDrop = onLineDrop || (() => {});
     this.lib = lib;
     this.symbol = symbol;
     this.digits = digits;
+    this.pip = pipPoints || 10 ** (digits - 4); // points in a pip, from the data (USDJPY's 3 digits: 10)
     this.onHover = onHover || (() => {});
     this.onClick = onClick || (() => {});
     this.onCrosshairTime = onCrosshairTime || (() => {});
     this.mouseInside = false; // only the chart under the mouse tells the other where its crosshair is
-    this.candles = null; // Candles of the timeframe on screen
+    this.candles = null; // the window of the timeframe's candles handed to the library (index 0 = candle `offset`)
+    this.full = null; // every candle of the timeframe on screen (as far as the replay has revealed)
+    this.offset = 0; // index in `full` of the window's first candle
+    this.end = 0; // one past the window's last candle; equal to full.length while the window reaches the newest candle
     this.timeframe = null;
 
     const minMove = 1 / 10 ** digits;
@@ -252,10 +275,16 @@ export class ChartView {
     this.series.attachPrimitive(this.sessions);
 
     this.chart.subscribeCrosshairMove((param) => this.handleCrosshair(param));
+    this.chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!range || !this.full || this.extending) return;
+      if (this.offset > 0 && range.from < EXTEND_AT) this.reach(range, -1);
+      else if (this.end < this.full.length && range.to > this.candles.length - EXTEND_AT) this.reach(range, 1);
+    });
     this.chart.subscribeClick((param) => {
       if (this.justDragged) return; // the click that ends a drag is not a click on the chart
       if (!this.candles || !param.point) return;
-      const index = param.time === undefined ? null : indexAtOrBefore(this.candles, fromChartTime(param.time));
+      const found = param.time === undefined ? null : indexAtOrBefore(this.candles, fromChartTime(param.time));
+      const index = found === null || found < 0 ? found : found + this.offset; // callers count from the first candle
       const price = this.series.coordinateToPrice(param.point.y); // price under the mouse
       this.onClick(index, price === null ? null : Math.round(price * 10 ** this.digits));
     });
@@ -415,12 +444,66 @@ export class ChartView {
    * The library can update its last candle or append newer ones, which is all replay needs going forward.
    */
   updateBars(from, to) {
-    for (let i = Math.max(0, from); i <= to; i++) {
-      this.series.update(this.candlePoint(i));
-      this.volume.update(this.volumePoint(i));
+    if (this.end < from) return; // looking at older history: the window does not reach the newest candles
+    this.end = this.full.length; // the replay has revealed more candles
+    this.candles = windowOf(this.full, this.offset, this.end);
+    const start = Math.max(from, this.offset);
+    for (let i = start; i <= to; i++) {
+      this.series.update(this.candlePoint(i - this.offset));
+      this.volume.update(this.volumePoint(i - this.offset));
     }
-    this.drawIndicators(Math.max(0, from), to);
+    this.drawIndicators(start, to);
     this.onHover(this.barInfo(this.candles.length - 1));
+  }
+
+  /** Hand the library the window from `offset` on (candles and indicators). */
+  loadWindow() {
+    this.candles = windowOf(this.full, this.offset, this.end);
+    const n = this.candles.length;
+    const candleData = new Array(n);
+    const volumeData = new Array(n);
+    for (let i = 0; i < n; i++) {
+      candleData[i] = this.candlePoint(i);
+      volumeData[i] = this.volumePoint(i);
+    }
+    this.volume.setData([]); // the library merges every series' times: emptying one first halves the work
+    this.series.setData(candleData);
+    this.volume.setData(volumeData);
+    this.drawIndicators();
+  }
+
+  /** You scrolled near an edge of the window (side -1: left, 1: right): move it that way, keeping the view where it is. */
+  reach(range, side) {
+    const n = this.full.length;
+    const before = this.offset;
+    if (side < 0) {
+      this.offset = Math.max(0, this.offset - WINDOW);
+      this.end = Math.min(this.end, this.offset + 2 * WINDOW);
+    } else {
+      this.end = Math.min(n, this.end + WINDOW);
+      this.offset = Math.max(this.offset, this.end - 2 * WINDOW);
+    }
+    const shift = before - this.offset;
+    this.showWindow(() => this.chart.timeScale().setVisibleLogicalRange({ from: range.from + shift, to: range.to + shift }));
+  }
+
+  /** Load the window and place the view, without the move counting as you scrolling. */
+  showWindow(place) {
+    this.extending = true;
+    try {
+      this.loadWindow();
+      place();
+    } finally {
+      this.extending = false;
+    }
+  }
+
+  /** Put the window around candle `index` of `full` (or at the newest candles when it is the last). */
+  centreWindow(index) {
+    const n = this.full.length;
+    this.offset = Math.max(0, Math.min(n - WINDOW, index - WINDOW / 2));
+    this.end = Math.min(n, this.offset + 2 * WINDOW);
+    if (index >= n - WINDOW) this.end = n; // near the newest candles: reach them, so the replay keeps drawing
   }
 
   // ----- indicators -----------------------------------------------------------
@@ -432,10 +515,11 @@ export class ChartView {
     this.onHover(this.barInfo(this.candles.length - 1)); // the legend shows the new set straight away
   }
 
-  get pipPoints() { return 10 ** (this.digits - 4); } // EURUSD: 10 points to a pip
+  get pipPoints() { return this.pip; }
 
+  /** Indicator point for window candle i (its value is at i + offset in the line, worked out on every candle). */
   indicatorPoint(line, i) {
-    const v = line.values[i];
+    const v = line.values[i + this.offset];
     const time = toChartTime(this.candles.time[i]);
     if (!Number.isFinite(v)) return { time }; // not worked out yet: a gap in the line
     if (line.pane === "rsi") return { time, value: v };
@@ -448,7 +532,7 @@ export class ChartView {
    * are sent to the chart (a replay step); otherwise every point (new candles or new settings).
    */
   drawIndicators(from = null, to = null) {
-    let lines = this.indicatorEngine.compute(this.candles, this.indicatorSettings, from);
+    let lines = this.indicatorEngine.compute(this.full, this.indicatorSettings, from); // every candle: the window never changes a value
     // ADR levels are for intraday charts: on D1 a day is one candle, so they say nothing (lines and legend alike).
     if (this.timeframe === "D1") lines = lines.filter((l) => l.id !== "adrHigh" && l.id !== "adrLow");
     this.indicatorLines = lines; // the legend shows every value, ADR included
@@ -489,15 +573,16 @@ export class ChartView {
       }
       if (series.options().title !== line.label) series.applyOptions({ title: line.label }); // changing options redoes the chart's layout
       if (fresh || from === null) {
-        series.setData(Array.from(line.values, (_, i) => this.indicatorPoint(line, i)));
+        series.setData(Array.from({ length: this.candles.length }, (_, i) => this.indicatorPoint(line, i)));
       } else {
-        for (let i = from; i <= to; i++) series.update(this.indicatorPoint(line, i));
+        for (let i = Math.max(from, this.offset); i <= to; i++) series.update(this.indicatorPoint(line, i - this.offset));
       }
     }
   }
 
   /** The indicators' values at candle i, for the legend: [{ id, label, value text, colour }]. */
   indicatorValues(i) {
+    i += this.offset; // window candle -> every candle
     return this.indicatorLines.map((l) => ({
       id: l.id, label: l.label, colour: INDICATOR_COLOURS[l.id],
       text: !Number.isFinite(l.values[i]) ? "–" : l.pane === "rsi" ? l.values[i].toFixed(1)
@@ -509,7 +594,7 @@ export class ChartView {
   /** Is the newest candle on screen? (Then the chart follows the replay.) */
   latestVisible() {
     const range = this.chart.timeScale().getVisibleLogicalRange();
-    return !!range && !!this.candles && range.to >= this.candles.length - 1;
+    return !!range && !!this.candles && this.end === this.full.length && range.to >= this.candles.length - 1;
   }
 
   formatTime(utcSeconds) {
@@ -522,7 +607,7 @@ export class ChartView {
     if (!c || i < 0 || i >= c.length) return null;
     const previousClose = i > 0 ? c.close[i - 1] : c.open[i];
     return {
-      index: i,
+      index: i + this.offset, // counted from the first candle, as the replay counts
       time: c.time[i],
       timeText: this.formatTime(c.time[i]),
       open: c.price(c.open[i]),
@@ -583,28 +668,26 @@ export class ChartView {
    * right edge, so switching timeframe keeps you at the same place in history.
    */
   setCandles(timeframeId, candles, { keepTime = null, bars = null, preserveView = false } = {}) {
-    this.timeframe = timeframeId;
-    this.candles = candles;
-
-    const n = candles.length;
-    const candleData = new Array(n);
-    const volumeData = new Array(n);
-    for (let i = 0; i < n; i++) {
-      candleData[i] = this.candlePoint(i);
-      volumeData[i] = this.volumePoint(i);
-    }
     const range = preserveView ? this.chart.timeScale().getVisibleLogicalRange() : null;
-    this.series.setData(candleData);
-    this.volume.setData(volumeData);
-    this.drawIndicators();
-
-    if (range) {
-      this.chart.timeScale().setVisibleLogicalRange(range); // same candles stay under the same pixels
-    } else {
-      const last = keepTime === null ? n - 1 : Math.max(0, indexAtOrBefore(candles, keepTime));
-      this.showEndingAt(last, bars || DEFAULT_VISIBLE_BARS);
+    const sameSet = preserveView && this.full === candles && this.offset < candles.length;
+    const wasAtEnd = !this.full || this.end === this.full.length;
+    this.timeframe = timeframeId;
+    this.full = candles;
+    const n = candles.length;
+    if (sameSet) {
+      this.end = wasAtEnd ? n : Math.min(this.end, n);
+    } else { // the newest candles, or a window around the moment to keep on screen
+      this.centreWindow(keepTime === null ? n - 1 : Math.max(0, indexAtOrBefore(candles, keepTime)));
     }
-    this.onHover(this.barInfo(n - 1));
+    this.showWindow(() => {
+      if (range && sameSet) {
+        this.chart.timeScale().setVisibleLogicalRange(range); // same candles stay under the same pixels
+      } else {
+        const last = keepTime === null ? this.candles.length - 1 : Math.max(0, indexAtOrBefore(this.candles, keepTime));
+        this.showEndingAt(last, bars || DEFAULT_VISIBLE_BARS);
+      }
+    });
+    this.onHover(this.barInfo(this.candles.length - 1));
   }
 
   setSessionsVisible(visible) {
@@ -624,7 +707,12 @@ export class ChartView {
   /** Centre the chart on a moment in time (UTC seconds). */
   goTo(utcSeconds) {
     if (!this.candles) return null;
-    const i = Math.max(0, indexAtOrBefore(this.candles, utcSeconds));
+    const wanted = Math.max(0, indexAtOrBefore(this.full, utcSeconds));
+    if (wanted < this.offset + EXTEND_AT || wanted >= this.end - EXTEND_AT) { // outside the window: move it there
+      this.centreWindow(wanted);
+      this.showWindow(() => {});
+    }
+    const i = wanted - this.offset;
     const bars = this.visibleBarCount();
     const half = Math.floor(bars / 2);
     this.chart.timeScale().setVisibleLogicalRange({ from: i - half, to: i + half });
@@ -632,6 +720,11 @@ export class ChartView {
   }
 
   goToLatest() {
-    if (this.candles) this.showEndingAt(this.candles.length - 1, this.visibleBarCount());
+    if (!this.candles) return;
+    if (this.end < this.full.length) { // looking at older history: bring the window back to the newest candles
+      this.centreWindow(this.full.length - 1);
+      this.showWindow(() => {});
+    }
+    this.showEndingAt(this.candles.length - 1, this.visibleBarCount());
   }
 }

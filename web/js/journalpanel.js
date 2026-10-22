@@ -1,8 +1,9 @@
-// The journal box under the trade lists: the note, tags and screenshots of the trade you picked.
+// The journal box under the trade lists: the note, checklist answers, tags and screenshots of the trade you picked.
 //
 // It is rebuilt only when you pick another trade or its tags or pictures change, never on
 // every candle, so typing a note is not interrupted while the replay plays.
 
+import { cleanAnswer } from "./strategies.js";
 import { MAX_NOTE } from "./tradenotes.js";
 
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -12,17 +13,34 @@ export class JournalPanel {
   /**
    * @param {HTMLElement} root  the journal section
    * @param {object} options { notes: TradeNotes, describe(id) -> "#3 BUY · +1.20R" or null,
-   *   journal() -> current journal name or null, onScreenshot(id), onRemoveScreenshot(id, name), onPick(id) }
+   *   journal() -> current journal name or null, onScreenshot(id), onRemoveScreenshot(id, name), onPick(id),
+   *   checklist() -> the current strategy's questions (strategies.js) }
    */
-  constructor(root, { notes, describe, journal, onScreenshot, onRemoveScreenshot, onPick, store }) {
+  constructor(root, { notes, describe, journal, onScreenshot, onRemoveScreenshot, onPick, store, checklist }) {
     this.store = store;
     this.root = root;
     this.notes = notes;
     this.describe = describe;
     this.journal = journal;
     this.onPick = onPick || (() => {});
+    this.checklist = checklist || (() => []);
     this.id = null;
     this.el = (id) => root.querySelector(`#${id}`);
+    const answers = this.el("journal-checklist");
+    const answer = (key, value) => {
+      const q = this.checklist().find((x) => x.id === key);
+      if (q && this.id !== null) this.notes.setAnswer(this.id, key, cleanAnswer(q, value));
+    };
+    answers.addEventListener("click", (event) => {
+      const chip = event.target.closest("[data-answer]");
+      if (!chip || this.id === null) return;
+      const current = this.notes.get(this.id).answers[chip.dataset.answer];
+      answer(chip.dataset.answer, current === chip.dataset.value ? "" : chip.dataset.value); // a second click clears it
+    });
+    answers.addEventListener("change", (event) => {
+      const key = event.target.dataset.answerInput;
+      if (key) answer(key, event.target.value);
+    });
     this.noteBox = this.el("journal-note");
     this.noteBox.maxLength = MAX_NOTE;
 
@@ -93,6 +111,29 @@ export class JournalPanel {
     this.render(document.activeElement === this.noteBox || this.typing !== null); // never wipe text not yet saved
   }
 
+  /** Your checklist questions for this trade, each with its answer control. */
+  renderChecklist(entry) {
+    const box = this.el("journal-checklist");
+    const questions = this.checklist();
+    box.hidden = questions.length === 0;
+    const active = document.activeElement;
+    if (box.contains(active) && active.type === "number") return; // never redraw under someone typing a number
+    box.innerHTML = questions.map((q) => {
+      const value = entry.answers[q.id] || "";
+      const key = escapeHtml(q.id);
+      let control;
+      if (q.kind === "yesno") {
+        control = ["Yes", "No"].map((v) => `<button class="chip${value === v ? " on" : ""}" data-answer="${key}" data-value="${v}">${v}</button>`).join("");
+      } else if (q.kind === "choice") {
+        control = `<select data-answer-input="${key}"><option value="">–</option>${q.options.map((o) =>
+          `<option${o === value ? " selected" : ""}>${escapeHtml(o)}</option>`).join("")}</select>`;
+      } else {
+        control = `<input type="number" step="any" data-answer-input="${key}" value="${escapeHtml(value)}">`;
+      }
+      return `<div class="question"><span>${escapeHtml(q.text)}</span>${control}</div>`;
+    }).join("");
+  }
+
   render(keepText = false) {
     const id = this.id;
     const title = id === null ? null : this.describe(id);
@@ -102,6 +143,7 @@ export class JournalPanel {
     if (!title) return;
     const entry = this.notes.get(id);
     if (!keepText) this.noteBox.value = entry.note;
+    this.renderChecklist(entry);
     this.el("journal-tags").innerHTML = this.notes.tagChoices().concat(entry.tags.filter((t) => !this.notes.tagChoices().includes(t)))
       .map((t) => `<button class="chip${entry.tags.includes(t) ? " on" : ""}" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join("");
     const journal = this.journal();

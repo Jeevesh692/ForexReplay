@@ -12,8 +12,10 @@
 <body>
   <header class="topbar">
     <div class="brand">Forex<span>Replay</span></div>
-    <div class="pill" id="symbol">EURUSD</div>
+    <select class="pill symbol-select" id="symbol" title="Pair: switching saves the session on screen and opens the other pair" aria-label="Pair"><option>EURUSD</option></select>
+    <select class="pill symbol-select" id="base" title="Candles the replay steps through: 1-minute, or 1-hour for swing replays further back. Switching saves the session on screen." aria-label="Replay candles"></select>
     <div class="group" id="timeframes" aria-label="Timeframe">
+      <button disabled data-tf="M1" title="1 minute">M1</button>
       <button disabled data-tf="M5" title="5 minutes">M5</button>
       <button disabled data-tf="M15" title="15 minutes">M15</button>
       <button disabled data-tf="M30" title="30 minutes">M30</button>
@@ -37,11 +39,11 @@
       <button id="replay-back" title="Step back one candle (Left arrow)">&#9664;&#10072;</button>
       <button id="replay-play" title="Play (Space)">&#9654;</button>
       <button id="replay-forward" title="Step forward one candle (Right arrow). Shift + Right = one M5 candle">&#10072;&#9654;</button>
-      <select id="replay-speed" title="Speed: M5 candles per second"></select>
+      <select id="replay-speed" title="Speed: 1-minute candles per second"></select>
       <button id="replay-live" title="Return to where the replay had got to (End)" hidden>Live &#8677;</button>
       <button id="replay-exit" title="Save this backtest and leave the replay">&#10005;</button>
     </div>
-    <button class="plain" id="backtests-open" title="Saved backtests: resume one where it stopped, or delete it">Backtests</button>
+    <button class="plain" id="backtests-open" title="Your strategies and their saved sessions: switch strategy, resume where you left off, or start a new session">Strategies <span class="strategy-chip" id="strategy-name"></span></button>
     <div class="divider"></div>
     <div class="group tabs" aria-label="View">
       <button class="active" data-view="chart">Chart</button>
@@ -90,7 +92,7 @@
     <div class="error" id="error" hidden></div>
 
     <section class="chart-view" id="chart-view">
-      <div class="legend" id="legend">EURUSD</div>
+      <div class="legend" id="legend"></div>
       <div class="hint" id="hint" hidden></div>
       <input class="text-editor" id="text-editor" type="text" autocomplete="off" hidden aria-label="Text note">
       <div class="draw-bar" id="draw-bar" hidden>
@@ -138,6 +140,8 @@
       <p class="lead" id="an-message" hidden></p>
       <div id="an-body">
         <div class="tiles" id="an-tiles"></div>
+        <h2 class="tiles-title">Money <span class="muted" id="an-money-note"></span></h2>
+        <div class="tiles" id="an-money"></div>
         <div class="block chart-block">
           <div class="block-head"><h2 id="an-balance-title">Account balance</h2><div class="figures" id="an-balance-figures"></div></div>
           <div class="svg-wrap"><svg id="an-balance" role="img" aria-label="Closed balance in dollars after each trade"></svg>
@@ -153,7 +157,7 @@
           <p class="muted small">Days are trading days on the broker clock (17:00 to 17:00 New York), by when each trade closed. Week totals cover all seven days of the row.</p>
         </div>
         <div class="block chart-block">
-          <h2>Equity in R, trade by trade</h2>
+          <h2>Equity in <span class="seg" id="an-equity-mode"><button type="button" class="on" data-eq="r">R</button><button type="button" data-eq="usd">$</button></span>, trade by trade</h2>
           <div class="svg-wrap"><svg id="an-equity" role="img" aria-label="Cumulative result in R after each trade"></svg>
             <div class="svg-tip" id="an-equity-tip" hidden></div></div>
         </div>
@@ -163,6 +167,7 @@
             <div class="svg-tip" id="an-histogram-tip" hidden></div></div>
         </div>
         <div class="block"><h2>Worth knowing</h2><ul class="insights" id="an-insights"></ul></div>
+        <div class="breakdowns periods" id="an-periods"></div>
         <div class="breakdowns" id="an-breakdowns"></div>
         <div class="block">
           <h2>Trades <span class="muted" id="an-trades-note"></span></h2>
@@ -178,11 +183,11 @@
       <div class="view-head">
         <h1>Market data</h1>
       </div>
-      <p class="lead" id="lead">Loading EURUSD candles...</p>
+      <p class="lead" id="lead">Loading candles...</p>
       <div class="cards" id="cards"></div>
       <div class="block">
-        <h2>EURUSD close, whole dataset</h2>
-        <canvas id="overview" height="220" aria-label="EURUSD close price over the whole dataset"></canvas>
+        <h2 id="overview-title">Close, whole dataset</h2>
+        <canvas id="overview" height="220" aria-label="Close price over the whole dataset"></canvas>
       </div>
       <div class="block">
         <h2>Monthly files</h2>
@@ -291,6 +296,7 @@
       <p class="muted small" id="journal-empty">Click a trade above to write about it: a note, tags and screenshots.</p>
       <div id="journal-editor" hidden>
         <textarea id="journal-note" rows="3" placeholder="Why you took it, what you saw, what you would do differently"></textarea>
+        <div class="journal-checklist" id="journal-checklist" hidden></div>
         <div class="journal-tags" id="journal-tags"></div>
         <input id="journal-tag-input" type="text" maxlength="24" autocomplete="off" placeholder="Your own tag, then Enter">
         <div class="journal-shots" id="journal-shots"></div>
@@ -342,20 +348,39 @@
   </dialog>
 
   <dialog id="backtests-dialog" class="dialog">
-    <h2>Backtests</h2>
-    <p class="muted" id="backtests-about">Each replay with a trade or a drawing is saved as you go, with its trades, its drawings and where it got to.
-      Resume rebuilds it by repeating every action on the same candles, then carries on live from there.
-      Closed trades are also added to the journal (<code>strategies/&lt;journal&gt;/trades.csv</code>).</p>
+    <h2>Strategies</h2>
+    <p class="muted" id="backtests-about">Each strategy keeps its own sessions, journal and screenshots in <code>strategies/&lt;strategy&gt;/</code>.
+      A session (a replay with a trade or a drawing) is saved as you go, with its trades, drawings and where it got to.
+      Resume rebuilds it by repeating every action on the same candles, then carries on live from there. Switching saves the session on screen first.</p>
+    <table class="grid strategy-table">
+      <thead><tr><th>Strategy</th><th>Log</th><th class="num">Sessions</th><th class="num">Trades</th><th>Last session reached (IST)</th><th></th></tr></thead>
+      <tbody id="strategy-rows"></tbody>
+    </table>
+    <form class="strategy-new" id="strategy-new">
+      <input id="strategy-label" type="text" maxlength="60" autocomplete="off" placeholder="New strategy, e.g. Asian sweep" aria-label="New strategy name">
+      <select id="strategy-logger" aria-label="Automatic log"></select>
+      <button type="submit" class="plain bordered" id="strategy-create">+ Add strategy</button>
+    </form>
+    <section class="checklist-editor" id="checklist-editor" hidden>
+      <h3 class="backtest-heading">Checklist · <span id="checklist-for"></span></h3>
+      <p class="muted small">Questions you answer for each trade in the journal box. Each one becomes a column of
+        <code>checklist_log.csv</code> in the strategy's folder, for Excel. Renaming a question starts a new column; the old one keeps earlier answers.</p>
+      <div id="checklist-rows"></div>
+      <div class="dialog-actions">
+        <button type="button" class="plain bordered small" id="checklist-add">+ Add question</button>
+        <span class="spacer"></span>
+        <button type="button" class="plain bordered small" id="checklist-cancel">Cancel</button>
+        <button type="button" class="primary small" id="checklist-save">Save checklist</button>
+      </div>
+    </section>
+    <h3 class="backtest-heading">Sessions <span class="muted" id="backtest-filter"></span></h3>
     <table class="grid backtest-table">
-      <thead><tr><th>Name</th><th>Journal</th><th>Reached (IST)</th><th class="num">Trades</th><th class="num">Result</th><th>Saved</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Strategy</th><th>Reached (IST)</th><th class="num">Trades</th><th class="num">Result</th><th>Saved</th><th></th></tr></thead>
       <tbody id="backtest-rows"></tbody>
     </table>
     <p class="order-message" id="backtest-message"></p>
     <div class="dialog-actions">
-      <label class="field inline journal-field" title="Folder under strategies/ for new replays: letters, digits, - and _">
-        <span>Journal for new replays</span>
-        <input id="backtest-journal" type="text" maxlength="48" autocomplete="off">
-      </label>
+      <span class="muted small" id="backtest-target"></span>
       <span class="spacer"></span>
       <button type="button" class="plain bordered" id="backtest-close">Close</button>
     </div>

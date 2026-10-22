@@ -73,3 +73,19 @@ test("the app finds out where it runs from site.json", async () => {
   assert.equal((await openStore(async () => { throw new Error("offline"); })).kind, "server");
   assert.ok(new ServerStore().screenshots);
 });
+
+test("the desktop store calls fetch as a plain function, as the browser's fetch requires", async () => {
+  const calls = [];
+  // The browser's fetch throws "Illegal invocation" when called as a method of another object.
+  const strictFetch = function (path, options = {}) {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+    calls.push([options.method || "GET", path]);
+    return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+  };
+  const store = new ServerStore(strictFetch);
+  await store.putScreenshot("j1", "bt-1-1-placed.png", new Uint8Array([1]));
+  await store.deleteScreenshot("j1", "bt-1-1-placed.png");
+  store.putBacktestNow({ journal: "j1", id: "bt-1" });
+  await store.listStrategies();
+  assert.deepEqual(calls.map((c) => c[0]), ["PUT", "DELETE", "PUT", "GET"]);
+});

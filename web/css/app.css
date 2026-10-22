@@ -227,6 +227,7 @@ table.grid .num { text-align: right; }
 body { overflow: hidden; }
 .topbar { min-width: 0; white-space: nowrap; }
 .goto, .brand, .pill, button.plain { flex-shrink: 0; }
+select.symbol-select { cursor: pointer; font: inherit; }
 @media (max-width: 1100px) {
   .topbar .clock { display: none; }
 }
@@ -435,7 +436,28 @@ button.primary {
 
 /* ---------- backtests dialog ---------- */
 #backtests-dialog { width: min(940px, calc(100vw - 32px)); }
-.backtest-table { margin-top: 10px; }
+.backtest-table { margin-top: 6px; }
+.strategy-table { margin-top: 10px; }
+.strategy-table td { vertical-align: middle; }
+.strategy-table .actions { white-space: nowrap; text-align: right; }
+.strategy-table button:disabled, .backtest-table button:disabled { opacity: 0.4; }
+.strategy-table tr.selected td { background: rgba(41, 98, 255, 0.12); }
+.strategy-table .tag { color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.strategy-table .file { color: var(--muted); font-size: 11px; }
+.strategy-new { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.strategy-new input { flex: 1 1 200px; }
+.backtest-heading { font-size: 13px; margin-top: 14px; }
+.strategy-chip { color: var(--blue); margin-left: 4px; }
+.checklist-editor { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 4px; }
+.checklist-row { display: grid; grid-template-columns: 1fr 110px 1fr auto; gap: 6px; margin-top: 6px; align-items: center; }
+.checklist-row input[type="text"] { width: 100%; }
+.checklist-row .options[hidden] { visibility: hidden; display: block; }
+.journal-checklist { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.journal-checklist .question { display: flex; align-items: center; gap: 6px; justify-content: space-between; font-size: 12px; }
+.journal-checklist .question > span { flex: 1; color: var(--muted); }
+.journal-checklist select, .journal-checklist input { max-width: 110px; }
+.journal-checklist input[type="number"] { width: 80px; }
+.strategy-chip:empty { display: none; }
 .backtest-table td { vertical-align: middle; }
 .backtest-table .nowrap { white-space: nowrap; }
 .backtest-table .actions { white-space: nowrap; text-align: right; }
@@ -549,6 +571,13 @@ button.primary {
 .insights { margin: 0; padding-left: 18px; line-height: 1.6; }
 .breakdowns { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
 .breakdowns .block { margin: 0; }
+.periods { margin-bottom: 12px; }
+.tiles-title { font-size: 13px; margin: 12px 0 6px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; vertical-align: middle; }
+.seg button { background: none; border: 0; color: var(--muted); padding: 0 8px; font: inherit; cursor: pointer; }
+.seg button.on { background: var(--panel-2); color: var(--text); }
+.periods .scroll { max-height: 320px; overflow-y: auto; }
+.periods thead th { position: sticky; top: 0; background: var(--panel); }
 .divbar { position: relative; height: 18px; min-width: 90px; }
 .divbar i { position: absolute; top: 5px; height: 8px; border-radius: 2px; }
 .divbar::before { content: ""; position: absolute; left: 50%; top: 2px; bottom: 2px; width: 1px; background: var(--border); }

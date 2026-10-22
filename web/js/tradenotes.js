@@ -1,4 +1,4 @@
-// What you write about each trade: a note, tags, and the names of its screenshots.
+// What you write about each trade: a note, tags, the names of its screenshots, and your checklist answers.
 //
 // This is not part of the trading engine. Notes never change a result, and they can be
 // written at any time, even while looking back at history or after a challenge has ended.
@@ -8,6 +8,8 @@ export const MAX_NOTE = 2000;
 export const MAX_TAGS = 10;
 export const MAX_TAG = 24;
 export const MAX_SCREENSHOTS = 12;
+export const MAX_ANSWERS = 30, MAX_ANSWER = 40;
+const ANSWER_KEY = /^[a-z0-9_]{1,40}$/; // a checklist question's id (strategies.js)
 export const SUGGESTED_TAGS = ["A+ setup", "followed plan", "broke rules", "FOMO", "early exit", "late entry", "news"];
 
 const IMAGE_NAME = /^[A-Za-z0-9_-]{1,80}\.png$/; // the same rule as the server's
@@ -21,7 +23,7 @@ export function cleanTag(text) {
 
 /** One trade's entry from storage, with anything unusable dropped. */
 export function cleanEntry(raw) {
-  const out = { note: "", tags: [], screenshots: [] };
+  const out = { note: "", tags: [], screenshots: [], answers: {} };
   if (!raw || typeof raw !== "object") return out;
   if (typeof raw.note === "string") out.note = raw.note.slice(0, MAX_NOTE);
   if (Array.isArray(raw.tags)) {
@@ -33,10 +35,17 @@ export function cleanEntry(raw) {
   if (Array.isArray(raw.screenshots)) {
     out.screenshots = raw.screenshots.filter((s) => typeof s === "string" && IMAGE_NAME.test(s)).slice(0, MAX_SCREENSHOTS);
   }
+  if (raw.answers && typeof raw.answers === "object" && !Array.isArray(raw.answers)) {
+    for (const [key, value] of Object.entries(raw.answers)) {
+      if (Object.keys(out.answers).length >= MAX_ANSWERS) break;
+      const text = typeof value === "string" ? value.trim().slice(0, MAX_ANSWER) : "";
+      if (ANSWER_KEY.test(key) && text) out.answers[key] = text;
+    }
+  }
   return out;
 }
 
-const isEmpty = (e) => !e.note.trim() && e.tags.length === 0 && e.screenshots.length === 0;
+const isEmpty = (e) => !e.note.trim() && e.tags.length === 0 && e.screenshots.length === 0 && Object.keys(e.answers).length === 0;
 
 export class TradeNotes {
   /** @param {object} options { onChange(tradeId) } called after every change */
@@ -48,7 +57,7 @@ export class TradeNotes {
   /** The entry for a trade (an empty one if nothing was written). Returns a copy. */
   get(id) {
     const e = this.entries.get(id);
-    return e ? { note: e.note, tags: [...e.tags], screenshots: [...e.screenshots] } : cleanEntry(null);
+    return e ? { note: e.note, tags: [...e.tags], screenshots: [...e.screenshots], answers: { ...e.answers } } : cleanEntry(null);
   }
 
   has(id) { return this.entries.has(id); }
@@ -69,6 +78,15 @@ export class TradeNotes {
     return true;
   }
 
+  /** A checklist answer (already checked against its question); "" removes it. */
+  setAnswer(id, key, value) {
+    this.change(id, (e) => {
+      const answers = { ...e.answers };
+      if (value) answers[key] = value; else delete answers[key];
+      return { ...e, answers };
+    });
+  }
+
   addScreenshot(id, name) { this.change(id, (e) => ({ ...e, screenshots: [...e.screenshots, name] })); }
   removeScreenshot(id, name) { this.change(id, (e) => ({ ...e, screenshots: e.screenshots.filter((s) => s !== name) })); }
 
@@ -80,7 +98,7 @@ export class TradeNotes {
     return [...used, ...SUGGESTED_TAGS.filter((t) => !count.has(t))];
   }
 
-  /** { "3": { note, tags, screenshots }, ... } for the backtest file; empty entries are left out. */
+  /** { "3": { note, tags, screenshots, answers }, ... } for the backtest file; empty entries are left out. */
   toJSON() {
     return Object.fromEntries([...this.entries].map(([id, e]) => [String(id), e]));
   }

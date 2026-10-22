@@ -6,8 +6,8 @@
 // escaped first: notes and tags are typed by hand and must never become page markup.
 
 import {
-  applyFilters, balanceCurve, breakdown, computeStats, dailyPnl, equityCurve, filterChoices, gaveBack, histogram, money, monthWeeks,
-  parseRows, propCheck,
+  applyFilters, balanceCurve, breakdown, computeStats, dailyPnl, equityCurve, filterChoices, gaveBack, histogram, maxDrawdownMoney,
+  money, moneyStats, monthWeeks, parseRows, periodTable, propCheck,
 } from "./analytics.js";
 
 const UP = "#26a69a", DOWN = "#ef5350", LINE = "#2962ff", GRID = "#2a2e39", MUTED = "#868993";
@@ -38,6 +38,7 @@ export class AnalyticsView {
     this.trades = [];
     this.filters = { run: "", side: "", session: "", tag: "" };
     this.backtests = [];
+    this.equityMode = "r"; // the equity curve in R or in dollars
     this.el("an-journal").addEventListener("change", (event) => {
       remember(KEY_JOURNAL, event.target.value);
       this.loadJournal(event.target.value);
@@ -131,13 +132,32 @@ export class AnalyticsView {
     const filtered = trades.length !== this.trades.length;
     this.el("an-count").textContent = filtered ? `${trades.length} of ${this.trades.length} trades` : `${trades.length} trades`;
     this.renderTiles(stats, trades);
+    this.renderMoney(trades);
     this.renderBalance(trades);
     this.renderCalendar(trades);
     this.renderEquity(trades);
     this.renderHistogram(trades);
     this.renderInsights(stats, trades);
+    this.renderPeriods(trades);
     this.renderBreakdowns(trades);
     this.renderTrades(trades);
+  }
+
+  /** Profit by month and by day (newest first), in R and dollars: stats.py period_table. */
+  renderPeriods(trades) {
+    const block = (title, period) => {
+      const table = periodTable(trades, period);
+      const wins = table.filter((row) => row.total_r > 0).length;
+      const note = table.length ? `${wins} of ${table.length} ${period === "day" ? "days" : "months"} up` : "";
+      const rows = table.map((row) => `<tr><td class="nowrap">${escapeHtml(row.group)}</td><td class="num">${row.trades}</td>` +
+        `<td class="num">${pct(row.win_rate)}</td><td class="num ${tone(row.total_r)}">${r2(row.total_r)}</td>` +
+        `<td class="num ${tone(row.net_usd)}">${Number.isFinite(row.net_usd) ? usd(row.net_usd) : "–"}</td></tr>`).join("");
+      return `<div class="block"><h2>By ${title} <span class="muted">${note}</span></h2><div class="scroll"><table class="grid">` +
+        `<thead><tr><th>${title === "day" ? "Day (closed)" : "Month"}</th><th class="num">Trades</th><th class="num">Win rate</th>` +
+        `<th class="num">Total R</th><th class="num">Net $</th></tr></thead><tbody>` +
+        (rows || '<tr><td colspan="5" class="muted">No closed trades.</td></tr>') + "</tbody></table></div></div>";
+    };
+    this.el("an-periods").innerHTML = block("month", "month") + block("day", "day");
   }
 
   renderTiles(s, trades) {
@@ -149,7 +169,8 @@ export class AnalyticsView {
       ["Total", r2(s.total_r), m.trades ? `${usd(m.net)} on ${m.trades} trade${m.trades === 1 ? "" : "s"} with $` : "no $ recorded", tone(s.total_r)],
       ["Profit factor", ratio(s.profit_factor), "won R ÷ lost R"],
       ["Payoff", ratio(s.payoff_ratio), `avg win ${r2(s.avg_win_r)} · avg loss ${r2(s.avg_loss_r)}`],
-      ["Max drawdown", Number.isFinite(s.max_drawdown_r) ? `${s.max_drawdown_r.toFixed(2)}R` : "–", "largest fall from a peak"],
+      ["Max drawdown", Number.isFinite(s.max_drawdown_r) ? `${s.max_drawdown_r.toFixed(2)}R` : "–",
+        Number.isFinite(maxDrawdownMoney(trades)) ? `largest fall from a peak · ${usd(-maxDrawdownMoney(trades))}` : "largest fall from a peak"],
       ["Streaks", `${s.longest_win_streak} / ${s.longest_loss_streak}`, "longest wins / losses in a row"],
       ["Average MFE", Number.isFinite(s.avg_mfe_r) ? `${s.avg_mfe_r.toFixed(2)}R` : "–", mfeNote(trades)],
       ["Worst day", r2(s.worst_day_r), "results summed per run and day", tone(s.worst_day_r)],
@@ -170,7 +191,9 @@ export class AnalyticsView {
     const f = this.filters;
     const run = f.run && !f.side && !f.session && !f.tag
       ? this.backtests.find((b) => b.id === f.run && b.journal === this.journal) : null;
-    const start = run && run.settings && Number(run.settings.startingBalance) > 0 ? Number(run.settings.startingBalance) : null;
+    // The starting balance: from the run's settings, or the one its result records (v2.3.2 on).
+    const startOf = (b) => [b.settings && b.settings.startingBalance, b.result && b.result.startBalance].map(Number).find((v) => v > 0);
+    const start = run ? startOf(run) ?? null : null;
     const account = start !== null;
     const curve = balanceCurve(trades, account ? start : 0);
     const svg = this.el("an-balance"), tip = this.el("an-balance-tip");
@@ -290,11 +313,57 @@ export class AnalyticsView {
       "</tbody>";
   }
 
+  /** The session's starting balance, when one session is on the page (picked in the run menu, or the journal's only one). */
+  startBalance(trades) {
+    const runs = new Set(trades.map((t) => t.run));
+    if (runs.size !== 1) return null;
+    const session = this.backtests.find((b) => b.id === [...runs][0] && b.journal === this.journal);
+    const start = session && session.result ? Number(session.result.startBalance) : NaN;
+    return Number.isFinite(start) && start > 0 ? start : null;
+  }
 
-  /** Cumulative R after each trade: one line, a light wash under it, a crosshair with the trade under the pointer. */
+  /** The dollar figures: forex_replay/stats.py money_stats. */
+  renderMoney(trades) {
+    const start = this.startBalance(trades);
+    const m = moneyStats(trades, start);
+    const $ = (v) => (Number.isFinite(v) ? usd(v) : "–");
+    const pctText = (v) => (Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(2)}%` : "–");
+    this.el("an-money-note").textContent = !m.trades_with_usd ? "no $ recorded for these trades"
+      : start === null ? "pick one session in the run menu for its balance, return and drawdown %" : "";
+    const tiles = [
+      ["Gross profit", $(m.gross_profit_usd), "every winning trade's $ added up", "up"],
+      ["Gross loss", Number.isFinite(m.gross_loss_usd) ? usd(-m.gross_loss_usd) : "–", "every losing trade's $ added up", "down"],
+      ["Profit factor ($)", ratio(m.profit_factor_usd), "gross profit ÷ gross loss"],
+      ["Average win / loss", `${$(m.avg_win_usd)} / ${$(m.avg_loss_usd)}`, "per trade, after commission"],
+      ["Largest win", $(m.largest_win_usd), Number.isFinite(m.largest_win_r) ? `largest in R: ${r2(m.largest_win_r)}` : "", "up"],
+      ["Largest loss", $(m.largest_loss_usd), Number.isFinite(m.largest_loss_r) ? `largest in R: ${r2(m.largest_loss_r)}` : "", "down"],
+      ["Best day", Number.isFinite(m.best_day_usd) ? usd(m.best_day_usd) : r2(m.best_day_r), `in R: ${r2(m.best_day_r)} · per session and day`, tone(m.best_day_r)],
+      ["Worst day ($)", $(m.worst_day_usd), "per session and day", tone(m.worst_day_usd)],
+      ["Planned reward : risk", Number.isFinite(m.avg_planned_rr) ? `${m.avg_planned_rr.toFixed(2)}` : "–", "average target ÷ stop when placed"],
+      ["Balance", start === null ? "–" : `${usd(m.start_balance).replace("+", "")} → ${usd(m.end_balance).replace("+", "")}`, start === null ? "one session only" : "start → end of this session"],
+      ["Return", pctText(m.return_pct), start === null ? "one session only" : "net $ ÷ starting balance", tone(m.return_pct)],
+      ["Max drawdown %", Number.isFinite(m.max_drawdown_pct) ? `${m.max_drawdown_pct.toFixed(2)}%` : "–", start === null ? "one session only" : "largest fall of the balance from a peak"],
+    ];
+    this.el("an-money").innerHTML = tiles.map(([label, value, note, t = ""]) =>
+      `<div class="tile"><div class="tile-label">${label}</div><div class="tile-value ${t}">${escapeHtml(value)}</div>` +
+      `<div class="tile-note">${escapeHtml(note)}</div></div>`).join("");
+  }
+
+  /** Cumulative R (or dollars) after each trade: one line, a light wash under it, a crosshair with the trade under the pointer. */
   renderEquity(trades) {
-    const W = 760, H = 240, L = 48, R = 16, T = 14, B = 26;
-    const curve = [0, ...equityCurve(trades)];
+    const W = 760, H = 240, L = 56, R = 16, T = 14, B = 26;
+    const inUsd = this.equityMode === "usd";
+    let total = 0;
+    const curve = [0, ...(inUsd ? trades.map((t) => (total += Number.isFinite(t.money) ? t.money : 0)) : equityCurve(trades))];
+    const fmt = inUsd ? (v) => usd(v) : (v) => r2(v);
+    this.el("an-equity-mode").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.eq === this.equityMode));
+    if (!this.equityBound) { // the R / $ switch
+      this.equityBound = true;
+      this.el("an-equity-mode").addEventListener("click", (event) => {
+        const b = event.target.closest("[data-eq]");
+        if (b) { this.equityMode = b.dataset.eq; this.render(); }
+      });
+    }
     const lo = Math.min(0, ...curve), hi = Math.max(0, ...curve);
     const pad = (hi - lo) * 0.08 || 1;
     const y0 = lo - pad, y1 = hi + pad;
@@ -310,12 +379,12 @@ export class AnalyticsView {
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.innerHTML =
       ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${GRID}" stroke-width="1"/>` +
-        `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" class="axis">${v}R</text>`).join("") +
+        `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" class="axis">${inUsd ? `$${v}` : `${v}R`}</text>`).join("") +
       `<line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="${MUTED}" stroke-width="1"/>` +
       `<path d="${area}" fill="${LINE}" fill-opacity="0.10"/>` +
       `<path d="${path}" fill="none" stroke="${LINE}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
       `<circle cx="${X(curve.length - 1)}" cy="${Y(last)}" r="4" fill="${LINE}" stroke="#1e222d" stroke-width="2"/>` +
-      `<text x="${Math.min(X(curve.length - 1), W - R)}" y="${Y(last) - 9}" text-anchor="end" class="label">${escapeHtml(r2(last))}</text>` +
+      `<text x="${Math.min(X(curve.length - 1), W - R)}" y="${Y(last) - 9}" text-anchor="end" class="label">${escapeHtml(fmt(last))}</text>` +
       `<text x="${L}" y="${H - 6}" class="axis">trade 1</text><text x="${W - R}" y="${H - 6}" text-anchor="end" class="axis">trade ${trades.length}</text>` +
       `<line class="crosshair" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="${MUTED}" stroke-width="1" visibility="hidden"/>` +
       `<circle class="hover-dot" r="4" fill="${LINE}" stroke="#1e222d" stroke-width="2" visibility="hidden"/>`;
@@ -331,8 +400,8 @@ export class AnalyticsView {
       const dot = svg.querySelector(".hover-dot");
       dot.setAttribute("cx", X(i)); dot.setAttribute("cy", Y(curve[i])); dot.setAttribute("visibility", "visible");
       tip.hidden = false;
-      tip.innerHTML = `<b>${escapeHtml(r2(curve[i]))}</b> after trade ${i}<br><span class="muted">#${escapeHtml(t.row.trade_id)} ${escapeHtml(t.side)} ` +
-        `${escapeHtml(r2(t.r))} · ${escapeHtml(t.row.exit_time || "")}</span>`;
+      tip.innerHTML = `<b>${escapeHtml(fmt(curve[i]))}</b> after trade ${i}<br><span class="muted">#${escapeHtml(t.row.trade_id)} ${escapeHtml(t.side)} ` +
+        `${escapeHtml(r2(t.r))}${Number.isFinite(t.money) ? ` · ${escapeHtml(usd(t.money))}` : ""} · ${escapeHtml(t.row.exit_time || "")}</span>`;
       tip.style.left = `${Math.min(box.width - 190, Math.max(0, (X(i) / W) * box.width + 10))}px`;
       tip.style.top = `${(Y(curve[i]) / H) * box.height - 40}px`;
     };
@@ -413,13 +482,14 @@ export class AnalyticsView {
       const table = breakdown(trades, by);
       const most = Math.max(...table.map((row) => Math.abs(row.total_r)), 0.0001);
       return `<div class="block"><h2>By ${title.toLowerCase()}</h2><table class="grid">` +
-        `<thead><tr><th>${title}</th><th class="num">Trades</th><th class="num">Win rate</th><th class="num">Avg</th><th class="num">Total R</th><th></th></tr></thead><tbody>` +
+        `<thead><tr><th>${title}</th><th class="num">Trades</th><th class="num">Win rate</th><th class="num">Avg</th><th class="num">Total R</th><th class="num">Net $</th><th></th></tr></thead><tbody>` +
         table.map((row) => {
           const width = (Math.abs(row.total_r) / most) * 50;
           const label = title === "Run" ? names[row.group] || row.group : row.group || "(blank)";
           return `<tr><td>${escapeHtml(label)}</td><td class="num">${row.trades}</td><td class="num">${pct(row.win_rate)}</td>` +
             `<td class="num ${tone(row.expectancy_r)}">${r2(row.expectancy_r)}</td>` +
             `<td class="num ${tone(row.total_r)}">${r2(row.total_r)}</td>` +
+            `<td class="num ${tone(row.net_usd)}">${Number.isFinite(row.net_usd) ? usd(row.net_usd) : "–"}</td>` +
             `<td><div class="divbar" title="Total R: losses to the left of the centre line, wins to the right">` +
             `<i style="${row.total_r >= 0 ? "left:50%" : `left:${50 - width}%`};width:${width}%;background:${row.total_r >= 0 ? UP : DOWN}"></i></div></td></tr>`;
         }).join("") + "</tbody></table></div>";

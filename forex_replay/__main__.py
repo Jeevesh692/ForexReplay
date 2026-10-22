@@ -6,6 +6,8 @@
     python -m forex_replay app      (v2 browser app)
     python -m forex_replay data     (rebuild the app's market data from MT5 exports)
     python -m forex_replay site     (build the app as a static website, for free hosting)
+    python -m forex_replay nbb nbb  (rebuild a strategy's NBB log from every saved session)
+    python -m forex_replay sweep liquidity_sweep  (the same for the sweep log)
 """
 
 from __future__ import annotations
@@ -87,10 +89,10 @@ def cmd_app(args) -> None:
 
 
 def cmd_data(args) -> None:
-    from .datapipe import build, summary
+    from .datapipe import build_all, summary
 
-    manifest, report = build(start=args.start)
-    print(summary(manifest, report))
+    for manifest, report in build_all(start=args.start):
+        print(summary(manifest, report))
 
 
 def cmd_site(args) -> None:
@@ -98,6 +100,20 @@ def cmd_site(args) -> None:
 
     result = build_site(Path(args.out))
     print(f"Website written to {result['out']}: {result['files']} files, {result['bytes'] / 1e6:.1f} MB")
+
+
+def cmd_log(args) -> None:
+    """Rebuild a strategy's automatic log (nbb or sweep) from every saved session."""
+    from . import loglib, nbb, sweep
+    from .backtests import check_name
+
+    module = {"nbb": nbb, "sweep": sweep}[args.command]
+    folder = JOURNALS_DIR / check_name(args.strategy, "A strategy name")
+    if not folder.is_dir():
+        raise SystemExit(f"No strategy folder {folder}")
+    totals = module.rebuild(folder, loglib.load_base())
+    print(f"{folder / module.LOG_FILE}: {totals['trades']} trades; {folder / module.DAYS_FILE}: {totals['days']} days; "
+          f"from {totals['sessions']} saved sessions")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -147,6 +163,11 @@ def build_parser() -> argparse.ArgumentParser:
     site = sub.add_parser("site", help="v2: build the app as a static website (backtests saved in the browser)")
     site.add_argument("--out", default="_site", help="folder to write the website into")
     site.set_defaults(func=cmd_site)
+
+    for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv")):
+        log = sub.add_parser(name, help=f"rebuild a strategy's {name} log ({files}) from its saved sessions")
+        log.add_argument("strategy", help="the strategy's folder name under strategies/, e.g. liquidity_sweep")
+        log.set_defaults(func=cmd_log)
     return parser
 
 

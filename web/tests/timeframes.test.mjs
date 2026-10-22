@@ -90,3 +90,52 @@ test("H4 and D1 candles match the pandas reference for the whole dataset", { ski
     });
   }
 });
+
+test("older history comes first, never changes, and a replay cannot start inside it", async () => {
+  const { TimeframeView } = await import("../js/timeframes.js");
+  const { Candles } = await import("../js/data.js");
+  const H = 3600, start = Date.UTC(2025, 7, 4, 7) / 1000; // Mon 4 Aug 2025 07:00 UTC, a whole hour on the server clock too
+  const base = new Candles(120, 5); // two hours of minutes
+  for (let i = 0; i < 120; i++) {
+    base.time[i] = start + i * 60; base.open[i] = 110000 + i; base.high[i] = 110010 + i; base.low[i] = 109990 + i; base.close[i] = 110005 + i; base.volume[i] = 1;
+  }
+  const history = new Candles(4, 5); // three older hours, and one that overlaps the minutes (must be ignored)
+  [start - 3 * H, start - 2 * H, start - H, start].forEach((t, k) => {
+    history.time[k] = t; history.open[k] = 100000 + k; history.high[k] = 100100 + k; history.low[k] = 99900 + k; history.close[k] = 100050 + k;
+  });
+  const view = new TimeframeView(base, "H1", history);
+  assert.equal(view.historyLength, 3);
+  assert.equal(view.full.length, 5); // 3 history hours + 2 hours built from the minutes
+  assert.deepEqual([...view.full.time], [start - 3 * H, start - 2 * H, start - H, start, start + H]);
+  assert.equal(view.full.open[3], 110000); // the overlapping history hour is replaced by the one built from minutes
+  assert.ok(view.isHistory(2) && !view.isHistory(3));
+  view.setPosition(30); // 30 minutes revealed: the history plus one forming hour
+  assert.equal(view.display.length, 4);
+  assert.equal(view.display.close[2], 100052);
+  assert.equal(view.display.close[3], 110005 + 29);
+  assert.ok(view.isForming());
+  const change = view.setPosition(31);
+  assert.deepEqual([change.from, change.to], [3, 3]); // only the forming hour changes, never the history
+  assert.equal(view.endOf(3), 60);
+  view.setPosition(0);
+  assert.equal(view.display.length, 3); // before any minute: the history alone, nothing forming
+  assert.ok(!view.isForming());
+});
+
+test("swing replays step through the older hours, then the hours built from the minutes, with no overlap", async () => {
+  const { hourlyBase } = await import("../js/timeframes.js");
+  const { Candles } = await import("../js/data.js");
+  const H = 3600, start = Date.UTC(2025, 7, 4, 7) / 1000;
+  const minutes = new Candles(120, 5);
+  for (let i = 0; i < 120; i++) {
+    minutes.time[i] = start + i * 60; minutes.open[i] = 110000; minutes.high[i] = 110010 + i; minutes.low[i] = 109990; minutes.close[i] = 110000 + i;
+  }
+  const older = new Candles(3, 5);
+  [start - 2 * H, start - H, start].forEach((t, k) => { older.time[k] = t; older.open[k] = 100000 + k; older.high[k] = 100100; older.low[k] = 99900; older.close[k] = 100050; });
+  const hours = hourlyBase(minutes, older);
+  assert.deepEqual([...hours.time], [start - 2 * H, start - H, start, start + H]); // the older hour at `start` gives way to the built one
+  assert.equal(hours.open[1], 100001);
+  assert.equal(hours.close[2], 110059); // the first hour built from minutes ends on minute 59
+  assert.equal(hours.close[3], 110119);
+  assert.equal(hourlyBase(minutes, null).length, 2); // no older hours: only the built ones
+});

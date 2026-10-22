@@ -56,3 +56,47 @@ def test_prop_firm_check_flags_breaches():
 
 def test_report_handles_empty_journal():
     assert format_report(journal([])) == "No closed trades yet."
+
+
+def test_profit_by_day_and_month_and_the_dollar_drawdown():
+    import pandas as pd
+    from forex_replay.stats import max_drawdown_usd, period_table
+    journal = pd.DataFrame({
+        "result_r": [2.0, -1.0, -1.0, 0.0, 1.5],
+        "pnl_usd": [196.0, -104.0, -104.0, None, 146.0],  # the fourth row is an old one without dollars
+        "exit_time": pd.to_datetime(["2026-03-02 10:00", "2026-03-02 15:00", "2026-03-03 09:00", "2026-03-03 11:00", "2026-04-01 12:00"]),
+    })
+    days = period_table(journal, "day")
+    assert list(days.index) == ["2026-04-01", "2026-03-03", "2026-03-02"]  # newest first
+    assert days.loc["2026-03-02"].tolist() == [2, 0.5, 1.0, 92.0]
+    assert days.loc["2026-03-03", "net_usd"] == -104.0 and days.loc["2026-03-03", "trades"] == 2
+    months = period_table(journal, "month")
+    assert months.loc["2026-03"].tolist() == [4, 0.25, 0.0, -12.0] and months.loc["2026-04", "net_usd"] == 146.0
+    # dollars 0 -> 196 -> 92 -> -12 -> 134: the largest fall from a peak is 196 - (-12) = 208
+    assert max_drawdown_usd(journal) == 208.0
+    assert pd.isna(max_drawdown_usd(journal.assign(pnl_usd=None)))
+
+
+def test_the_dollar_figures_of_a_session():
+    import math
+    import pandas as pd
+    from forex_replay.stats import money_stats
+    journal = pd.DataFrame({
+        "run_id": ["a"] * 5,
+        "result_r": [2.0, -1.0, 0.0, -1.0, 1.5],
+        "pnl_usd": [196.0, -104.0, -4.0, -104.0, 146.0],  # the breakeven trade still paid $4 commission
+        "planned_rr": [2.0, 2.0, 2.0, 3.0, 1.5],
+        "exit_time": pd.to_datetime(["2026-03-02 10:00", "2026-03-02 15:00", "2026-03-03 09:00", "2026-03-03 11:00", "2026-03-04 12:00"]),
+    })
+    m = money_stats(journal, 10000.0)
+    assert (m["net_usd"], m["gross_profit_usd"], m["gross_loss_usd"]) == (130.0, 342.0, 212.0)
+    assert math.isclose(m["profit_factor_usd"], 342 / 212)
+    assert (m["avg_win_usd"], m["largest_win_usd"], m["largest_loss_usd"]) == (171.0, 196.0, -104.0)
+    assert math.isclose(m["avg_loss_usd"], -212 / 3)
+    assert (m["largest_win_r"], m["largest_loss_r"], m["avg_planned_rr"]) == (2.0, -1.0, 2.1)
+    # days: 02 Mar +92 (+1R), 03 Mar -108 (-1R), 04 Mar +146 (+1.5R)
+    assert (m["best_day_r"], m["best_day_usd"], m["worst_day_usd"]) == (1.5, 146.0, -108.0)
+    # balance 10000 -> 10196 (peak) -> 10092 -> 10088 -> 9984 -> 10130: deepest fall 212 from 10196
+    assert (m["end_balance"], m["return_pct"]) == (10130.0, 1.3)
+    assert math.isclose(m["max_drawdown_pct"], 212 / 10196 * 100)
+    assert math.isnan(money_stats(journal)["return_pct"])  # no starting balance: no %

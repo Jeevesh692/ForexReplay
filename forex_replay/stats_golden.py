@@ -21,13 +21,14 @@ from pathlib import Path
 
 from .config import PROJECT_ROOT
 from .journal import COLUMNS, load_journal
-from .stats import breakdown, compute_stats, prop_firm_check
+from .stats import breakdown, compute_stats, max_drawdown_usd, money_stats, period_table, prop_firm_check
 
 FIXTURE = PROJECT_ROOT / "web" / "tests" / "fixtures" / "stats_golden.json"
 SEED = 20261004
 JOURNALS = 40
 GROUPS = ["session", "weekday", "side", "exit_reason"]
 RISK_PCT = 1.0
+START_BALANCE = 10000.0
 
 
 def number(value: float):
@@ -59,6 +60,8 @@ def random_rows(rng: random.Random) -> list[dict]:
             "weekday": rng.choice(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]),
             "duration_min": "" if legacy and rng.random() < 0.5 else str(rng.randint(5, 600)),
             "note": rng.choice(["", "a, b \"quoted\"", "line one\nline two"]),  # the CSV must survive these
+            "pnl_usd": "" if legacy else str(round(result * 100 - 4, 2)),  # v1 rows have no dollars
+            "planned_rr": "" if legacy else str(rng.choice([1.5, 2.0, 3.0])),
         })
     return rows
 
@@ -67,7 +70,7 @@ def expected(path: Path) -> dict:
     journal = load_journal(path)
     stats = compute_stats(journal)
     if stats is None:
-        return {"stats": None, "breakdowns": {}, "prop": None}
+        return {"stats": None, "breakdowns": {}, "prop": None, "periods": {}, "max_drawdown_usd": "nan", "money": None}
     breakdowns = {}
     for by in GROUPS:
         table = breakdown(journal, by)
@@ -78,6 +81,10 @@ def expected(path: Path) -> dict:
         "breakdowns": breakdowns,
         "prop": {"return_pct": check.return_pct, "max_drawdown_pct": check.max_drawdown_pct,
                  "worst_day_pct": number(check.worst_day_pct)},
+        "periods": {period: [[str(key), *(number(float(v)) for v in row.values)] for key, row in period_table(journal, period).iterrows()]
+                    for period in ("day", "month")},  # [key, trades, win_rate, total_r, net_usd], newest first
+        "max_drawdown_usd": number(max_drawdown_usd(journal)),
+        "money": {k: number(float(v)) for k, v in money_stats(journal, START_BALANCE).items()},
     }
 
 
@@ -90,11 +97,11 @@ def build(seed: int = SEED) -> dict:
             with path.open("w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=COLUMNS)
                 writer.writeheader()
-                writer.writerows(random_rows(rng))
+                writer.writerows([] if n == 0 else random_rows(rng))  # journal 0 is always empty: that case stays covered
             with path.open(newline="", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))  # exactly what the server sends the browser
             journals.append({"rows": rows, **expected(path)})
-    return {"seed": seed, "risk_pct": RISK_PCT, "groups": GROUPS, "journals": journals}
+    return {"seed": seed, "risk_pct": RISK_PCT, "start_balance": START_BALANCE, "groups": GROUPS, "journals": journals}
 
 
 def write_fixture(path: Path = FIXTURE) -> dict:
