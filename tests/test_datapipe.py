@@ -164,3 +164,17 @@ def test_history_keeps_older_candles_that_closed_before_the_first_minute_and_at_
     assert manifest["history"]["D1"]["bars"] == len(data) == 1
     assert data[0, 0] == int(pd.Timestamp("2025-07-31 21:00", tz="UTC").timestamp())  # server midnight = 17:00 New York
     assert data[0, 1] == 110000
+
+
+def test_daily_exports_without_a_time_column_and_golds_lot_size():
+    from forex_replay.datapipe import SYMBOLS
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "XAUUSD_D1_test.csv"
+        path.write_text("<DATE>\t<OPEN>\t<HIGH>\t<LOW>\t<CLOSE>\t<TICKVOL>\t<VOL>\t<SPREAD>\n"
+                        "2025.10.27\t4073.19\t4109.23\t3971.54\t3981.73\t407580\t0\t22\n", encoding="utf-8")
+        df = read_mt5_csv(path)
+    assert df.index[0] == pd.Timestamp("2025-10-27 00:00")  # a daily candle opens at server midnight
+    assert df["open"].iloc[0] == 4073.19
+    gold = SYMBOLS["XAUUSD"]
+    assert (gold.digits, gold.pip_points, gold.contract_size) == (2, 10, 100)
+    assert SYMBOLS["EURUSD"].contract_size == 100000

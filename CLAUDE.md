@@ -1,6 +1,6 @@
 # ForexReplay
 
-A forex bar-replay and backtesting tool for EURUSD, GBPUSD, USDJPY, USDCAD and AUDUSD (one pair on screen at a time; decisions 0021, 0024). Owner: Jeevesh Prakash (GitHub `Jeevesh692/ForexReplay`, branch `main`).
+A forex bar-replay and backtesting tool for EURUSD, GBPUSD, USDJPY, USDCAD, AUDUSD and gold, XAUUSD (one pair on screen at a time; decisions 0021, 0024, 0026). Owner: Jeevesh Prakash (GitHub `Jeevesh692/ForexReplay`, branch `main`).
 
 - **v1** (`forex_replay/`): Python package. Matplotlib replay, event-driven backtest, journal CSV, R-multiple stats.
 - **v2** (`web/`): a TradingView-style browser app in plain JavaScript modules, served by a small Python server. Built to the 14-day plan in `docs/plan.md` and released as v2.0.0 on 4 Oct 2026.
@@ -40,7 +40,7 @@ python -m forex_replay nbb <strategy>  # rebuild a strategy's NBB log from every
 python -m forex_replay sweep <strategy>  # the same for the liquidity-sweep log
 ```
 
-Expected today: 113 Python tests, 148 JavaScript tests, all passing.
+Expected today: 114 Python tests, 149 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -86,6 +86,7 @@ Read `docs/decisions/` before changing how something works; each record says why
 ## Facts about the data and account
 
 - Data: M1 for EURUSD, GBPUSD and USDJPY (31 Jul 2025 to 14 Oct 2026) and USDCAD and AUDUSD (to 20 Oct 2026), from a FundedNext demo account (read with the `MetaTrader5` Python package), kept as `data/*_M1_*.csv.gz` (about 5 MB each, in git). The replay reads only the M1 exports.
+- XAUUSD (gold): M1 from 31 Jul 2025 to 22 Oct 2026, same account. A lot is 100 ounces (`contract_size`, assumed, not yet confirmed in MT5), 2 digits, a pip taken as $0.10. No older history and no 1-hour mode (decision 0026).
 - Older H1, H4 and D1 candles (`data/*_{H1,H4,D1}_*.csv.gz`) are shown before the minutes on those charts (decision 0024): from 1 Jan 2024 for four pairs, from 20 Oct 2022 for AUDUSD (FundedNext's limit; 4 years at most). A replay cannot start inside them; they closed before the first minute.
 - Older M5 exports stay in `data/` for reference and are not read (EURUSD from Five Percent Online, whose prices differ slightly from FundedNext's; same server clock).
 - FundedNext's M1 records zero spread on 69% of EURUSD minutes, 4% of GBPUSD and 0% of USDJPY (the old Five Percent EURUSD M5: about 95%). Commission is $4 per lot (his broker's figure; treated as round turn, not yet confirmed whether it is per side).

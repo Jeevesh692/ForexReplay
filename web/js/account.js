@@ -10,6 +10,8 @@
 //    $1 per lot and one pip (0.0001) $10. On USDJPY one point (0.001) is worth 100 yen per lot,
 //    which in dollars depends on the price: at 150.000 it is $0.667, so a pip is $6.67.
 //    Each amount is converted at the price it happens at (the fill, the exit, the price now).
+//    Gold (XAUUSD) is the exception: a lot is 100 ounces, so a $0.01 point is $1 per lot (the
+//    lot size comes from the data's manifest, `contract_size`).
 //  * Lots come in steps of 0.01. A size worked out from risk is rounded DOWN,
 //    so the money at risk is never more than you asked for.
 //  * Commission is a round-turn charge per lot, taken in full when the trade
@@ -74,9 +76,11 @@ export function pointValuePerLot(digits) {
  * like EURUSD), or a function of the price in points when the profit is in another currency and has to be
  * converted (dollar first, like USDJPY: 100,000 units x 0.001 yen = 100 yen per point, / price in yen = dollars).
  */
-export function pointValueFor(symbol, digits) {
-  if (symbol.slice(3) === "USD") return pointValuePerLot(digits);
-  if (symbol.slice(0, 3) === "USD") return (pricePoints) => CONTRACT_SIZE / pricePoints;
+export function pointValueFor(symbol, digits, contractSize = CONTRACT_SIZE) {
+  // contractSize: units in one lot, from the data (100,000 for currency pairs; 100 ounces for gold, so on
+  // XAUUSD with 2 digits a point of $0.01 is worth 100 x $0.01 = $1 a lot).
+  if (symbol.slice(3) === "USD") return contractSize / 10 ** digits;
+  if (symbol.slice(0, 3) === "USD") return (pricePoints) => contractSize / pricePoints;
   throw new Error(`${symbol}: money for a pair without the dollar needs another rate; not supported.`);
 }
 

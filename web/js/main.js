@@ -224,7 +224,7 @@ async function boot() {
   // ------------------------------------------------------------ trading
   const UP = "#26a69a", DOWN = "#ef5350", PENDING = "#ffb74d", ENTRY = "#d1d4dc";
   const trading = new Trading({
-    m5, clock, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits),
+    m5, clock, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits, manifest.contract_size),
     settings: loadSettings(), challenge: loadChallengeRules(), onChange: () => refreshTrading(),
   });
   const formatR = (r) => `${r >= 0 ? "+" : ""}${r.toFixed(2)}R`;
@@ -874,7 +874,7 @@ async function boot() {
       await switchSymbol(saved.symbol || "EURUSD", `${journal}/${id}`, savedBase); // open the app on its pair and candles, then resume there
       return [];
     }
-    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits), barSeconds: manifest.bar_seconds });
+    const result = rebuild(saved, { m5, pipPoints: manifest.pip_points, pointValue: pointValueFor(manifest.symbol, manifest.digits, manifest.contract_size), barSeconds: manifest.bar_seconds });
     await shotQueue;
     if (clock.active && !(await backtests.end())) {
       throw new Error("the replay on screen could not be saved, so it was left open.");

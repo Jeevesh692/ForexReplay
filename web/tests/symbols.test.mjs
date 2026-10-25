@@ -21,6 +21,17 @@ test("a point is worth $1 a lot on pairs quoted in dollars, and 100 yen in dolla
   assert.throws(() => pointValueFor("EURGBP", 5), /needs another rate/);
 });
 
+test("gold: 100 ounces a lot, so a $0.01 point is $1 a lot and a $10 stop on 1% of $10,000 is 0.10 lots", () => {
+  assert.equal(pointValueFor("XAUUSD", 2, 100), 1);
+  const account = new Account({ startingBalance: 10000, sizeMode: "risk", riskPercent: 1, commissionPerLot: 4 }, pointValueFor("XAUUSD", 2, 100));
+  // a $10 stop is 1,000 points; 0.01 lots loses 1,000 x $1 / 100 = $10 there, so $100 of risk buys 10 x 0.01 lots
+  const sized = account.size(1000, 10000, 400000);
+  assert.equal(sized.units, 10);
+  near(sized.riskMoney, 100, "risk money");
+  // with the currency-pair lot of 100,000 units the same stop would have been sized 1,000 times too small
+  assert.equal(new Account({ startingBalance: 10000, sizeMode: "risk", riskPercent: 1 }, pointValueFor("XAUUSD", 2)).size(1000, 10000, 400000).error !== undefined, true);
+});
+
 test("USDJPY: the size from risk uses the entry price, and profit is converted at the exit price", () => {
   const account = new Account({ startingBalance: 10000, sizeMode: "risk", riskPercent: 1, commissionPerLot: 4 }, pointValueFor("USDJPY", 3));
   // $100 at risk over a 20-pip (200-point) stop at 150.000: 0.01 lots risks 200 x 0.6667 / 100 = $1.333, so 75 x 0.01 lots

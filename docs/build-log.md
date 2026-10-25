@@ -1065,3 +1065,45 @@ Each made a test fail.
 - No console errors. The test strategy was deleted after leaving the replay and closing the tab.
 
 **How to check:** pick AUDUSD, press **D1**, and scroll left to October 2022. On EURUSD, D1 goes back to January 2024.
+
+---
+
+## 20 Oct 2026: replay on 1-hour candles for swing strategies (v2.4.1)
+
+**Asked for (Jeevesh):** replay on the higher timeframes for swing strategies, without the lower-timeframe data; "test and commit, no need for automatic log".
+
+**Built (Claude):**
+- A **Candles** menu beside the pair: 1-minute (from 1 Aug 2025) or 1-hour (swing). The 1-hour mode steps through the older H1 history and on through hours built from the minutes. H4 and D1 are built from those hours, and fills are resolved on hourly candles.
+- Timeframes finer than an hour are switched off in that mode. Sessions remember their candles, so Resume opens the right mode and pair.
+- Fix: after a resume on another pair, the address tidy-up used the page's own `history` variable (the older candles) instead of the browser's.
+- See [decision 0025](decisions/0025-replay-on-hourly-candles.md) (written on 25 Oct with the gold entry; it was missing from that commit).
+
+**Tests:** 1 new JavaScript test (148 in total): hours built from minutes after the H1 history, with no overlap and nothing from the future.
+
+**Found along the way:** the NBB and sweep logs measure 5-minute candles, so 1-hour sessions belong in strategies without an automatic log.
+
+**How to check:** pick **1-hour (swing)** in the Candles menu, start a replay on H4 in 2024, and trade it.
+
+---
+
+## 25 Oct 2026: gold (XAUUSD) (v2.5.0)
+
+**Asked for (Jeevesh):** add XAUUSD. He exported M1, H1, H4 and D1 from MT5 to Downloads.
+
+**Built (Claude):**
+- **Data:** `data/XAUUSD_M1_mt5_2025-07_2026-10.csv.gz`, 435,592 minutes, 31 Jul 2025 to 22 Oct 2026.
+- **Lot size per symbol:** `SymbolSpec.contract_size` (100,000 for pairs, 100 ounces for gold) goes into the manifest, and `pointValueFor` uses it. On gold a $0.01 point is $1 a lot; a pip is taken as $0.10.
+- **Daily files:** the MT5 reader accepts exports without a time column (D1 has none), each day opening at server midnight.
+- See [decision 0026](decisions/0026-gold.md).
+
+**Not added:** the gold H1, H4 and D1 exports start on 27 Oct 2025, after the minutes begin, so they give no older history; gold has no 1-hour swing mode yet.
+
+**Tests:** 1 new Python test (114 in total) and 1 new JavaScript test (149 in total).
+- a daily file without a time column; gold's digits, pip and lot size; EURUSD still 100,000
+- 1% of $10,000 with a $10 (1,000-point) stop on gold sizes to 0.10 lots risking $100; with the currency lot size it would refuse the trade
+
+**Found along the way:** 248 of the 251 gold gaps of 30 minutes to 6 hours end at 18:00 New York, mostly 61 minutes long: gold's daily break. So the server clock conversion (New York + 7) is right for gold too.
+
+**In the in-app browser:** the pair menu lists six pairs. XAUUSD loads 4,35,592 M1 candles (1 Aug 2025 05:30 to 23 Oct 2026 02:29 IST), and the M15 chart draws around $4,024. The ADR plan reads ADR10 596.5 pips ($59.65 a day). No trade was placed in the browser: the selected strategy was Jeevesh's own, and a replay would have saved a session into it. Sizing is checked by the unit test only.
+
+**How to check:** pick **XAUUSD**, start a replay, and set a stop $10 away with 1% risk on $10,000. The size should read 0.10 lots.

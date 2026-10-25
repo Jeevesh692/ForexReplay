@@ -33,7 +33,7 @@ from .config import PROJECT_ROOT
 SERVER_OFFSET_FROM_NEW_YORK = pd.Timedelta(hours=7)
 FIELDS = ["time", "open", "high", "low", "close", "volume", "spread"]
 BYTES_PER_BAR = 4 * len(FIELDS)
-PIPELINE_VERSION = 3  # bump when the output files change, so existing installs rebuild (3: M1 base, 14 Oct 2026)
+PIPELINE_VERSION = 4  # bump when the output files change, so existing installs rebuild (4: contract_size in the manifest, 25 Oct 2026)
 WEB_DATA_DIR = PROJECT_ROOT / "web" / "data"
 DATA_DIR = PROJECT_ROOT / "data"
 
@@ -45,6 +45,7 @@ class SymbolSpec:
     digits: int = 5
     pip_points: int = 10  # 1 pip = 10 points for 5-digit FX quotes
     bar_seconds: int = 300
+    contract_size: int = 100000  # units in one lot: 100,000 for currency pairs, 100 ounces for gold
 
 
 # The app replays 1-minute candles (decision 0022): every timeframe, every fill and every log is built from them.
@@ -58,6 +59,8 @@ SYMBOLS = {
     "USDJPY": SymbolSpec(symbol="USDJPY", digits=3, pip_points=10, timeframe="M1", bar_seconds=60),
     "USDCAD": SymbolSpec(symbol="USDCAD", timeframe="M1", bar_seconds=60),
     "AUDUSD": SymbolSpec(symbol="AUDUSD", timeframe="M1", bar_seconds=60),
+    # Gold: prices to 2 decimals ($0.01 a point), a pip taken as $0.10 (10 points), 100 ounces a lot (decision 0026).
+    "XAUUSD": SymbolSpec(symbol="XAUUSD", digits=2, pip_points=10, timeframe="M1", bar_seconds=60, contract_size=100),
 }
 
 # History before the 1-minute candles begin, shown on these charts for context (decision 0024): MT5's own
@@ -77,7 +80,8 @@ def read_mt5_csv(path: str | Path) -> pd.DataFrame:
     if first.startswith("<DATE>"):  # MetaTrader "Export Bars" (tab separated)
         raw = pd.read_csv(path, sep="\t")
         raw.columns = [c.strip("<>").lower() for c in raw.columns]
-        time = pd.to_datetime(raw["date"] + " " + raw["time"], format="%Y.%m.%d %H:%M:%S")
+        clock = raw["time"] if "time" in raw else "00:00:00"  # daily exports have no <TIME> column: each day opens 00:00
+        time = pd.to_datetime(raw["date"] + " " + clock, format="%Y.%m.%d %H:%M:%S")
         df = pd.DataFrame({
             "open": raw["open"], "high": raw["high"], "low": raw["low"], "close": raw["close"],
             "volume": raw["tickvol"], "spread": raw.get("spread", 0),
@@ -213,6 +217,7 @@ def write_dataset(df: pd.DataFrame, spec: SymbolSpec, out_root: Path, report: di
         "bar_seconds": spec.bar_seconds,
         "digits": spec.digits,
         "pip_points": spec.pip_points,
+        "contract_size": spec.contract_size,
         "price_source": "bid",
         "clock": "UTC (converted from broker server time = New York + 7h)",
         "format": {"fields": FIELDS, "type": "int32", "endian": "little", "bytes_per_bar": BYTES_PER_BAR},
