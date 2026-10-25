@@ -1107,3 +1107,5 @@ Each made a test fail.
 **In the in-app browser:** the pair menu lists six pairs. XAUUSD loads 4,35,592 M1 candles (1 Aug 2025 05:30 to 23 Oct 2026 02:29 IST), and the M15 chart draws around $4,024. The ADR plan reads ADR10 596.5 pips ($59.65 a day). No trade was placed in the browser: the selected strategy was Jeevesh's own, and a replay would have saved a session into it. Sizing is checked by the unit test only.
 
 **How to check:** pick **XAUUSD**, start a replay, and set a stop $10 away with 1% risk on $10,000. The size should read 0.10 lots.
+
+**Merged on push:** GitHub held Yuvraj Sharma's pull request #1 (an account balance graph and a P&L calendar on the analytics page, with 2 JavaScript tests), merged by Jeevesh on 22 Oct. It touched none of the gold files. After the merge: 114 Python and 151 JavaScript tests, all passing. The PR's features were not checked in the browser this time.
