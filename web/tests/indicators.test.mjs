@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { Candles } from "../js/data.js";
-import { adr, atr, cleanIndicators, computeIndicators, ema, IndicatorEngine, rsi, sma, vwap } from "../js/indicators.js";
+import { adr, atr, cleanIndicators, computeIndicators, DEFAULT_INDICATORS, ema, IndicatorEngine, MA_LINES, rsi, sma, vwap } from "../js/indicators.js";
 import { ReplayClock } from "../js/replay.js";
 import { serverDate, TimeframeView } from "../js/timeframes.js";
 
@@ -82,20 +82,47 @@ test("indicators on a replay see only revealed candles: hiding the future change
   assert.deepEqual(partial.map((l) => [l.id, l.pane]), [["sma", "price"], ["ema", "price"], ["vwap", "price"], ["rsi", "rsi"]]);
 });
 
-test("settings: defaults, sensible periods only", () => {
+test("settings: defaults, sensible periods only; one saved SMA or EMA (before v2.6) becomes the first of five", () => {
   const s = cleanIndicators({ sma: { on: true, period: "30" }, ema: { on: "yes", period: 1 }, rsi: { period: 9999 }, vwap: null });
-  assert.deepEqual(s, {
-    sma: { on: true, period: 30 }, ema: { on: false, period: 50 }, vwap: { on: false }, rsi: { on: false, period: 14 },
-    atr: { on: false, period: 14 }, adr: { on: false, period: 14, levels: true },
-  });
+  const defaults = structuredClone(DEFAULT_INDICATORS);
+  defaults.sma[0] = { ...defaults.sma[0], on: true, period: 30 }; // the old single line, kept
+  assert.deepEqual(s, defaults); // EMA "yes" is not on, period 1 and 9999 are refused
+  assert.equal(s.sma.length, MA_LINES);
+  assert.equal(s.ema.length, MA_LINES);
+  assert.deepEqual(s.ema.map((l) => l.period), [9, 21, 50, 100, 200]);
+  assert.deepEqual(s.sma.map((l) => l.period), [30, 20, 50, 100, 200]);
+  assert.equal(new Set([...s.sma, ...s.ema].map((l) => l.colour)).size, 2 * MA_LINES, "ten different default colours");
   assert.equal(cleanIndicators({ adr: { on: true, levels: false } }).adr.levels, false);
   assert.equal(cleanIndicators({ adr: { on: true, levels: "no" } }).adr.levels, true); // only a real true/false counts
   assert.deepEqual(computeIndicators(candles, cleanIndicators(null)), []);
 });
 
+test("several SMAs and EMAs at once: each line its own period and colour, the same values as one alone", () => {
+  const settings = cleanIndicators({
+    sma: [{ on: true, period: 50 }, null, { on: true, period: 200, colour: "#FF0000" }],
+    ema: [{ on: true, period: 9 }, { on: true, period: 21, colour: "red" }, { on: false, period: 50 }, { on: true, period: 9 }],
+  });
+  assert.equal(settings.sma[2].colour, "#ff0000"); // a colour is a #rrggbb value...
+  assert.equal(settings.ema[1].colour, DEFAULT_INDICATORS.ema[1].colour); // ...anything else keeps the default
+  const lines = computeIndicators(candles, settings);
+  assert.deepEqual(lines.map((l) => [l.id, l.label]), [
+    ["sma", "SMA 50"], ["sma3", "SMA 200"], ["ema", "EMA 9"], ["ema2", "EMA 21"], ["ema4", "EMA 9"],
+  ]);
+  assert.deepEqual(lines.map((l) => l.colour), [settings.sma[0].colour, "#ff0000", settings.ema[0].colour, settings.ema[1].colour, settings.ema[3].colour]);
+  const closes = candles.close.subarray(0, candles.length);
+  const alike = (a, b, label) => {
+    assert.equal(a.length, b.length, label);
+    for (let i = 0; i < b.length; i++) assert.ok((Number.isNaN(a[i]) && Number.isNaN(b[i])) || Math.abs(a[i] - b[i]) < 1e-9, `${label}[${i}]`);
+  };
+  alike(lines[1].values, sma(closes, 200), "SMA 200 in line 3");
+  alike(lines[3].values, ema(closes, 21), "EMA 21 in line 2");
+  alike(lines[4].values, lines[2].values, "two EMA 9 lines agree");
+});
+
 test("the step-by-step engine always equals the full calculation, through a random replay", () => {
   const settings = cleanIndicators({
-    sma: { on: true, period: 20 }, ema: { on: true, period: 9 }, vwap: { on: true }, rsi: { on: true, period: 14 },
+    sma: [{ on: true, period: 20 }, { on: true, period: 5 }, null, null, { on: true, period: 50 }],
+    ema: [{ on: true, period: 9 }, { on: true, period: 21 }], vwap: { on: true }, rsi: { on: true, period: 14 },
     atr: { on: true, period: 14 }, adr: { on: true, period: 2, levels: true },
   });
   let seed = 11; const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);

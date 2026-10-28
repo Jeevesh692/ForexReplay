@@ -25,7 +25,7 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 
 **Drawing and analysis**
 - Trendline, ray, horizontal line and ray, vertical line, rectangle, Fibonacci with the OTE zone (0.618 to 0.79) and your own levels and extensions, long/short position tool, text notes. Drawings have colours, line styles, a magnet to candle prices, undo, and TradingView-style Alt shortcuts.
-- Indicators: SMA, EMA, daily VWAP, RSI, ATR and ADR (with today's ADR levels), worked out only from revealed candles.
+- Indicators: up to five SMAs and five EMAs at once (each its own period and colour, for crossover strategies), daily VWAP, RSI, ATR and ADR (with today's ADR levels), worked out only from revealed candles.
 
 **Strategies, backtests, journal and analytics**
 - Each strategy (for example a liquidity sweep or an Asian sweep) has its own folder of sessions, journal, screenshots and Excel workbook. Leave one, test another, and come back days later to where you stopped.

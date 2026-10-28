@@ -1109,3 +1109,33 @@ Each made a test fail.
 **How to check:** pick **XAUUSD**, start a replay, and set a stop $10 away with 1% risk on $10,000. The size should read 0.10 lots.
 
 **Merged on push:** GitHub held Yuvraj Sharma's pull request #1 (an account balance graph and a P&L calendar on the analytics page, with 2 JavaScript tests), merged by Jeevesh on 22 Oct. It touched none of the gold files. After the merge: 114 Python and 151 JavaScript tests, all passing. The PR's features were not checked in the browser this time.
+
+---
+
+## 28 Oct 2026: five SMAs and five EMAs at once (v2.6.0)
+
+**Asked for (Jeevesh):** several EMAs and SMAs on the chart with different periods, for an EMA/SMA crossover strategy.
+
+**Built (Claude):**
+- **Indicators dialog:** a "Moving averages" table with SMA 1–5 and EMA 1–5. Each line has a tick box, a period and a colour picker. The defaults are SMA 10/20/50/100/200 and EMA 9/21/50/100/200, all off.
+- **Settings:** `cleanIndicators` keeps a list of five per kind. A single SMA or EMA saved before this change becomes line 1, and a colour must be a `#rrggbb` value.
+- **Lines and legend:** each line carries its own colour to the chart, the legend and the price axis.
+- **Step-by-step engine:** one array per line. The SMA uses a running sum, so five lines up to SMA 200 stay quick on minute charts.
+- See [decision 0027](decisions/0027-several-moving-averages.md).
+
+**Tests:** 1 new JavaScript test (152 in total), and 2 existing ones changed.
+- several lines at once give the same values as one alone; lines appear in order (SMAs, then EMAs); bad colours are refused
+- an old one-line setting becomes line 1
+- the step-by-step engine equals the full calculation through a random replay on M5, M15 and H1, now with five moving averages on
+- Python unchanged: 114.
+
+**In the in-app browser:**
+- An old-style saved setting (SMA 30, EMA 50) loaded as SMA 1 = 30 and EMA 1 = 50, both on.
+- Through the dialog: EMA 9, EMA 21 (colour set to white), SMA 50 and SMA 200 on. All four drew on EURUSD M15, each labelled on the price axis in its colour, with values in the legend. They were still there after a reload.
+- All ten lines on the 1-minute chart (445,308 candles): working them out took 165 ms, once, when the setting changed.
+- Fixed on sight: "Period" in the lower table had started wrapping onto its own line.
+- No console errors other than the usual `site.json` 404 (the page checking whether it is the website). The test settings were removed from the browser pane afterwards.
+
+**Not checked:** a replay running with many lines on; only the full calculation was timed.
+
+**How to check:** press **Indicators** and tick EMA 1 (9) and EMA 2 (21). Start a replay on M15 and watch the two lines cross.

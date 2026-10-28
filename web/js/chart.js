@@ -554,7 +554,7 @@ export class ChartView {
         const panel = SUB_PANES.includes(line.pane);
         const level = line.id === "adrHigh" || line.id === "adrLow";
         series = this.chart.addSeries(this.lib.LineSeries, {
-          color: INDICATOR_COLOURS[line.id], lineWidth: panel ? 2 : 1, priceLineVisible: false,
+          color: line.colour || INDICATOR_COLOURS[line.id], lineWidth: panel ? 2 : 1, priceLineVisible: false,
           lineStyle: level ? this.lib.LineStyle.Dashed : this.lib.LineStyle.Solid,
           crosshairMarkerVisible: false, lastValueVisible: true, title: line.label,
           priceFormat: panel ? { type: "price", precision: 1, minMove: 0.1 } : { type: "price", precision: this.digits, minMove: 1 / 10 ** this.digits },
@@ -571,7 +571,10 @@ export class ChartView {
         }
         this.indicatorSeries.set(line.id, series);
       }
-      if (series.options().title !== line.label) series.applyOptions({ title: line.label }); // changing options redoes the chart's layout
+      const colour = line.colour || INDICATOR_COLOURS[line.id];
+      if (series.options().title !== line.label || series.options().color !== colour) {
+        series.applyOptions({ title: line.label, color: colour }); // only when changed: changing options redoes the chart's layout
+      }
       if (fresh || from === null) {
         series.setData(Array.from({ length: this.candles.length }, (_, i) => this.indicatorPoint(line, i)));
       } else {
@@ -584,7 +587,7 @@ export class ChartView {
   indicatorValues(i) {
     i += this.offset; // window candle -> every candle
     return this.indicatorLines.map((l) => ({
-      id: l.id, label: l.label, colour: INDICATOR_COLOURS[l.id],
+      id: l.id, label: l.label, colour: l.colour || INDICATOR_COLOURS[l.id],
       text: !Number.isFinite(l.values[i]) ? "–" : l.pane === "rsi" ? l.values[i].toFixed(1)
         : l.id === "atr" || l.id === "adr" ? `${(l.values[i] / this.pipPoints).toFixed(1)} pips`
           : (l.values[i] / 10 ** this.digits).toFixed(this.digits),

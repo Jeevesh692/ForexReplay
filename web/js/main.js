@@ -730,19 +730,42 @@ async function boot() {
   // ------------------------------------------------------------ indicators
   const indicatorsDialog = $("indicators-dialog");
   const indicatorsButton = $("indicators-open");
+  // Moving averages: a row per line (SMA 1-5, EMA 1-5), each with its own on/off, period and colour.
+  const MA_NOTES = { sma: "simple moving average of the closes", ema: "exponential moving average: recent closes count more" };
+  $("ma-rows").innerHTML = ["sma", "ema"].map((kind) => indicators[kind].map((_, slot) =>
+    `<tr><td><label class="check"><input type="checkbox" data-ma-on="${kind}:${slot}"> ${kind.toUpperCase()} ${slot + 1}</label></td>` +
+    `<td><label>Period <input type="number" data-ma-period="${kind}:${slot}" min="2" max="500" step="1"></label></td>` +
+    `<td><input type="color" data-ma-colour="${kind}:${slot}" aria-label="${kind.toUpperCase()} ${slot + 1} colour"></td>` +
+    `<td class="muted">${slot === 0 ? MA_NOTES[kind] : ""}</td></tr>`).join("")).join("");
+  const maInput = (what, kind, slot) => indicatorsDialog.querySelector(`[data-ma-${what}="${kind}:${slot}"]`);
+  const isMa = (key) => key === "sma" || key === "ema";
   function renderIndicatorForm() {
     for (const [key, s] of Object.entries(indicators)) {
+      if (isMa(key)) {
+        s.forEach((line, slot) => {
+          maInput("on", key, slot).checked = line.on;
+          maInput("period", key, slot).value = line.period;
+          maInput("colour", key, slot).value = line.colour;
+        });
+        continue;
+      }
       indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked = s.on;
       const period = indicatorsDialog.querySelector(`[data-period="${key}"]`);
       if (period) period.value = s.period;
       const levels = indicatorsDialog.querySelector(`[data-levels="${key}"]`);
       if (levels) levels.checked = s.levels;
     }
-    indicatorsButton.classList.toggle("active", Object.values(indicators).some((s) => s.on));
+    indicatorsButton.classList.toggle("active", Object.values(indicators).some((s) => (Array.isArray(s) ? s.some((l) => l.on) : s.on)));
   }
   function applyIndicators() {
     const raw = {};
     for (const key of Object.keys(indicators)) {
+      if (isMa(key)) {
+        raw[key] = indicators[key].map((_, slot) => ({
+          on: maInput("on", key, slot).checked, period: maInput("period", key, slot).value, colour: maInput("colour", key, slot).value,
+        }));
+        continue;
+      }
       const period = indicatorsDialog.querySelector(`[data-period="${key}"]`);
       const levels = indicatorsDialog.querySelector(`[data-levels="${key}"]`);
       raw[key] = {

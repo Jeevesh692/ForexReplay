@@ -390,13 +390,10 @@
     <h2>Indicators</h2>
     <p class="muted">Worked out from the candles on the chart only, so during a replay they never use a hidden candle.
       The last value moves while a candle is forming. They show on both charts, each on its own timeframe.</p>
+    <h3 class="ind-group">Moving averages <span class="muted">five of each, for crossovers: pick a period and a colour per line</span></h3>
+    <table class="grid indicator-table ma-table"><tbody id="ma-rows"></tbody></table>
+    <h3 class="ind-group">Others</h3>
     <table class="grid indicator-table"><tbody>
-      <tr><td><label class="check"><input type="checkbox" data-ind="sma"> <i class="swatch" style="background:#00a7b8"></i> SMA</label></td>
-        <td><label>Period <input type="number" data-period="sma" min="2" max="500" step="1"></label></td>
-        <td class="muted">simple moving average of the closes</td></tr>
-      <tr><td><label class="check"><input type="checkbox" data-ind="ema"> <i class="swatch" style="background:#9c4fd6"></i> EMA</label></td>
-        <td><label>Period <input type="number" data-period="ema" min="2" max="500" step="1"></label></td>
-        <td class="muted">exponential moving average: recent closes count more</td></tr>
       <tr><td><label class="check"><input type="checkbox" data-ind="vwap"> <i class="swatch" style="background:#c27c0e"></i> VWAP</label></td>
         <td></td>
         <td class="muted">volume-weighted average price, from 17:00 New York each day (tick volume)</td></tr>

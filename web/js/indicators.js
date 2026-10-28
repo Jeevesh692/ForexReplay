@@ -11,9 +11,23 @@
 
 import { serverDate } from "./timeframes.js";
 
+// Moving averages come in five lines of each kind, for crossover strategies (an EMA 9 against an EMA 21,
+// an SMA 50 against an SMA 200): each line has its own period and colour, and is switched on by itself.
+// The first line of each keeps the id it had when there was only one ("sma", "ema"); the others are
+// "sma2" to "sma5" and "ema2" to "ema5". The default colours are told apart by hue and lightness on the
+// dark chart; the legend and the label on the price axis always name each line, so colour is never the
+// only way to tell them apart.
+export const MA_LINES = 5;
+const MA_DEFAULTS = {
+  sma: [[10, "#00a7b8"], [20, "#2962ff"], [50, "#7cb342"], [100, "#b2b5be"], [200, "#4dd0e1"]],
+  ema: [[9, "#9c4fd6"], [21, "#ff9800"], [50, "#e91e63"], [100, "#fdd835"], [200, "#a1887f"]],
+};
+const maDefaults = (kind) => MA_DEFAULTS[kind].map(([period, colour]) => ({ on: false, period, colour }));
+export const maId = (kind, slot) => (slot === 0 ? kind : `${kind}${slot + 1}`);
+
 export const DEFAULT_INDICATORS = Object.freeze({
-  sma: { on: false, period: 20 },
-  ema: { on: false, period: 50 },
+  sma: maDefaults("sma"),
+  ema: maDefaults("ema"),
   vwap: { on: false },
   rsi: { on: false, period: 14 },
   atr: { on: false, period: 14 },
@@ -151,21 +165,42 @@ export function adr(candles, n) {
 export function cleanIndicators(raw) {
   const out = structuredClone(DEFAULT_INDICATORS);
   if (!raw || typeof raw !== "object") return out;
+  const goodPeriod = (v) => { const p = Number(v); return Number.isInteger(p) && p >= 2 && p <= 500 ? p : null; };
+  for (const kind of ["sma", "ema"]) {
+    // Settings saved before v2.6 held one line ({ on, period }); it becomes the first of the five.
+    const list = Array.isArray(raw[kind]) ? raw[kind] : raw[kind] && typeof raw[kind] === "object" ? [raw[kind]] : [];
+    for (let slot = 0; slot < MA_LINES; slot++) {
+      const r = list[slot];
+      if (!r || typeof r !== "object") continue;
+      out[kind][slot].on = r.on === true;
+      out[kind][slot].period = goodPeriod(r.period) ?? out[kind][slot].period;
+      if (typeof r.colour === "string" && /^#[0-9a-f]{6}$/i.test(r.colour)) out[kind][slot].colour = r.colour.toLowerCase();
+    }
+  }
   for (const key of Object.keys(out)) {
+    if (key === "sma" || key === "ema") continue;
     const r = raw[key];
     if (!r || typeof r !== "object") continue;
     out[key].on = r.on === true;
     if ("levels" in out[key] && typeof r.levels === "boolean") out[key].levels = r.levels;
-    if ("period" in out[key]) {
-      const p = Number(r.period);
-      if (Number.isInteger(p) && p >= 2 && p <= 500) out[key].period = p;
-    }
+    if ("period" in out[key]) out[key].period = goodPeriod(r.period) ?? out[key].period;
+  }
+  return out;
+}
+
+/** The moving-average lines switched on, in order: SMAs first, then EMAs. */
+function maLines(settings) {
+  const out = [];
+  for (const kind of ["sma", "ema"]) {
+    settings[kind].forEach((line, slot) => {
+      if (line.on) out.push({ kind, id: maId(kind, slot), label: `${kind.toUpperCase()} ${line.period}`, period: line.period, colour: line.colour });
+    });
   }
   return out;
 }
 
 /**
- * The lines to draw for `candles` under `settings`: [{ id, label, values, pane }].
+ * The lines to draw for `candles` under `settings`: [{ id, label, values, pane, colour? }].
  * pane: "price" (over the candles), "rsi" or "atr" (a panel of its own), "legend" (a value in the legend only).
  * ATR and ADR values are in points; the chart shows them in pips.
  */
@@ -175,8 +210,9 @@ export function computeIndicators(candles, settings) {
   // array would be look-ahead. (Found on day 13 in the browser; there is a test for it.)
   const closes = candles.close.subarray(0, candles.length);
   const lines = [];
-  if (settings.sma.on) lines.push({ id: "sma", label: `SMA ${settings.sma.period}`, values: sma(closes, settings.sma.period), pane: "price" });
-  if (settings.ema.on) lines.push({ id: "ema", label: `EMA ${settings.ema.period}`, values: ema(closes, settings.ema.period), pane: "price" });
+  for (const m of maLines(settings)) {
+    lines.push({ id: m.id, label: m.label, values: (m.kind === "sma" ? sma : ema)(closes, m.period), pane: "price", colour: m.colour });
+  }
   if (settings.vwap.on) lines.push({ id: "vwap", label: "VWAP (daily)", values: vwap(candles), pane: "price" });
   if (settings.rsi.on) lines.push({ id: "rsi", label: `RSI ${settings.rsi.period}`, values: rsi(closes, settings.rsi.period), pane: "rsi" });
   if (settings.atr.on) lines.push({ id: "atr", label: `ATR ${settings.atr.period}`, values: atr(candles, settings.atr.period), pane: "atr" });
@@ -210,7 +246,9 @@ export class IndicatorEngine {
   grow(capacity) {
     if (capacity <= this.capacity) return;
     const keep = (old) => { const a = new Float64Array(capacity).fill(NaN); if (old) a.set(old.subarray(0, this.length)); return a; };
-    for (const name of ["sma", "ema", "rsi", "gain", "loss", "vwap", "pv", "vol", "atr", "adr", "adrHigh", "adrLow", "dayHi", "dayLo"]) this[name] = keep(this[name]);
+    this.ma = this.ma || {}; // moving-average line id -> its values
+    for (const id of Object.keys(this.ma)) this.ma[id] = keep(this.ma[id]);
+    for (const name of ["rsi", "gain", "loss", "vwap", "pv", "vol", "atr", "adr", "adrHigh", "adrLow", "dayHi", "dayLo"]) this[name] = keep(this[name]);
     const keepPlain = (old) => { const a = new Float64Array(capacity); if (old) a.set(old.subarray(0, this.length)); return a; };
     this.day = keepPlain(this.day);
     this.adrDay = keepPlain(this.adrDay);
@@ -229,17 +267,19 @@ export class IndicatorEngine {
     this.key = key;
     this.grow(Math.max(n, candles.close.length));
     const c = candles.close;
-    const { sma: S, ema: E, rsi: R } = settings;
-    if (S.on) this.smaFrom(c, S.period, from, n);
-    if (E.on) this.emaFrom(c, E.period, from, n);
+    const R = settings.rsi;
+    const mas = maLines(settings);
+    for (const m of mas) {
+      if (!this.ma[m.id]) this.ma[m.id] = new Float64Array(this.capacity).fill(NaN);
+      (m.kind === "sma" ? this.smaFrom : this.emaFrom).call(this, this.ma[m.id], c, m.period, from, n);
+    }
     if (R.on) this.rsiFrom(c, R.period, from, n);
     if (settings.vwap.on) this.vwapFrom(candles, from, n);
     if (settings.atr.on) this.atrFrom(candles, settings.atr.period, from, n);
     if (settings.adr.on) this.adrFrom(candles, settings.adr.period, from, n);
     this.length = n;
     const lines = [];
-    if (S.on) lines.push({ id: "sma", label: `SMA ${S.period}`, values: this.sma.subarray(0, n), pane: "price" });
-    if (E.on) lines.push({ id: "ema", label: `EMA ${E.period}`, values: this.ema.subarray(0, n), pane: "price" });
+    for (const m of mas) lines.push({ id: m.id, label: m.label, values: this.ma[m.id].subarray(0, n), pane: "price", colour: m.colour });
     if (settings.vwap.on) lines.push({ id: "vwap", label: "VWAP (daily)", values: this.vwap.subarray(0, n), pane: "price" });
     if (R.on) lines.push({ id: "rsi", label: `RSI ${R.period}`, values: this.rsi.subarray(0, n), pane: "rsi" });
     if (settings.atr.on) lines.push({ id: "atr", label: `ATR ${settings.atr.period}`, values: this.atr.subarray(0, n), pane: "atr" });
@@ -292,21 +332,24 @@ export class IndicatorEngine {
     }
   }
 
-  smaFrom(c, p, from, n) {
-    for (let i = from; i < n; i++) {
-      if (i < p - 1) { this.sma[i] = NaN; continue; }
-      let sum = 0;
-      for (let k = i - p + 1; k <= i; k++) sum += c[k];
-      this.sma[i] = sum / p;
-    }
+  smaFrom(out, c, p, from, n) {
+    // A running sum: add the new close, drop the one p candles back (five lines up to SMA 200 on
+    // minute charts made adding up all p closes for every candle too slow).
+    for (let i = from; i < Math.min(p - 1, n); i++) out[i] = NaN;
+    const start = Math.max(from, p - 1);
+    if (start >= n) return;
+    let sum = 0;
+    for (let k = start - p + 1; k <= start; k++) sum += c[k];
+    out[start] = sum / p;
+    for (let i = start + 1; i < n; i++) { sum += c[i] - c[i - p]; out[i] = sum / p; }
   }
 
-  emaFrom(c, p, from, n) {
+  emaFrom(out, c, p, from, n) {
     const k = 2 / (p + 1);
     for (let i = from; i < n; i++) {
-      if (i < p - 1) { this.ema[i] = NaN; continue; }
-      if (i === p - 1) { let sum = 0; for (let j = 0; j < p; j++) sum += c[j]; this.ema[i] = sum / p; continue; }
-      this.ema[i] = c[i] * k + this.ema[i - 1] * (1 - k);
+      if (i < p - 1) { out[i] = NaN; continue; }
+      if (i === p - 1) { let sum = 0; for (let j = 0; j < p; j++) sum += c[j]; out[i] = sum / p; continue; }
+      out[i] = c[i] * k + out[i - 1] * (1 - k);
     }
   }
 
