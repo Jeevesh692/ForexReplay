@@ -85,6 +85,28 @@ export class ReplayClock {
     return true;
   }
 
+  /**
+   * Jump forward to `position` (a "Jump to setup"): only from the live edge, and only forward. Every base
+   * candle on the way is revealed one at a time, in order, to the reveal listeners, exactly as playing would;
+   * `shouldStop()` is asked after each one and can end the jump there (an open trade closing, for example).
+   * One change is announced at the end. Returns { moved, early } (early: stopped before `position`).
+   */
+  jumpTo(position, shouldStop = null) {
+    if (!this.active || !this.live) return { moved: false, early: false };
+    const end = Math.min(position, this.total);
+    if (end <= this.position) return { moved: false, early: false };
+    this.pause();
+    let early = false;
+    while (this.position < end) {
+      const from = this.position;
+      this.position = this.furthest = from + 1;
+      for (const listener of this.revealListeners) listener(from, from + 1);
+      if (shouldStop && shouldStop()) { early = true; break; }
+    }
+    this.emit("advance");
+    return { moved: true, early };
+  }
+
   /** Reveal `count` more M5 candles. */
   advance(count = 1) {
     if (!this.active) return false;

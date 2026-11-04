@@ -21,8 +21,8 @@ test("a label becomes the same folder name as in Python", () => {
 });
 
 test("a strategy needs a safe name, a label and a known log", () => {
-  assert.deepEqual(cleanStrategy("nbb", { label: " NBB OTE ", logger: "nbb" }), { label: "NBB OTE", logger: "nbb", checklist: [] });
-  assert.deepEqual(cleanStrategy("asian", { label: "Asian sweep" }), { label: "Asian sweep", logger: "none", checklist: [] });
+  assert.deepEqual(cleanStrategy("nbb", { label: " NBB OTE ", logger: "nbb" }), { label: "NBB OTE", logger: "nbb", checklist: [], jump: null });
+  assert.deepEqual(cleanStrategy("asian", { label: "Asian sweep" }), { label: "Asian sweep", logger: "none", checklist: [], jump: null });
   for (const [name, data] of [["../x", { label: "x" }], ["nbb", { label: "" }], ["nbb", { label: "x".repeat(61) }],
     ["nbb", { label: "x", logger: "magic" }], ["nbb", null]]) {
     assert.ok(cleanStrategy(name, data).error, `${name} ${JSON.stringify(data)}`);

@@ -10,6 +10,8 @@
 import { formatSignedMoney } from "./account.js";
 import { newId, snapshot, validName } from "./backtest.js";
 import { cleanChecklist, KINDS, LOGGERS, MAX_QUESTIONS, slug } from "./strategies.js";
+import { JUMP_SESSIONS, jumpLabel, validateJump } from "./jump.js";
+import { ZONES } from "./sessions.js";
 import { formatDateTime } from "./time.js";
 
 export const DEFAULT_JOURNAL = "manual_backtests";
@@ -54,6 +56,14 @@ export class Backtests {
 
     this.el = (id) => dialog.querySelector(`#${id}`);
     this.el("strategy-logger").innerHTML = LOGGERS.map((l) => `<option value="${l.id}">${escapeHtml(l.label)}</option>`).join("");
+    this.el("jump-target").innerHTML = '<option value="">No jump</option>' +
+      JUMP_SESSIONS.flatMap((x) => ["start", "end"].map((edge) => `<option value="session:${x.id}:${edge}">${escapeHtml(x.label)} ${edge}</option>`)).join("") +
+      '<option value="clock">A time of day…</option>';
+    this.el("jump-zone").innerHTML = ZONES.map((z) => `<option value="${z.id}">${escapeHtml(z.label)}</option>`).join("");
+    this.el("jump-editor").addEventListener("input", () => this.previewJump());
+    this.el("jump-editor").addEventListener("change", () => this.previewJump());
+    this.el("jump-cancel").addEventListener("click", () => { this.el("jump-editor").hidden = true; });
+    this.el("jump-save").addEventListener("click", () => this.saveJump());
     this.el("strategy-new").addEventListener("submit", (event) => { event.preventDefault(); this.create(); });
     this.el("strategy-rows").addEventListener("click", (event) => this.handleStrategyClick(event));
     this.el("checklist-add").addEventListener("click", () => {
@@ -109,7 +119,55 @@ export class Backtests {
 
   remember(list) {
     this.labels = Object.fromEntries(list.map((s) => [s.name, s.label]));
-    this.configs = Object.fromEntries(list.map((s) => [s.name, { label: s.label, logger: s.logger, checklist: s.checklist || [] }]));
+    this.configs = Object.fromEntries(list.map((s) => [s.name, { label: s.label, logger: s.logger, checklist: s.checklist || [], jump: s.jump || null }]));
+  }
+
+  /** The strategy's jump to setup time, or null. */
+  jumpOf(name) {
+    return (this.configs[name] || {}).jump || null;
+  }
+
+  openJump(name) {
+    this.jumpFor = name;
+    const jump = this.jumpOf(name);
+    this.el("jump-for").textContent = this.label(name);
+    this.el("jump-target").value = !jump ? "" : jump.kind === "session" ? `session:${jump.session}:${jump.edge}` : "clock";
+    if (jump && jump.kind === "clock") { this.el("jump-time").value = jump.time; this.el("jump-zone").value = jump.zone; }
+    this.el("jump-offset").value = jump ? jump.offset : 0;
+    this.el("jump-editor").hidden = false;
+    this.previewJump();
+  }
+
+  /** The jump the editor shows: { jump } or { error }. */
+  readJump() {
+    const target = this.el("jump-target").value;
+    const offset = Number(this.el("jump-offset").value || 0);
+    if (!target) return { jump: null };
+    if (target === "clock") return validateJump({ kind: "clock", zone: this.el("jump-zone").value, time: this.el("jump-time").value, offset });
+    const [, session, edge] = target.split(":");
+    return validateJump({ kind: "session", session, edge, offset });
+  }
+
+  previewJump() {
+    this.el("jump-clock").hidden = this.el("jump-target").value !== "clock";
+    const read = this.readJump();
+    this.el("jump-preview").textContent = read.error || (read.jump ? `Lands at: ${jumpLabel(read.jump)}` : "J will say this strategy has no jump.");
+  }
+
+  async saveJump() {
+    const read = this.readJump();
+    if (read.error) { this.say(read.error, "bad"); return; }
+    const name = this.jumpFor;
+    const config = this.configs[name] || { label: this.label(name), logger: "none" };
+    try {
+      await this.store.putStrategy(name, { label: config.label, logger: config.logger, checklist: config.checklist || [], jump: read.jump });
+    } catch (err) {
+      this.say(`Could not save the jump: ${err.message}`, "bad");
+      return;
+    }
+    this.el("jump-editor").hidden = true;
+    await this.refresh();
+    this.say(read.jump ? `J now jumps to ${jumpLabel(read.jump)}.` : "This strategy has no jump now.", "ok");
   }
 
   /** A strategy's checklist questions (none if it has no checklist). */
@@ -158,7 +216,7 @@ export class Backtests {
     if (clean.error) { this.say(clean.error, "bad"); return; }
     const config = this.configs[name] || { label: this.label(name), logger: "none" };
     try {
-      await this.store.putStrategy(name, { label: config.label, logger: config.logger, checklist: clean });
+      await this.store.putStrategy(name, { label: config.label, logger: config.logger, checklist: clean, jump: config.jump || null });
     } catch (err) {
       this.say(`Could not save the checklist: ${err.message}`, "bad");
       return;
@@ -342,6 +400,7 @@ export class Backtests {
       <td class="actions">
         ${s.latest ? `<button type="button" class="plain bordered small" data-strategy-resume="${name}/${escapeHtml(s.latest.id)}"${latestOnScreen ? " disabled" : ""} title="Open the session saved most recently, where it stopped">Resume</button>` : ""}
         <button type="button" class="plain small" data-strategy-checklist="${name}" title="Your own questions to answer for each trade of this strategy">Checklist${(s.checklist || []).length ? ` (${s.checklist.length})` : ""}</button>
+        <button type="button" class="plain small" data-strategy-jump="${name}" title="Where J (Jump to setup) takes the replay">Jump: ${escapeHtml(jumpLabel(s.jump || null))}</button>
         <button type="button" class="plain bordered small" data-strategy-new="${name}" title="Save the session on screen, then start a new session of this strategy from a candle you pick">New session</button>
       </td></tr>`;
   }
@@ -378,6 +437,10 @@ export class Backtests {
     }
     if (button && button.dataset.strategyChecklist) {
       this.openChecklist(button.dataset.strategyChecklist);
+      return;
+    }
+    if (button && button.dataset.strategyJump) {
+      this.openJump(button.dataset.strategyJump);
       return;
     }
     const row = event.target.closest("tr[data-select]");

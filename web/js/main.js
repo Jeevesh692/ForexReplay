@@ -12,6 +12,7 @@ import { openStore } from "./store.js";
 import { TradeNotes } from "./tradenotes.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
+import { jumpClock, jumpLabel, nextJump, SESSION_OPENS } from "./jump.js";
 import { cleanIndicators, STORAGE_KEY as KEY_INDICATORS } from "./indicators.js";
 import { LayerGroup } from "./layergroup.js";
 import {
@@ -727,6 +728,28 @@ async function boot() {
   }
   layoutButton.addEventListener("click", () => setLayout(!layoutTwo));
 
+  // Jump to setup time (J) and the next session opens (1, 2, 3): see jump.js.
+  function stoppedHint() {
+    const t = trading.broker.trades;
+    const last = t.slice().reverse().find((x) => x.status === "CLOSED" || x.status === "OPEN");
+    return `Jump stopped at ${formatDateTime(m5.time[clock.position - 1] + manifest.bar_seconds)} IST: ` +
+      (trading.challenge && trading.challenge.outcome !== "RUNNING" ? `the challenge ${trading.challenge.outcome.toLowerCase()}.`
+        : last ? `trade #${last.id} ${last.status === "CLOSED" ? "closed" : "filled"}.` : "an order changed.");
+  }
+  function jumpTo(jump, what) {
+    if (!clock.active) { setHint("Jumps work during a replay. Start one first."); return; }
+    if (!clock.live) { setHint("Jumps work only at the live edge: press End (Live) first."); return; }
+    if (!jump) { setHint("This strategy has no setup time. Set one in Strategies (Jump: none)."); return; }
+    const next = nextJump(jump, m5, m5.length, clock.position, manifest.bar_seconds);
+    if (!next) { setHint(`No later ${what} in this data.`); return; }
+    const done = jumpClock(clock, trading, next.position);
+    allToLatest();
+    setHint(done.early ? stoppedHint() : `At ${what}: ${formatDateTime(next.target)} IST. Paused.`);
+  }
+  const jumpSetup = () => jumpTo(backtests ? backtests.jumpOf(backtests.journal) : null, backtests ? jumpLabel(backtests.jumpOf(backtests.journal)) : "the setup");
+  $("jump-setup").addEventListener("click", jumpSetup);
+  for (const s of SESSION_OPENS) $(`jump-${s.id === "asia" ? "tokyo" : s.id}`).addEventListener("click", () => jumpTo(s.jump, `the ${s.label} open`));
+
   // ------------------------------------------------------------ indicators
   const indicatorsDialog = $("indicators-dialog");
   const indicatorsButton = $("indicators-open");
@@ -812,6 +835,12 @@ async function boot() {
     ui.play.title = clock.playing ? "Pause (Space)" : "Play (Space)";
     ui.forward.disabled = clock.finished;
     ui.live.hidden = clock.live;
+    for (const id of ["jump-setup", "jump-tokyo", "jump-london", "jump-newyork"]) {
+      const b = $(id);
+      b.disabled = !clock.live || clock.finished;
+      if (!b.dataset.title) b.dataset.title = b.title;
+      b.title = clock.live ? b.dataset.title : "Jumps work only at the live edge: press End (Live) first";
+    }
     const now = m5.time[clock.position - 1] + manifest.bar_seconds; // close of the last revealed candle
     const behind = clock.furthest - clock.position;
     ui.clock.textContent = `Replay · ${formatDateTime(now)} IST` +
@@ -957,6 +986,12 @@ async function boot() {
     else if (event.key === "ArrowRight") { event.preventDefault(); event.shiftKey ? clock.advance(1) : clock.stepForward(view); }
     else if (event.key === "ArrowLeft") { event.preventDefault(); clock.stepBack(view); }
     else if (event.key === "End") { clock.backToLive(); allToLatest(); }
+    else if ((event.key === "j" || event.key === "J") && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); jumpSetup(); }
+    else if (["1", "2", "3"].includes(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const s = SESSION_OPENS.find((x) => x.key === event.key);
+      event.preventDefault();
+      jumpTo(s.jump, `the ${s.label} open`);
+    }
   });
   panel = new TradingPanel($("trading-panel"), {
     trading, m5, digits: manifest.digits,

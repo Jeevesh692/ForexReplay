@@ -10,6 +10,7 @@ import { DrawingStore } from "../js/drawings.js";
 import { ReplayClock } from "../js/replay.js";
 import { TimeframeView } from "../js/timeframes.js";
 import { InvalidOrder, Side, Trading } from "../js/trading.js";
+import { jumpClock } from "../js/jump.js";
 
 const utc = (text) => Date.parse(text + "Z") / 1000;
 const MANIFEST = { symbol: "EURUSD", digits: 5, pip_points: 10 };
@@ -120,6 +121,34 @@ test("a rebuilt backtest matches the original run exactly, over 60 random runs, 
   }
   assert.ok(actions > 1000 && trades > 300, `only ${actions} actions and ${trades} trades were exercised`);
   assert.ok(outcomes.PASSED >= 3 && outcomes.FAILED >= 3, `challenge outcomes too one-sided: ${JSON.stringify(outcomes)}`);
+});
+
+test("sessions that used jumps rebuild exactly: a jump is only a clock move, every candle still played", () => {
+  let jumps = 0, early = 0, trades = 0;
+  for (let run = 0; run < 30; run++) {
+    const { m5, rand } = randomMarket(900, 5000 + run);
+    const challenge = run % 2 ? { enabled: true, targetPercent: 0.3, dailyPercent: 4, maxPercent: 6 } : null;
+    const { clock, trading } = startRun(m5, 50 + Math.floor(rand() * 100), challenge);
+    const view = new TimeframeView(m5, "M15");
+    for (let step = 0; step < 200; step++) {
+      if (rand() < 0.15 && clock.live) {
+        const done = jumpClock(clock, trading, clock.position + 5 + Math.floor(rand() * 80)); // stops early if a trade changes
+        jumps++;
+        if (done.early) early++;
+      } else {
+        randomAction(rand, trading, clock, view);
+      }
+    }
+    const saved = save(m5, clock, trading);
+    const { trading: again, position, problems } = rebuild(saved, { m5, ...ENV });
+    assert.deepEqual(problems, [], `run ${run}`);
+    assert.equal(position, clock.furthest);
+    assert.deepEqual(again.broker.trades.map((t) => tradeRecord(t, m5, again.account)), saved.trades);
+    assert.equal(again.balance, trading.balance);
+    if (challenge) assert.deepEqual(again.challenge.summary(), trading.challenge.summary());
+    trades += saved.trades.length;
+  }
+  assert.ok(jumps > 500 && early > 50 && trades > 100, `only ${jumps} jumps (${early} stopped early) and ${trades} trades`);
 });
 
 test("a resumed run carries on exactly as if it had never stopped", () => {

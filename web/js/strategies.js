@@ -8,6 +8,8 @@ export const LOGGERS = [
   { id: "nbb", label: "NBB (Market Maker + OTE)", file: "nbb_log.csv" },
   { id: "sweep", label: "Liquidity sweep (NY session)", file: "sweep_log.csv" },
 ];
+import { validateJump } from "./jump.js";
+
 export const MAX_LABEL = 60;
 const NAME = /^[A-Za-z0-9_-]{1,48}$/;
 
@@ -25,7 +27,9 @@ export function cleanStrategy(name, data) {
   if (!LOGGERS.some((l) => l.id === logger)) return { error: `Unknown log "${logger}".` };
   const checklist = cleanChecklist(data.checklist);
   if (checklist.error) return checklist;
-  return { label, logger, checklist };
+  const jump = validateJump(data.jump);
+  if (jump.error) return jump;
+  return { label, logger, checklist, jump: jump.jump };
 }
 
 /**
@@ -39,7 +43,7 @@ export function strategyList(sessions, configs = {}, tradeCounts = {}) {
     const own = sessions.filter((s) => s.journal === name && !s.error);
     const config = configs[name] || {};
     return {
-      name, label: config.label || name, logger: config.logger || "none", checklist: config.checklist || [],
+      name, label: config.label || name, logger: config.logger || "none", checklist: config.checklist || [], jump: config.jump || null,
       sessions: own.length, latest: own[0] || null, trades: tradeCounts[name] || 0, workbooks: [],
     };
   });

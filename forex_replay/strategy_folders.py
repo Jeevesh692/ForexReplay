@@ -26,6 +26,38 @@ from .backtests import NAME, BacktestError, _lock, check_name, list_backtests
 from .config import JOURNALS_DIR
 
 LOGGERS = ("none", "nbb", "sweep")
+# Jump to setup time (web/js/jump.js): a session's start or end from either preset, or a clock time in a zone.
+JUMP_SESSIONS = ("asia", "london", "newyork", "asia-kz", "london-kz", "ny-kz", "london-close-kz")
+JUMP_ZONES = ("Asia/Tokyo", "Asia/Hong_Kong", "Asia/Singapore", "Australia/Sydney", "Asia/Kolkata", "Europe/Berlin",
+              "Europe/London", "America/New_York", "UTC")
+MAX_JUMP_OFFSET = 720  # minutes either way
+TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def clean_jump(raw):
+    """A strategy's jump, checked: None for none; BacktestError when it is malformed."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise BacktestError("A jump must be an object.")
+    offset = raw.get("offset", 0)
+    if isinstance(offset, bool) or not isinstance(offset, int) or abs(offset) > MAX_JUMP_OFFSET:
+        raise BacktestError(f"The jump's offset must be whole minutes, at most {MAX_JUMP_OFFSET} either way.")
+    if raw.get("kind") == "session":
+        if raw.get("session") not in JUMP_SESSIONS:
+            raise BacktestError(f"Unknown session {raw.get('session')!r}.")
+        if raw.get("edge") not in ("start", "end"):
+            raise BacktestError("A session jump goes to its start or its end.")
+        return {"kind": "session", "session": raw["session"], "edge": raw["edge"], "offset": offset}
+    if raw.get("kind") == "clock":
+        if raw.get("zone") not in JUMP_ZONES:
+            raise BacktestError(f"Unknown timezone {raw.get('zone')!r}.")
+        if not isinstance(raw.get("time"), str) or not TIME.match(raw["time"]):
+            raise BacktestError("A clock jump needs a time as HH:MM.")
+        return {"kind": "clock", "zone": raw["zone"], "time": raw["time"], "offset": offset}
+    raise BacktestError("A jump is a session's start or end, or a clock time.")
+
+
 CONFIG = "strategy.json"
 MAX_LABEL = 60
 KINDS = ("yesno", "choice", "number")
@@ -77,7 +109,7 @@ def clean_checklist(raw) -> list[dict]:
 
 def read_config(name: str, root: Path = JOURNALS_DIR) -> dict:
     """The strategy's label, logger and checklist; defaults when strategy.json is missing or damaged."""
-    config = {"label": name, "logger": "none", "checklist": []}
+    config = {"label": name, "logger": "none", "checklist": [], "jump": None}
     path = root / check_name(name, "A strategy name") / CONFIG
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -88,6 +120,10 @@ def read_config(name: str, root: Path = JOURNALS_DIR) -> dict:
             config["label"] = data["label"].strip()[:MAX_LABEL]
         if data.get("logger") in LOGGERS:
             config["logger"] = data["logger"]
+        try:
+            config["jump"] = clean_jump(data.get("jump"))
+        except BacktestError:
+            pass  # a damaged jump reads as none, like a damaged checklist
         try:
             config["checklist"] = clean_checklist(data.get("checklist"))
         except BacktestError:
@@ -136,7 +172,8 @@ def save_strategy(name: str, data: dict, root: Path = JOURNALS_DIR) -> dict:
     if logger not in LOGGERS:
         raise BacktestError(f"Unknown log {logger!r}; choose one of {', '.join(LOGGERS)}.")
     checklist = clean_checklist(data["checklist"]) if "checklist" in data else read_config(name, root)["checklist"]
-    config = {"label": label.strip(), "logger": logger, "checklist": checklist}
+    jump = clean_jump(data["jump"]) if "jump" in data else read_config(name, root)["jump"]  # missing: keep it
+    config = {"label": label.strip(), "logger": logger, "checklist": checklist, "jump": jump}
     folder = root / name
     with _lock:
         folder.mkdir(parents=True, exist_ok=True)

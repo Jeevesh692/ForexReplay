@@ -52,7 +52,7 @@ def test_changing_a_strategy_keeps_its_sessions_and_bad_input_is_refused():
         root = Path(tmp)
         backtests.save("nbb", "bt-1", backtest([closed_trade(1)], journal="nbb"), root)
         assert strategies.save_strategy("nbb", {"label": " NBB OTE ", "logger": "nbb"}, root)["label"] == "NBB OTE"
-        assert strategies.read_config("nbb", root) == {"label": "NBB OTE", "logger": "nbb", "checklist": []}
+        assert strategies.read_config("nbb", root) == {"label": "NBB OTE", "logger": "nbb", "checklist": [], "jump": None}
         assert (root / "nbb" / "backtests" / "bt-1.json").exists()
         assert len(backtests.journal_rows("nbb", root)) == 1
         for name, data in [("../x", {"label": "x"}), ("nbb", {"label": ""}), ("nbb", {"label": "x" * 61}),
@@ -60,7 +60,7 @@ def test_changing_a_strategy_keeps_its_sessions_and_bad_input_is_refused():
             with pytest.raises(backtests.BacktestError):
                 strategies.save_strategy(name, data, root)
         (root / "nbb" / "strategy.json").write_text("{ damaged", encoding="utf-8")
-        assert strategies.read_config("nbb", root) == {"label": "nbb", "logger": "none", "checklist": []}
+        assert strategies.read_config("nbb", root) == {"label": "nbb", "logger": "none", "checklist": [], "jump": None}
 
 
 def test_server_lists_and_saves_strategies():
@@ -88,3 +88,28 @@ def test_server_lists_and_saves_strategies():
         finally:
             server.shutdown()
             server.server_close()
+
+
+def test_jump_to_setup_time_is_checked_kept_and_a_damaged_one_reads_as_none():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        tokyo_close = {"kind": "session", "session": "asia", "edge": "end", "offset": -15}
+        strategies.save_strategy("asia", {"label": "Asia", "jump": tokyo_close}, root)
+        assert strategies.read_config("asia", root)["jump"] == tokyo_close
+        strategies.save_strategy("asia", {"label": "Asia", "logger": "nbb"}, root)  # no jump in the request: kept
+        assert strategies.read_config("asia", root)["jump"] == tokyo_close
+        clock = {"kind": "clock", "zone": "America/New_York", "time": "05:00"}
+        assert strategies.save_strategy("ny", {"label": "NY", "jump": clock}, root)["jump"] == {**clock, "offset": 0}
+        bad = [{"kind": "session", "session": "mars", "edge": "end"}, {"kind": "session", "session": "asia", "edge": "middle"},
+               {"kind": "clock", "zone": "Mars/Base", "time": "05:00"}, {"kind": "clock", "zone": "UTC", "time": "25:00"},
+               {"kind": "session", "session": "asia", "edge": "end", "offset": 9999},
+               {"kind": "session", "session": "asia", "edge": "end", "offset": 1.5}, {"kind": "teleport"}, "tokyo"]
+        for value in bad:
+            with pytest.raises(backtests.BacktestError):
+                strategies.save_strategy("asia", {"label": "Asia", "jump": value}, root)
+        # a strategy.json damaged by hand: the strategy still lists, with no jump
+        path = root / "asia" / "strategy.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        path.write_text(json.dumps({**data, "jump": {"kind": "session", "session": "asia", "edge": "sideways"}}), encoding="utf-8")
+        assert strategies.read_config("asia", root)["jump"] is None
+        assert strategies.read_config("asia", root)["logger"] == "nbb"

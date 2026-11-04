@@ -32,6 +32,8 @@ export const OTHER_KEYS = [
   { keys: "→ / ←", label: "Replay: one chart candle forward / back" },
   { keys: "Shift + →", label: "Replay: one 1-minute candle forward" },
   { keys: "End", label: "Replay: back to the live candle" },
+  { keys: "J", label: "Replay: jump to the strategy's setup time (set in Strategies), then pause" },
+  { keys: "1 / 2 / 3", label: "Replay: jump to the next Tokyo / London / New York open, then pause" },
 ];
 
 /** The action for a key press, or null. Modifiers must match exactly, so Ctrl + Z is not Ctrl + Shift + Z. */

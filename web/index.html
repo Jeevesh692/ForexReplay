@@ -41,6 +41,10 @@
       <button id="replay-forward" title="Step forward one candle (Right arrow). Shift + Right = one M5 candle">&#10072;&#9654;</button>
       <select id="replay-speed" title="Speed: 1-minute candles per second"></select>
       <button id="replay-live" title="Return to where the replay had got to (End)" hidden>Live &#8677;</button>
+      <button id="jump-setup" title="Jump to this strategy's setup time and pause (J)">&#8677; Setup</button>
+      <button id="jump-tokyo" title="Jump to the next Tokyo open (1)">Tokyo</button>
+      <button id="jump-london" title="Jump to the next London open (2)">London</button>
+      <button id="jump-newyork" title="Jump to the next New York open (3)">NY</button>
       <button id="replay-exit" title="Save this backtest and leave the replay">&#10005;</button>
     </div>
     <button class="plain" id="backtests-open" title="Your strategies and their saved sessions: switch strategy, resume where you left off, or start a new session">Strategies <span class="strategy-chip" id="strategy-name"></span></button>
@@ -371,6 +375,22 @@
         <span class="spacer"></span>
         <button type="button" class="plain bordered small" id="checklist-cancel">Cancel</button>
         <button type="button" class="primary small" id="checklist-save">Save checklist</button>
+      </div>
+    </section>
+    <section class="checklist-editor" id="jump-editor" hidden>
+      <h3 class="backtest-heading">Jump to setup time · <span id="jump-for"></span></h3>
+      <p class="muted small">Where <b>J</b> (or the &#8677; Setup button) takes the replay. Each session keeps its own city's clock,
+        so summer and winter time stay right. Every candle on the way is still played through, and the jump stops early if an open trade or order changes.</p>
+      <div class="jump-form">
+        <label>Go to <select id="jump-target"></select></label>
+        <span id="jump-clock" hidden><input type="time" id="jump-time" value="05:00"> in <select id="jump-zone"></select></span>
+        <label>Offset <input type="number" id="jump-offset" min="-720" max="720" step="1" value="0"> min</label>
+      </div>
+      <div class="dialog-actions">
+        <span class="muted small" id="jump-preview"></span>
+        <span class="spacer"></span>
+        <button type="button" class="plain bordered small" id="jump-cancel">Cancel</button>
+        <button type="button" class="primary small" id="jump-save">Save jump</button>
       </div>
     </section>
     <h3 class="backtest-heading">Sessions <span class="muted" id="backtest-filter"></span></h3>

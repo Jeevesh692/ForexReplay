@@ -1139,3 +1139,46 @@ Each made a test fail.
 **Not checked:** a replay running with many lines on; only the full calculation was timed.
 
 **How to check:** press **Indicators** and tick EMA 1 (9) and EMA 2 (21). Start a replay on M15 and watch the two lines cross.
+
+
+---
+
+## 4 Nov 2026: jump to setup time (v2.7.0)
+
+**Asked for (Jeevesh):** from `JUMP_TO_SETUP_BRIEF.md`: one key that takes the replay straight to a strategy's setup moment and pauses there, with no overshooting at 300x. Each strategy needs a setting for it, and there should be quick jumps to the next Tokyo, London and New York open.
+
+**Built (Claude):**
+- **`jump` in `strategy.json`:** a session's start or end from either preset, or a time of day in a zone, plus an offset. It is checked the same way in `web/js/jump.js` and `forex_replay/strategy_folders.py`, and a damaged value reads as none. It is edited with the **Jump** button in the Strategies dialog.
+- **The jump:** `ReplayClock.jumpTo` reveals every base candle one at a time and can stop after any of them.
+  - **Keys:** **J** or **⇥ Setup** jumps to the strategy's time; **1**, **2** and **3** to the Tokyo, London and New York opens.
+  - **Limits:** it only moves forward, only from the live edge, and skips weekends.
+  - **Early stop:** it stops where an open trade or order fills or closes, or a challenge ends, and the hint bar says why.
+- See [decision 0028](decisions/0028-jump-to-setup-time.md) and `docs/release-notes-v2.7.0.md`.
+
+**Tests:** 1 new Python test (115 in total) and 10 new JavaScript tests (162 in total).
+- the next target across the US and UK clock changes (8 Mar and 1 Nov in the US, 29 Mar and 25 Oct in the UK), a weekend, a target already passed, an offset and a short gap
+- an open trade's stop hit mid-jump: the jump stops on that candle, with the same trade as playing minute by minute
+- 30 random sessions with jumps rebuild exactly
+- the setting checked in Python and in JavaScript
+- **Broken on purpose, to check the tests catch it:**
+  - no weekend skip: 2 tests failed
+  - no early stop: 1 failed
+  - UTC instead of the city clock: 2 failed
+  - Python accepting any session: 1 failed
+
+  All pass again after restoring.
+
+**Found along the way:** the broker's `exitTime` is a candle index, not a clock time.
+
+**In the in-app browser** (built and checked on the backtester branch first, with a test strategy deleted afterwards and the server stopped first):
+- **Jumps:**
+  - "Asia end" landed at 14:30 IST (18:00 Tokyo) and paused. J again: the next day. Friday 13 Mar went to Monday 16 Mar.
+  - With a buy open, J stopped at 14:31 ("trade #1 filled") and at 14:57 ("trade #1 closed", +1.00R, +$95.00).
+- **Saving:** leaving, reloading and resuming gave the same time, trade and balance ($10,095.00).
+- **The New York KZ start**, set in the Jump editor and saved to `strategy.json`, landed at 17:30 IST until Fri 6 Mar and at 16:30 IST from Mon 9 Mar.
+- **The opens:** 1, 2 and 3 landed at 05:30 (Tokyo), 13:30 (London, before the UK change) and 17:30 IST (New York).
+- **Looking back at history:** the buttons were disabled with a tooltip, and End brought them back.
+
+**Not checked:** November in the app. The data ends on 14 Oct; the tests cover it.
+
+**How to check:** in Strategies, press **Jump: none** on a strategy and choose "Asia end". Start a replay and press J.

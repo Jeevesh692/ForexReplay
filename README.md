@@ -15,6 +15,7 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 - You can step back and look at history, but orders, closes and stop moves are only accepted at the live edge. You cannot trade a move you have already watched.
 - Two charts side by side on the same clock (for example M15 and H4), with the crosshair following across.
 - Session shading (Asia, London, New York, or ICT killzones), set in each city's own clock. All times are shown in India time.
+- **Jump to setup time:** J takes the replay to your strategy's moment of the day, such as the Tokyo close or the New York killzone, and pauses. 1, 2 and 3 go to the next Tokyo, London and New York open. Every candle on the way is still played, and a jump stops where an open trade fills or closes.
 
 **Trading as a broker would fill it**
 - Market, limit and stop orders with stop loss and take profit, placed from a ticket or by clicking the chart. Stop and target lines can be dragged.
