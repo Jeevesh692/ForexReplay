@@ -1182,3 +1182,32 @@ Each made a test fail.
 **Not checked:** November in the app. The data ends on 14 Oct; the tests cover it.
 
 **How to check:** in Strategies, press **Jump: none** on a strategy and choose "Asia end". Start a replay and press J.
+
+
+---
+
+## 4 Nov 2026: Bollinger Bands (v2.8.0)
+
+**Asked for (Jeevesh):** add the Bollinger Bands indicator.
+
+**Built (Claude):**
+- **`bollinger()` in `indicators.js`:** an SMA basis with bands at ± k population standard deviations of the same closes, TradingView's definition.
+  - **Settings:** period (default 20) and standard deviations (default 2, from 0.1 to 10).
+  - **In the Indicators dialog:** a Bollinger row, under Others.
+  - **On the chart:** three lines (teal bands, an orange basis), each named on the price axis and in the legend.
+- **Replays:** the step-by-step engine shares the one-candle function, so a replay step recomputes only what changed.
+- **Python reference:** `indicator_golden.py` writes the bands for 20 / 2 and 10 / 1.5. The fixture was regenerated; its candles and its 18 existing series came out identical.
+- See [decision 0029](decisions/0029-bollinger-bands.md).
+
+**Tests:** 2 new JavaScript tests (164 in total). Python unchanged at 115.
+- **Against Python:** both settings match on 900 candles, and the basis equals the SMA.
+- **By hand:** closes 1 to 5 give 3 ± 2√2; flat closes give bands on the basis.
+- **Settings:** the defaults, values in range, nonsense refused, and steps of 0.1.
+- **Replay:** the step-by-step test now runs with Bollinger on.
+
+**In the in-app browser** (EURUSD M15):
+- Ticking Bollinger drew the three lines. The legend read BB 20 2 upper 1.12123, basis 1.12061, lower 1.11999, which is 6.2 pips each side.
+- Changing Std dev to 2.5 widened them at once, to 1.12138 and 1.11983. The setting was saved.
+- No console errors. The test setting was removed from the browser pane afterwards.
+
+**How to check:** press **Indicators** and tick **Bollinger**. Change Period or Std dev and the bands follow.

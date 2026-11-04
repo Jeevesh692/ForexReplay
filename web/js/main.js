@@ -777,6 +777,8 @@ async function boot() {
       if (period) period.value = s.period;
       const levels = indicatorsDialog.querySelector(`[data-levels="${key}"]`);
       if (levels) levels.checked = s.levels;
+      const mult = indicatorsDialog.querySelector(`[data-mult="${key}"]`);
+      if (mult) mult.value = s.mult;
     }
     indicatorsButton.classList.toggle("active", Object.values(indicators).some((s) => (Array.isArray(s) ? s.some((l) => l.on) : s.on)));
   }
@@ -791,9 +793,10 @@ async function boot() {
       }
       const period = indicatorsDialog.querySelector(`[data-period="${key}"]`);
       const levels = indicatorsDialog.querySelector(`[data-levels="${key}"]`);
+      const mult = indicatorsDialog.querySelector(`[data-mult="${key}"]`);
       raw[key] = {
         on: indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked,
-        ...(period ? { period: period.value } : {}), ...(levels ? { levels: levels.checked } : {}),
+        ...(period ? { period: period.value } : {}), ...(levels ? { levels: levels.checked } : {}), ...(mult ? { mult: mult.value } : {}),
       };
     }
     indicators = cleanIndicators(raw);

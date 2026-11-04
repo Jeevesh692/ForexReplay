@@ -428,6 +428,10 @@
         <td class="muted">average daily range in pips (the last completed days, never today), shown in the legend.
           <label class="check inline-check"><input type="checkbox" data-levels="adr"> show today's ADR levels</label>
           (today's low + ADR and high &minus; ADR, as the day develops; not on D1)</td></tr>
+      <tr><td><label class="check"><input type="checkbox" data-ind="bb"> <i class="swatch" style="background:#26a69a"></i> Bollinger</label></td>
+        <td><label>Period <input type="number" data-period="bb" min="2" max="500" step="1"></label>
+          <label>Std dev <input type="number" data-mult="bb" min="0.1" max="10" step="0.1"></label></td>
+        <td class="muted">Bollinger Bands: the SMA of the closes (basis, orange) with bands that many standard deviations above and below it</td></tr>
     </tbody></table>
     <div class="dialog-actions"><span class="spacer"></span>
       <button type="button" class="plain bordered" id="indicators-close">Close</button></div>

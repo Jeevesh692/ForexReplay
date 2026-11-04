@@ -45,6 +45,7 @@ const COLOURS = {
 export const INDICATOR_COLOURS = {
   sma: "#00a7b8", ema: "#9c4fd6", vwap: "#c27c0e", rsi: "#2962ff",
   atr: "#00a7b8", adr: "#868993", adrHigh: "#868993", adrLow: "#868993", // ATR has a panel to itself; ADR levels are quiet grey
+  bbUpper: "#26a69a", bbBasis: "#f57f17", bbLower: "#26a69a", // Bollinger: the two bands alike, the basis apart
 };
 const SUB_PANES = ["rsi", "atr"]; // panels under the chart, in this order
 

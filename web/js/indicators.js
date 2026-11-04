@@ -32,6 +32,7 @@ export const DEFAULT_INDICATORS = Object.freeze({
   rsi: { on: false, period: 14 },
   atr: { on: false, period: 14 },
   adr: { on: false, period: 14, levels: true },
+  bb: { on: false, period: 20, mult: 2 },
 });
 export const STORAGE_KEY = "forexreplay.indicators";
 
@@ -161,6 +162,30 @@ export function adr(candles, n) {
   return out;
 }
 
+/**
+ * Bollinger Bands, as TradingView draws them: the middle band is the SMA of the last `n` closes, and the
+ * bands are `mult` standard deviations of those same closes above and below it. The standard deviation
+ * divides by n (the population one, TradingView's default), worked out in two passes for accuracy.
+ * Returns { basis, upper, lower }; NaN for the first n-1 candles.
+ */
+export function bollinger(values, n, mult) {
+  const len = values.length;
+  const out = { basis: new Float64Array(len).fill(NaN), upper: new Float64Array(len).fill(NaN), lower: new Float64Array(len).fill(NaN) };
+  for (let i = n - 1; i < len; i++) bandAt(values, n, mult, i, out.basis, out.upper, out.lower);
+  return out;
+}
+
+/** One candle's bands (shared by bollinger() and the step-by-step engine, so they cannot differ). */
+function bandAt(values, n, mult, i, basis, upper, lower) {
+  let sum = 0;
+  for (let k = i - n + 1; k <= i; k++) sum += values[k];
+  const mean = sum / n;
+  let squares = 0;
+  for (let k = i - n + 1; k <= i; k++) squares += (values[k] - mean) ** 2;
+  const width = mult * Math.sqrt(squares / n);
+  basis[i] = mean; upper[i] = mean + width; lower[i] = mean - width;
+}
+
 /** Settings from storage, with anything odd replaced by the defaults. */
 export function cleanIndicators(raw) {
   const out = structuredClone(DEFAULT_INDICATORS);
@@ -184,6 +209,10 @@ export function cleanIndicators(raw) {
     out[key].on = r.on === true;
     if ("levels" in out[key] && typeof r.levels === "boolean") out[key].levels = r.levels;
     if ("period" in out[key]) out[key].period = goodPeriod(r.period) ?? out[key].period;
+    if ("mult" in out[key]) {
+      const m = Math.round(Number(r.mult) * 10) / 10; // steps of 0.1 standard deviations
+      if (r.mult !== null && r.mult !== "" && Number.isFinite(m) && m >= 0.1 && m <= 10) out[key].mult = m;
+    }
   }
   return out;
 }
@@ -197,6 +226,16 @@ function maLines(settings) {
     });
   }
   return out;
+}
+
+/** The three Bollinger lines, upper first, as the legend lists them. */
+function bbLines(bb, upper, basis, lower) {
+  const name = `BB ${bb.period} ${bb.mult}`;
+  return [
+    { id: "bbUpper", label: `${name} upper`, values: upper, pane: "price" },
+    { id: "bbBasis", label: `${name} basis`, values: basis, pane: "price" },
+    { id: "bbLower", label: `${name} lower`, values: lower, pane: "price" },
+  ];
 }
 
 /**
@@ -216,6 +255,10 @@ export function computeIndicators(candles, settings) {
   if (settings.vwap.on) lines.push({ id: "vwap", label: "VWAP (daily)", values: vwap(candles), pane: "price" });
   if (settings.rsi.on) lines.push({ id: "rsi", label: `RSI ${settings.rsi.period}`, values: rsi(closes, settings.rsi.period), pane: "rsi" });
   if (settings.atr.on) lines.push({ id: "atr", label: `ATR ${settings.atr.period}`, values: atr(candles, settings.atr.period), pane: "atr" });
+  if (settings.bb.on) {
+    const b = bollinger(closes, settings.bb.period, settings.bb.mult);
+    lines.push(...bbLines(settings.bb, b.upper, b.basis, b.lower));
+  }
   if (settings.adr.on) {
     const a = adr(candles, settings.adr.period);
     lines.push({ id: "adr", label: `ADR ${settings.adr.period}`, values: a.adr, pane: "legend" });
@@ -248,7 +291,7 @@ export class IndicatorEngine {
     const keep = (old) => { const a = new Float64Array(capacity).fill(NaN); if (old) a.set(old.subarray(0, this.length)); return a; };
     this.ma = this.ma || {}; // moving-average line id -> its values
     for (const id of Object.keys(this.ma)) this.ma[id] = keep(this.ma[id]);
-    for (const name of ["rsi", "gain", "loss", "vwap", "pv", "vol", "atr", "adr", "adrHigh", "adrLow", "dayHi", "dayLo"]) this[name] = keep(this[name]);
+    for (const name of ["rsi", "gain", "loss", "vwap", "pv", "vol", "atr", "adr", "adrHigh", "adrLow", "dayHi", "dayLo", "bbBasis", "bbUpper", "bbLower"]) this[name] = keep(this[name]);
     const keepPlain = (old) => { const a = new Float64Array(capacity); if (old) a.set(old.subarray(0, this.length)); return a; };
     this.day = keepPlain(this.day);
     this.adrDay = keepPlain(this.adrDay);
@@ -276,6 +319,7 @@ export class IndicatorEngine {
     if (R.on) this.rsiFrom(c, R.period, from, n);
     if (settings.vwap.on) this.vwapFrom(candles, from, n);
     if (settings.atr.on) this.atrFrom(candles, settings.atr.period, from, n);
+    if (settings.bb.on) this.bbFrom(c, settings.bb.period, settings.bb.mult, from, n);
     if (settings.adr.on) this.adrFrom(candles, settings.adr.period, from, n);
     this.length = n;
     const lines = [];
@@ -283,6 +327,7 @@ export class IndicatorEngine {
     if (settings.vwap.on) lines.push({ id: "vwap", label: "VWAP (daily)", values: this.vwap.subarray(0, n), pane: "price" });
     if (R.on) lines.push({ id: "rsi", label: `RSI ${R.period}`, values: this.rsi.subarray(0, n), pane: "rsi" });
     if (settings.atr.on) lines.push({ id: "atr", label: `ATR ${settings.atr.period}`, values: this.atr.subarray(0, n), pane: "atr" });
+    if (settings.bb.on) lines.push(...bbLines(settings.bb, this.bbUpper.subarray(0, n), this.bbBasis.subarray(0, n), this.bbLower.subarray(0, n)));
     if (settings.adr.on) {
       lines.push({ id: "adr", label: `ADR ${settings.adr.period}`, values: this.adr.subarray(0, n), pane: "legend" });
       if (settings.adr.levels) {
@@ -291,6 +336,13 @@ export class IndicatorEngine {
       }
     }
     return lines;
+  }
+
+  bbFrom(c, p, mult, from, n) {
+    for (let i = from; i < n; i++) {
+      if (i < p - 1) { this.bbBasis[i] = this.bbUpper[i] = this.bbLower[i] = NaN; continue; }
+      bandAt(c, p, mult, i, this.bbBasis, this.bbUpper, this.bbLower);
+    }
   }
 
   atrFrom(candles, p, from, n) {

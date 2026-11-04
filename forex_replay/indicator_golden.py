@@ -93,6 +93,20 @@ def adr(times, highs, lows, n):
     return out_adr, out_high, out_low
 
 
+def bollinger(values, n, mult):
+    """Bollinger Bands: SMA basis, bands at mult x the population standard deviation (divide by n) of the same closes."""
+    basis, upper, lower = [], [], []
+    for i in range(len(values)):
+        if i < n - 1:
+            basis.append(None); upper.append(None); lower.append(None)
+            continue
+        window = values[i - n + 1:i + 1]
+        mean = sum(window) / n
+        sd = math.sqrt(sum((v - mean) ** 2 for v in window) / n)
+        basis.append(mean); upper.append(mean + mult * sd); lower.append(mean - mult * sd)
+    return basis, upper, lower
+
+
 def vwap(times, highs, lows, closes, volumes):
     # A new day starts at the broker server's midnight (New York 17:00), the date of server time.
     days = utc_to_server(pd.to_datetime(times, unit="s", utc=True)).date
@@ -129,6 +143,9 @@ def build(seed: int = SEED) -> dict:
     closes = rows["close"]
     expected = {f"{name}{n}": fn(closes, n) for name, fn in (("sma", sma), ("ema", ema), ("rsi", rsi)) for n in PERIODS[name]}
     expected["vwap"] = vwap(rows["time"], rows["high"], rows["low"], closes, rows["volume"])
+    for n, mult in ((20, 2.0), (10, 1.5)):
+        b, u, lo = bollinger(closes, n, mult)
+        expected[f"bb{n}_{mult}_basis"], expected[f"bb{n}_{mult}_upper"], expected[f"bb{n}_{mult}_lower"] = b, u, lo
     flat = closes[:30] + [closes[29]] * 20  # no losses at all for a while: RSI must be 100, not a division by zero
     expected["rsi14_rising"] = rsi(sorted(flat), 14)
     # ATR and ADR on hourly candles over about two months, so ADR has many completed days to average.

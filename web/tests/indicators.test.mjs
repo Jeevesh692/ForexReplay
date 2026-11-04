@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { Candles } from "../js/data.js";
-import { adr, atr, cleanIndicators, computeIndicators, DEFAULT_INDICATORS, ema, IndicatorEngine, MA_LINES, rsi, sma, vwap } from "../js/indicators.js";
+import { adr, atr, bollinger, cleanIndicators, computeIndicators, DEFAULT_INDICATORS, ema, IndicatorEngine, MA_LINES, rsi, sma, vwap } from "../js/indicators.js";
 import { ReplayClock } from "../js/replay.js";
 import { serverDate, TimeframeView } from "../js/timeframes.js";
 
@@ -30,6 +30,37 @@ test("SMA, EMA, RSI and daily VWAP match the Python reference on 900 candles ove
   for (const n of [7, 14]) same(rsi(closes, n), fixture.expected[`rsi${n}`], `rsi${n}`);
   same(vwap(candles), fixture.expected.vwap, "vwap");
   same(rsi(fixture.rising, 14), fixture.expected.rsi14_rising, "rsi with no losses");
+});
+
+test("Bollinger Bands match the Python reference: SMA basis, bands at k population standard deviations", () => {
+  for (const [n, mult] of [[20, 2], [10, 1.5]]) {
+    const b = bollinger(candles.close, n, mult);
+    const key = `bb${n}_${Number.isInteger(mult) ? mult.toFixed(1) : mult}`;
+    same(b.basis, fixture.expected[`${key}_basis`], `${key} basis`);
+    same(b.upper, fixture.expected[`${key}_upper`], `${key} upper`);
+    same(b.lower, fixture.expected[`${key}_lower`], `${key} lower`);
+    const s = sma(candles.close, n);
+    for (let i = 0; i < s.length; i++) assert.ok(Object.is(b.basis[i], s[i]) || Math.abs(b.basis[i] - s[i]) < 1e-9, `the basis is the SMA [${i}]`);
+  }
+  // By hand: closes 1, 2, 3, 4, 5: mean 3, population SD sqrt(2), so 2 SD bands at 3 +/- 2.828...
+  const small = bollinger(Float64Array.from([1, 2, 3, 4, 5]), 5, 2);
+  assert.ok(Number.isNaN(small.upper[3]));
+  assert.ok(Math.abs(small.upper[4] - (3 + 2 * Math.SQRT2)) < 1e-12 && Math.abs(small.lower[4] - (3 - 2 * Math.SQRT2)) < 1e-12);
+  const flat = bollinger(Float64Array.from([7, 7, 7]), 3, 2); // no movement: the bands close onto the basis
+  assert.deepEqual([flat.lower[2], flat.basis[2], flat.upper[2]], [7, 7, 7]);
+});
+
+test("Bollinger settings: period and standard deviations, nonsense refused", () => {
+  assert.deepEqual(cleanIndicators(null).bb, { on: false, period: 20, mult: 2 });
+  assert.deepEqual(cleanIndicators({ bb: { on: true, period: "50", mult: "2.5" } }).bb, { on: true, period: 50, mult: 2.5 });
+  assert.equal(cleanIndicators({ bb: { mult: 0 } }).bb.mult, 2);
+  assert.equal(cleanIndicators({ bb: { mult: 11 } }).bb.mult, 2);
+  assert.equal(cleanIndicators({ bb: { mult: "" } }).bb.mult, 2);
+  assert.equal(cleanIndicators({ bb: { mult: 1.23 } }).bb.mult, 1.2);
+  const lines = computeIndicators(candles, cleanIndicators({ bb: { on: true, period: 20, mult: 2 } }));
+  assert.deepEqual(lines.map((l) => [l.id, l.label, l.pane]), [
+    ["bbUpper", "BB 20 2 upper", "price"], ["bbBasis", "BB 20 2 basis", "price"], ["bbLower", "BB 20 2 lower", "price"],
+  ]);
 });
 
 test("ATR and ADR match the Python reference, ADR over two months of hourly candles", () => {
@@ -123,7 +154,7 @@ test("the step-by-step engine always equals the full calculation, through a rand
   const settings = cleanIndicators({
     sma: [{ on: true, period: 20 }, { on: true, period: 5 }, null, null, { on: true, period: 50 }],
     ema: [{ on: true, period: 9 }, { on: true, period: 21 }], vwap: { on: true }, rsi: { on: true, period: 14 },
-    atr: { on: true, period: 14 }, adr: { on: true, period: 2, levels: true },
+    atr: { on: true, period: 14 }, adr: { on: true, period: 2, levels: true }, bb: { on: true, period: 20, mult: 2 },
   });
   let seed = 11; const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   for (const tf of ["M5", "M15", "H1"]) {
