@@ -33,6 +33,7 @@ export const OTHER_KEYS = [
   { keys: "Shift + →", label: "Replay: one 1-minute candle forward" },
   { keys: "End", label: "Replay: back to the live candle" },
   { keys: "J", label: "Replay: jump to the strategy's setup time (set in Strategies), then pause" },
+  { keys: "N", label: "Replay: play forward to the next RSI + Bollinger setup (setup finder in Indicators), then pause" },
   { keys: "1 / 2 / 3", label: "Replay: jump to the next Tokyo / London / New York open, then pause" },
 ];
 

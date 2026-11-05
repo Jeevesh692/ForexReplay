@@ -14,7 +14,9 @@ I built it to test my own session-based trading ideas honestly, with no hindsigh
 - One replay clock in 1-minute candles drives every timeframe (M1, M5, M15, M30, H1, H4, D1). Higher timeframes show a forming candle that grows as the minutes arrive.
 - You can step back and look at history, but orders, closes and stop moves are only accepted at the live edge. You cannot trade a move you have already watched.
 - Two charts side by side on the same clock (for example M15 and H4), with the crosshair following across.
+- Zoom and scroll buttons at the bottom of each chart, as on TradingView: − and + to zoom, ‹ and › to scroll (hold to keep going), ↻ to reset the view.
 - Session shading (Asia, London, New York, or ICT killzones), set in each city's own clock. All times are shown in India time.
+- **Setup finder:** finds the RSI + Bollinger reversal setup on closed 4-hour candles, marks it on every chart, and shows a card with BUY or SELL, entry, stop (in pips and ATR), target and lot size, with one button to take it at market. **N** plays forward to the next setup and pauses, playing stops at each one, and stretched setups (stop wider than 1.8 ATR) are shown as skipped. Exits stay yours.
 - **Jump to setup time:** J takes the replay to your strategy's moment of the day, such as the Tokyo close or the New York killzone, and pauses. 1, 2 and 3 go to the next Tokyo, London and New York open. Every candle on the way is still played, and a jump stops where an open trade fills or closes.
 
 **Trading as a broker would fill it**

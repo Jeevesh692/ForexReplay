@@ -117,11 +117,16 @@ export function tradingState(trading) {
   };
 }
 
-/** Reveal up to `position` and pause; stop early where a live trade or order changes. Returns { early, at }. */
-export function jumpClock(clock, trading, position) {
+/**
+ * Reveal up to `position` and pause; stop early where a live trade or order changes, or where `alsoStop()`
+ * says so (the setup finder: a setup's candle has just closed, decision 0030). Returns { early, at }.
+ */
+export function jumpClock(clock, trading, position, alsoStop = null) {
   const state = tradingState(trading);
   const before = state.watching ? state.key() : null;
-  const result = clock.jumpTo(position, state.watching ? () => state.key() !== before : undefined);
+  const traded = state.watching ? () => state.key() !== before : null;
+  const stop = traded && alsoStop ? () => traded() || alsoStop() : traded || alsoStop || undefined;
+  const result = clock.jumpTo(position, stop);
   return { ...result, at: clock.position };
 }
 

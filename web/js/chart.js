@@ -52,6 +52,13 @@ const SUB_PANES = ["rsi", "atr"]; // panels under the chart, in this order
 const DEFAULT_VISIBLE_BARS = 160;
 const GRAB_PIXELS = 5; // how close the mouse must be to a line to drag it
 const RIGHT_GAP_BARS = 8;
+const NAV_ZOOM = 1.25; // each press of − or + shows this many times more or fewer candles
+const NAV_SCROLL = 1 / 8; // each press of < or > moves the chart by this share of the candles on screen
+const NAV_REPEAT_AFTER = 350; // ms: holding a button repeats it, as on TradingView
+const NAV_REPEAT_EVERY = 80;
+
+/** True for a mouse event on the zoom and scroll buttons: drawings and trade lines leave those alone. */
+export const onChartNav = (event) => !!(event.target && event.target.closest && event.target.closest(".chart-nav"));
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -307,8 +314,9 @@ export class ChartView {
     // Listening in the capture phase lets a drag start before the library begins to pan the chart.
     container.addEventListener("mousedown", (event) => this.startDrag(event), true);
     container.addEventListener("mousemove", (event) => {
-      if (!this.drag) container.classList.toggle("line-hover", !!this.lineAt(event));
+      if (!this.drag) container.classList.toggle("line-hover", !onChartNav(event) && !!this.lineAt(event));
     });
+    this.buildNav(container);
     container.addEventListener("mouseleave", () => {
       if (!this.drag) container.classList.remove("line-hover");
       this.mouseInside = false;
@@ -346,7 +354,7 @@ export class ChartView {
   }
 
   startDrag(event) {
-    if (event.button !== 0 || this.drag || this.toolActive) return; // a drawing tool is waiting for its clicks
+    if (event.button !== 0 || this.drag || this.toolActive || onChartNav(event)) return; // a drawing tool is waiting for its clicks
     const hit = this.lineAt(event);
     if (!hit) return;
     event.preventDefault();
@@ -721,6 +729,69 @@ export class ChartView {
     const half = Math.floor(bars / 2);
     this.chart.timeScale().setVisibleLogicalRange({ from: i - half, to: i + half });
     return this.candles.time[i];
+  }
+
+  /**
+   * The zoom and scroll buttons at the bottom of the chart, as on TradingView: − and + zoom out and in
+   * (keeping the right edge where it is), < and > scroll, and ↻ resets the view (the price scale back to
+   * automatic, the usual zoom, the newest candle at the right). Holding a button repeats it. They show while
+   * the mouse is over the chart, at the bottom of the candle pane (above RSI or ATR panels).
+   */
+  buildNav(container) {
+    const nav = document.createElement("div");
+    nav.className = "chart-nav";
+    const button = (act, label, title) => `<button type="button" data-nav="${act}" title="${title}" aria-label="${title}">${label}</button>`;
+    nav.innerHTML = `<span>${button("out", "&minus;", "Zoom out")}${button("in", "+", "Zoom in")}</span>` +
+      `<span>${button("left", "&#8249;", "Scroll left")}${button("right", "&#8250;", "Scroll right")}</span>` +
+      `<span>${button("reset", "&#8635;", "Reset the chart view")}</span>`;
+    container.appendChild(nav);
+    this.nav = nav;
+    let timer = null;
+    const stop = () => { clearTimeout(timer); clearInterval(timer); timer = null; };
+    nav.addEventListener("mousedown", (event) => {
+      const b = event.target.closest("button[data-nav]");
+      if (!b || event.button !== 0) return;
+      event.preventDefault(); // no text selection, no focus ring left behind
+      stop();
+      this.navigate(b.dataset.nav);
+      if (b.dataset.nav !== "reset") timer = setTimeout(() => { timer = setInterval(() => this.navigate(b.dataset.nav), NAV_REPEAT_EVERY); }, NAV_REPEAT_AFTER);
+    });
+    window.addEventListener("mouseup", stop);
+    nav.addEventListener("mouseleave", stop);
+    container.addEventListener("mouseenter", () => this.placeNav());
+  }
+
+  /** Sit just above the bottom of the candle pane, so the buttons never cover an RSI or ATR panel. */
+  placeNav() {
+    const panes = this.chart.panes ? this.chart.panes() : [];
+    const height = panes.length ? panes[0].getHeight() : null;
+    this.nav.style.top = height ? `${Math.max(0, height - 44)}px` : "";
+    this.nav.style.bottom = height ? "auto" : "";
+  }
+
+  /** One press of a navigation button: "in", "out", "left", "right" or "reset". */
+  navigate(action) {
+    if (!this.candles || this.candles.length === 0) return;
+    const scale = this.chart.timeScale();
+    const r = scale.getVisibleLogicalRange();
+    if (action === "reset" || !r) {
+      this.chart.priceScale("right").applyOptions({ autoScale: true }); // undo a dragged price scale
+      if (this.end < this.full.length) { this.centreWindow(this.full.length - 1); this.showWindow(() => {}); }
+      this.showEndingAt(this.candles.length - 1, DEFAULT_VISIBLE_BARS);
+      return;
+    }
+    const width = r.to - r.from;
+    if (action === "in" || action === "out") {
+      const w = action === "in" ? Math.max(10, width / NAV_ZOOM) : width * NAV_ZOOM;
+      scale.setVisibleLogicalRange({ from: r.to - w, to: r.to }); // the right edge stays put
+      return;
+    }
+    const step = Math.max(1, Math.round(width * NAV_SCROLL)) * (action === "left" ? -1 : 1);
+    let from = r.from + step, to = r.to + step;
+    const newest = this.candles.length - 1 + RIGHT_GAP_BARS;
+    if (step > 0 && this.end === this.full.length && to > newest) { to = Math.max(r.to, newest); from = to - width; } // not off into the future
+    if (step < 0 && this.offset === 0 && from < -RIGHT_GAP_BARS) { from = Math.min(r.from, -RIGHT_GAP_BARS); to = from + width; } // nor before the first candle
+    scale.setVisibleLogicalRange({ from, to }); // the window reaches further on its own when an edge comes near
   }
 
   goToLatest() {

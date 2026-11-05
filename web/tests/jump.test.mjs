@@ -144,3 +144,12 @@ test("with nothing open a jump goes all the way; looking back at history it does
   clock.moveTo(clock.position - 5, "back"); // looking back: not live
   assert.equal(jumpClock(clock, trading, target + 500).moved, false);
 });
+
+test("a jump can also be stopped by another check (the setup finder's), with nothing open", () => {
+  const c = minutes("2026-01-05T00:00", 1);
+  const { clock, trading } = run(c, 100);
+  const target = nextJump(TOKYO_CLOSE, c, c.length, 100, 60).position;
+  const done = jumpClock(clock, trading, target, () => clock.position === 250);
+  assert.deepEqual(done, { moved: true, early: true, at: 250 });
+  assert.deepEqual(jumpClock(clock, trading, target, () => false), { moved: true, early: false, at: target });
+});

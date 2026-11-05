@@ -13,6 +13,7 @@ import { TradeNotes } from "./tradenotes.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
 import { jumpClock, jumpLabel, nextJump, SESSION_OPENS } from "./jump.js";
+import { cleanSetupRules, describeSetup, SetupFinder, setupJumpLimit, STORAGE_KEY as KEY_SETUPS } from "./setups.js";
 import { cleanIndicators, STORAGE_KEY as KEY_INDICATORS } from "./indicators.js";
 import { LayerGroup } from "./layergroup.js";
 import {
@@ -26,7 +27,7 @@ import { OrderType } from "./broker.js";
 import { ReplayClock, SPEEDS } from "./replay.js";
 import { loadSavedSessions, renderSessionKey, setupSessionSettings } from "./sessionsettings.js";
 import { formatDate, formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
-import { hourlyBase, timeframe as timeframeOf, TIMEFRAMES, TimeframeView } from "./timeframes.js";
+import { hourlyBase, indexAtOrBefore, timeframe as timeframeOf, TIMEFRAMES, TimeframeView } from "./timeframes.js";
 import { InvalidOrder, Side, Status, Trading } from "./trading.js";
 import { TradingPanel } from "./tradingpanel.js";
 
@@ -229,6 +230,14 @@ async function boot() {
     settings: loadSettings(), challenge: loadChallengeRules(), onChange: () => refreshTrading(),
   });
   const formatR = (r) => `${r >= 0 ? "+" : ""}${r.toFixed(2)}R`;
+
+  // The setup finder (setups.js, decision 0030): RSI + Bollinger reversal setups on closed 4-hour candles.
+  // Its own H4 view of the replay's candles is built the first time it is switched on.
+  let setupRules = cleanSetupRules((() => { try { return JSON.parse(recall(KEY_SETUPS, "null")); } catch { return null; } })());
+  let finder = null;
+  const setupFinder = () => finder || (finder = new SetupFinder(m5, history.H4 || null, manifest.pip_points, setupRules));
+  const pauseAtSetups = () => setupRules.on && setupRules.pause;
+  const setupState = { dismissed: null, taken: new Set() }; // closeTime of a dismissed card; closeTimes of setups taken
   const LINE_FIELD = { sl: "stopLoss", tp: "takeProfit", entry: "price" };
   const LINE_NAME = { sl: "Stop loss", tp: "Take profit", entry: "Entry" };
 
@@ -276,12 +285,16 @@ async function boot() {
     }
   }
 
-  /** Entry, partial-close and exit markers, placed on the candles of `view`'s timeframe. */
+  /**
+   * Markers for OPEN trades only: the entry arrow (#id) and a dot for each part closed so far, on the candles
+   * of `view`'s timeframe. A closed trade leaves nothing on the chart: zoomed out or on low timeframes its
+   * arrows and labels covered the candles (Jeevesh, 5 Nov 2026). Closed trades are in the panel and the journal.
+   */
   function markersFor(view) {
     const markers = [];
     const shown = view.display.length;
     for (const t of trading.broker.trades) {
-      if (t.status === Status.CANCELLED) continue;
+      if (t.status !== Status.OPEN) continue;
       const buy = t.side === Side.BUY;
       if (t.entryTime !== null && view.bucketOf[t.entryTime] < shown) {
         markers.push({
@@ -297,11 +310,19 @@ async function boot() {
           shape: "circle", text: `#${t.id} part`,
         });
       }
-      if (t.exitTime !== null && view.bucketOf[t.exitTime] < shown) {
-        markers.push({
-          time: view.full.time[view.bucketOf[t.exitTime]], above: buy, colour: t.resultR >= 0 ? UP : DOWN,
-          shape: "circle", text: formatR(t.resultR),
-        });
+    }
+    if (setupRules.on) { // setups on the 4-hour candles closed so far, on whichever candle of this chart holds their close
+      let previous = null;
+      for (const s of setupFinder().setupsAt(clock.position)) {
+        // Setups on back-to-back candles: only the first is labelled, or the words sit on top of each other.
+        const labelled = !(previous && previous.index === s.index - 1 && previous.side === s.side && !!previous.skip === !!s.skip);
+        previous = s;
+        const i = indexAtOrBefore(view.full, s.closeTime - 1);
+        if (i < 0 || i >= shown) continue;
+        const sell = s.side === "SELL";
+        markers.push(s.skip
+          ? { time: view.full.time[i], above: sell, colour: "#787b86", shape: "circle", text: labelled ? "skip" : "" }
+          : { time: view.full.time[i], above: sell, colour: sell ? DOWN : UP, shape: sell ? "arrowDown" : "arrowUp", text: labelled ? s.side : "" });
       }
     }
     return markers;
@@ -330,6 +351,7 @@ async function boot() {
     challengeOutcome = c ? c.outcome : null;
     if (adrPanel) adrPanel.render();
     if (panel) panel.render();
+    renderSetupCard();
     drawTrades();
     if (clock.active && backtests) backtests.changed(); // saved shortly after (see backtestpanel.js)
     autoScreenshots();
@@ -742,12 +764,104 @@ async function boot() {
     if (!jump) { setHint("This strategy has no setup time. Set one in Strategies (Jump: none)."); return; }
     const next = nextJump(jump, m5, m5.length, clock.position, manifest.bar_seconds);
     if (!next) { setHint(`No later ${what} in this data.`); return; }
-    const done = jumpClock(clock, trading, next.position);
+    const atSetup = pauseAtSetups() ? () => !!setupFinder().newAt(clock.position) : null; // a setup on the way stops it too
+    const done = jumpClock(clock, trading, next.position, atSetup);
     allToLatest();
-    setHint(done.early ? stoppedHint() : `At ${what}: ${formatDateTime(next.target)} IST. Paused.`);
+    const s = done.early && atSetup ? setupFinder().newAt(clock.position) : null;
+    setHint(s ? setupHint(s, `Jump to ${what} stopped`) : done.early ? stoppedHint() : `At ${what}: ${formatDateTime(next.target)} IST. Paused.`);
   }
   const jumpSetup = () => jumpTo(backtests ? backtests.jumpOf(backtests.journal) : null, backtests ? jumpLabel(backtests.jumpOf(backtests.journal)) : "the setup");
   $("jump-setup").addEventListener("click", jumpSetup);
+
+  // ------------------------------------------------------------ setup finder: next setup (N), pause, the card
+  const setupHint = (s, lead) => `${lead}: ${s.side} setup, the 4-hour candle closed at ${formatDateTime(s.closeTime)} IST. Paused.`;
+
+  /** Play forward, candle by candle, to the close of the next setup's 4-hour candle (at most 60 days), then pause. */
+  function jumpToNextSetup() {
+    if (!clock.active) { setHint("Jumps work during a replay. Start one first."); return; }
+    if (!clock.live) { setHint("Jumps work only at the live edge: press End (Live) first."); return; }
+    if (!setupRules.on) { setHint("Switch the setup finder on first: Indicators, Setup finder."); return; }
+    if (clock.finished) { setHint("The replay has reached the end of the data."); return; }
+    const f = setupFinder();
+    const done = jumpClock(clock, trading, setupJumpLimit(m5, clock.position), () => !!f.newAt(clock.position));
+    allToLatest();
+    const s = f.newAt(clock.position);
+    if (s) setHint(setupHint(s, "Next setup"));
+    else if (done.early) setHint(stoppedHint());
+    else if (clock.finished) setHint("No setup before the end of the data.");
+    else setHint(`No setup in the next 60 days; the replay is at ${formatDateTime(m5.time[clock.position - 1] + manifest.bar_seconds)} IST. Press N to keep looking.`);
+  }
+  $("jump-next-setup").addEventListener("click", jumpToNextSetup);
+
+  // While playing, stop at the close of each setup's candle so it cannot go by unseen.
+  clock.onReveal((from, to) => {
+    if (!clock.playing || !pauseAtSetups()) return;
+    const f = setupFinder();
+    for (let p = from + 1; p <= to; p++) {
+      const s = f.newAt(p);
+      if (!s) continue;
+      clock.pause();
+      const late = to - p; // at fast speeds several candles arrive at once: say how far past the close it stopped
+      setHint(setupHint(s, "Stopped") + (late > 0 ? ` (${late} ${manifest.timeframe} candle${late > 1 ? "s" : ""} after the close)` : ""));
+      return;
+    }
+  });
+
+  const setupCard = $("setup-card");
+
+  /** The card for the setup on the newest closed 4-hour candle: what to do, at what levels, and the size. */
+  function renderSetupCard() {
+    const s = setupRules.on && clock.active ? setupFinder().latestAt(clock.position) : null;
+    if (!s || setupState.dismissed === s.closeTime) { setupCard.hidden = true; return; }
+    setupCard.hidden = false;
+    const sell = s.side === "SELL";
+    // Taken: from this card, or any order on the same side placed since the candle closed (the ticket, or before a resume).
+    const taken = setupState.taken.has(s.closeTime) || trading.broker.trades.some((t) => t.side === s.side &&
+      t.status !== Status.CANCELLED && m5.time[t.placedTime] + manifest.bar_seconds >= s.closeTime);
+    const blocked = trading.blockedReason;
+    let size = "";
+    if (!s.skip && !blocked) {
+      const sized = trading.preview({ side: s.side, type: "market", stopLoss: s.stopLoss });
+      size = sized.error ? `<p class="bad small">${sized.error}</p>`
+        : `<p class="small">Size <b>${formatLots(sized.units)} lots</b> · risk ${formatMoney(sized.riskMoney)}${sized.riskPercent !== null ? ` (${sized.riskPercent}%)` : ""}</p>`;
+    }
+    setupCard.className = `setup-card ${s.skip ? "skipped" : sell ? "sell" : "buy"}`;
+    setupCard.innerHTML =
+      `<div class="setup-head"><b>${s.skip ? `${s.side} setup skipped` : `${s.side} now`}</b>` +
+      `<button class="plain small" data-setup-act="dismiss" title="Hide this card">&#10005;</button></div>` +
+      `<p class="muted small">4-hour candle closed ${formatDateTime(s.closeTime)} IST · RSI ${s.rsi.toFixed(1)}</p>` +
+      `<dl class="setup-levels"><dt>Entry</dt><dd>${priceText(s.entry)} <span class="muted">at market</span></dd>` +
+      `<dt>Stop</dt><dd>${priceText(s.stopLoss)} <span class="muted">${s.stopPips.toFixed(1)} pips · ${s.stopAtr.toFixed(2)} ATR</span></dd>` +
+      `<dt>Target</dt><dd>${priceText(s.takeProfit)} <span class="muted">${setupRules.targetR}R</span></dd></dl>` +
+      (s.skip ? `<p class="small">${s.skip === "wide" ? `Stop wider than ${setupRules.maxStopAtr} ATR: a late, stretched entry.` : `Stop under ${setupRules.minStopPips} pips.`} Not one to take.</p>`
+        : size + (taken ? '<p class="small ok">Taken.</p>'
+          : `<div class="setup-actions"><button class="order-place ${sell ? "sell" : "buy"}" data-setup-act="take"${blocked ? ` disabled title="${blocked}"` : ""}>${sell ? "Sell" : "Buy"} at market</button>` +
+            `<button class="plain bordered small" data-setup-act="ticket" title="Put these levels in the order ticket and decide there">Ticket</button></div>`));
+  }
+
+  setupCard.addEventListener("click", (event) => {
+    const act = event.target.closest("[data-setup-act]");
+    const s = act && setupFinder().latestAt(clock.position);
+    if (!s) return;
+    if (act.dataset.setupAct === "dismiss") { setupState.dismissed = s.closeTime; renderSetupCard(); return; }
+    if (act.dataset.setupAct === "ticket") {
+      panel.loadOrder({ side: s.side, price: s.entry, stopLoss: s.stopLoss, takeProfit: s.takeProfit });
+      panel.type = "market"; // the setup's entry is at market; the ticket keeps the stop and the target
+      panel.say("Setup levels copied: market order. Check them, then place it.");
+      panel.render();
+      return;
+    }
+    try {
+      const trade = trading.place({ side: s.side, type: "market", stopLoss: s.stopLoss, takeProfit: s.takeProfit });
+      setupState.taken.add(s.closeTime);
+      notes.toggleTag(trade.id, "setup finder"); // so the setup finder's trades can be picked out in Analytics
+      panel.say(`#${trade.id} ${trade.side} ${formatLots(trading.account.units(trade))} lots: market order placed from the setup; it fills at the next candle's open.`, "ok");
+    } catch (err) {
+      if (!(err instanceof InvalidOrder)) throw err;
+      panel.say(err.message, "bad");
+    }
+    refreshTrading();
+  });
   for (const s of SESSION_OPENS) $(`jump-${s.id === "asia" ? "tokyo" : s.id}`).addEventListener("click", () => jumpTo(s.jump, `the ${s.label} open`));
 
   // ------------------------------------------------------------ indicators
@@ -804,10 +918,38 @@ async function boot() {
     for (const c of [chart, sidePane.chart]) if (c) c.setIndicators(indicators);
     renderIndicatorForm(); // a refused period snaps back to what is used
   }
-  indicatorsDialog.addEventListener("change", applyIndicators);
+  indicatorsDialog.addEventListener("change", (event) => {
+    if (event.target.closest("[data-setup]")) applySetupRules(); else applyIndicators();
+  });
   indicatorsButton.addEventListener("click", () => { renderIndicatorForm(); indicatorsDialog.showModal(); });
   $("indicators-close").addEventListener("click", () => indicatorsDialog.close());
   renderIndicatorForm();
+
+  // The setup finder's settings, at the bottom of the same dialog; kept in this browser.
+  const setupInput = (key) => indicatorsDialog.querySelector(`[data-setup="${key}"]`);
+  function renderSetupForm() {
+    for (const [key, value] of Object.entries(setupRules)) {
+      const input = setupInput(key);
+      if (!input) continue;
+      if (input.type === "checkbox") input.checked = value; else input.value = value;
+    }
+    setupInput("pause").disabled = !setupRules.on;
+  }
+  function useSetupRules(rules) {
+    setupRules = cleanSetupRules(rules);
+    remember(KEY_SETUPS, JSON.stringify(setupRules));
+    if (finder) finder.setRules(setupRules);
+    setupState.dismissed = null;
+    renderSetupForm(); // a refused value snaps back to what is used
+    refreshTrading();
+  }
+  function applySetupRules() {
+    const raw = {};
+    indicatorsDialog.querySelectorAll("[data-setup]").forEach((input) => { raw[input.dataset.setup] = input.type === "checkbox" ? input.checked : input.value; });
+    useSetupRules(raw);
+  }
+  $("setup-defaults").addEventListener("click", () => useSetupRules({ on: setupRules.on, pause: setupRules.pause }));
+  renderSetupForm();
 
   // ------------------------------------------------------------ replay
   const ui = {
@@ -838,7 +980,7 @@ async function boot() {
     ui.play.title = clock.playing ? "Pause (Space)" : "Play (Space)";
     ui.forward.disabled = clock.finished;
     ui.live.hidden = clock.live;
-    for (const id of ["jump-setup", "jump-tokyo", "jump-london", "jump-newyork"]) {
+    for (const id of ["jump-setup", "jump-next-setup", "jump-tokyo", "jump-london", "jump-newyork"]) {
       const b = $(id);
       b.disabled = !clock.live || clock.finished;
       if (!b.dataset.title) b.dataset.title = b.title;
@@ -855,6 +997,8 @@ async function boot() {
     if (reason === "start" && !resuming) { // a new replay is a new run: no trades carried over
       trading.reset();
       shotsTaken.clear();
+      setupState.dismissed = null;
+      setupState.taken.clear();
       notes.load({});
       const startTime = m5.time[clock.position - 1];
       backtests.begin(startTime, manifest.symbol);
@@ -990,6 +1134,7 @@ async function boot() {
     else if (event.key === "ArrowLeft") { event.preventDefault(); clock.stepBack(view); }
     else if (event.key === "End") { clock.backToLive(); allToLatest(); }
     else if ((event.key === "j" || event.key === "J") && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); jumpSetup(); }
+    else if ((event.key === "n" || event.key === "N") && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); jumpToNextSetup(); }
     else if (["1", "2", "3"].includes(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
       const s = SESSION_OPENS.find((x) => x.key === event.key);
       event.preventDefault();

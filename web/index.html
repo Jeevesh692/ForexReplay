@@ -42,6 +42,7 @@
       <select id="replay-speed" title="Speed: 1-minute candles per second"></select>
       <button id="replay-live" title="Return to where the replay had got to (End)" hidden>Live &#8677;</button>
       <button id="jump-setup" title="Jump to this strategy's setup time and pause (J)">&#8677; Setup</button>
+      <button id="jump-next-setup" title="Play forward to the next RSI + Bollinger setup (setup finder in Indicators) and pause (N)">&#8677; Next setup</button>
       <button id="jump-tokyo" title="Jump to the next Tokyo open (1)">Tokyo</button>
       <button id="jump-london" title="Jump to the next London open (2)">London</button>
       <button id="jump-newyork" title="Jump to the next New York open (3)">NY</button>
@@ -98,6 +99,7 @@
     <section class="chart-view" id="chart-view">
       <div class="legend" id="legend"></div>
       <div class="hint" id="hint" hidden></div>
+      <div class="setup-card" id="setup-card" hidden></div>
       <input class="text-editor" id="text-editor" type="text" autocomplete="off" hidden aria-label="Text note">
       <div class="draw-bar" id="draw-bar" hidden>
         <span id="draw-bar-text"></span>
@@ -433,7 +435,29 @@
           <label>Std dev <input type="number" data-mult="bb" min="0.1" max="10" step="0.1"></label></td>
         <td class="muted">Bollinger Bands: the SMA of the closes (basis, orange) with bands that many standard deviations above and below it</td></tr>
     </tbody></table>
-    <div class="dialog-actions"><span class="spacer"></span>
+    <h3 class="ind-group">Setup finder <span class="muted">the RSI + Bollinger reversal setup, found on closed 4-hour candles whatever chart is on screen</span></h3>
+    <table class="grid indicator-table setup-table"><tbody>
+      <tr><td><label class="check"><input type="checkbox" data-setup="on"> Find setups</label></td>
+        <td colspan="2" class="muted">arrows on the chart, a card with the levels, and <b>&#8677; Next setup</b> (N) in a replay.
+          <label class="check inline-check"><input type="checkbox" data-setup="pause"> stop at each setup while playing or jumping</label></td></tr>
+      <tr><td>RSI</td><td><label>Period <input type="number" data-setup="rsiPeriod" min="2" max="100" step="1"></label>
+          <label>Sell at <input type="number" data-setup="rsiHigh" min="50" max="99" step="0.5"></label>
+          <label>Buy at <input type="number" data-setup="rsiLow" min="1" max="50" step="0.5"></label></td>
+        <td class="muted">reached on the setup candle or the one before</td></tr>
+      <tr><td>Bollinger</td><td><label>Period <input type="number" data-setup="bbPeriod" min="2" max="200" step="1"></label>
+          <label>Std dev <input type="number" data-setup="bbMult" min="0.1" max="10" step="0.1"></label></td>
+        <td class="muted">price touched the outer band within the stop's candles</td></tr>
+      <tr><td>Stop</td><td><label>Candles <input type="number" data-setup="lookback" min="1" max="20" step="1"></label>
+          <label>Buffer (pips) <input type="number" data-setup="bufferPips" min="0" max="100" step="0.5"></label></td>
+        <td class="muted">beyond the highest high (sell) or lowest low (buy) of the last candles, including the setup candle</td></tr>
+      <tr><td>Skip</td><td><label>Wider than (ATR) <input type="number" data-setup="maxStopAtr" min="0.1" max="20" step="0.1"></label>
+          <label>ATR period <input type="number" data-setup="atrPeriod" min="2" max="100" step="1"></label>
+          <label>Under (pips) <input type="number" data-setup="minStopPips" min="0" max="500" step="0.5"></label></td>
+        <td class="muted">a stop that wide means a late, stretched entry; shown grey as "skip"</td></tr>
+      <tr><td>Target</td><td><label>R <input type="number" data-setup="targetR" min="0.1" max="20" step="0.05"></label></td>
+        <td class="muted">set on the order; close earlier yourself whenever you judge it</td></tr>
+    </tbody></table>
+    <div class="dialog-actions"><button type="button" class="plain small" id="setup-defaults">Back to the tested rules</button><span class="spacer"></span>
       <button type="button" class="plain bordered" id="indicators-close">Close</button></div>
   </dialog>
 

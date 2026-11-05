@@ -1211,3 +1211,84 @@ Each made a test fail.
 - No console errors. The test setting was removed from the browser pane afterwards.
 
 **How to check:** press **Indicators** and tick **Bollinger**. Change Period or Std dev and the bands follow.
+
+---
+
+## 5 Nov 2026: setup finder (v2.9.0)
+
+**Asked for (Jeevesh):** add the RSI + Bollinger setup indicator to ForexReplay, since he exits on his own judgement. He should be able to jump to the moment a setup appears and be told to buy or sell there and then, so he does not miss it.
+
+**Built (Claude, from a chat session working on a copy of the project):**
+- **`web/js/setups.js`:** finds the setup on closed 4-hour candles with the backtested rules: RSI 70/30, a Bollinger touch, a reversal close, a stop 2 pips past the 3-candle extreme, skip when wider than 1.8 ATR or under 5 pips, and a 1R target. See [decision 0030](decisions/0030-setup-finder.md).
+- **⇥ Next setup (N):** plays forward candle by candle to the close of the next setup's 4-hour candle and pauses (at most 60 days; it also stops where an open trade changes).
+- **Stopping at setups:** playing pauses at each one, and J, 1, 2 and 3 stop there too. This can be switched off.
+- **The card:** BUY or SELL now, entry, stop in pips and ATR, target, lot size from your risk %, **Buy / Sell at market** (tags the trade "setup finder") or **Ticket**.
+- **Markers:** an arrow per setup and a grey "skip" dot per skipped one, on every chart and timeframe.
+- **Settings:** a Setup finder section at the bottom of the Indicators dialog, with **Back to the tested rules**. They are kept in the browser.
+- **`jump.js`:** `jumpClock` takes an extra stop check, used by the finder.
+- N added to the shortcut list.
+
+**Tests:** 9 new JavaScript tests (173 in total). Python unchanged at 115.
+- **Rules:** a SELL and its mirror BUY on designed candles, with the exact stop and target; skip for wide or small stops; a 2R target.
+- **No look-ahead:** changing every candle after the first k never changes the setups on those k.
+- **On the replay's own candles:** a setup appears only when its 4-hour candle has closed, never while it forms.
+- **The jump:** it reveals one candle at a time and stops exactly at the close.
+- **Settings:** bad values fall back to the defaults.
+- **Real EURUSD data:** walking the clock to every 4-hour close finds exactly the setups on the whole history.
+- `jumpClock`'s extra stop check.
+
+**Checked in Chromium (Playwright) against the real EURUSD data:**
+- **M1 base, replay from 25 Sep 2026:** N stopped at the BUY setup of 30 Sep 2026 02:30 IST, entry 1.13407, stop 1.13097 (31.0 pips, 1.43 ATR), 0.31 lots at 1%. These are the same levels as the Python backtest.
+  - **Buy at market** placed #1. It filled at the next minute's open plus spread (1.13433) with that stop and target.
+  - **Playing at 300×** on M15 stopped by itself at the next setup (2 Oct 02:30 IST), one minute after the close.
+  - **Ticket** copied the stop and target as a market order, and London jumps stopped at setups on the way.
+- **1-hour swing mode, replay from Mar 2024:** N found SELL setups on 7 and 8 Mar 2024.
+- D1, H1 and two charts all showed the markers. A refused setting (99 ATR) snapped back to 1.8.
+- No console errors, other than the existing 404 for `site.json`, which is how the app tells the local server from the website.
+
+**Found along the way:**
+- Two setups can fall on back-to-back candles under the same rules. They are kept, as tested (see the decision).
+- The first card position covered the newest candles of the right-hand chart in two-chart layout, so it moved to the left.
+- In this environment `test_indicator_golden` fails on the untouched code too: Python 3.13 rounds a few values differently. Expect it to pass on your Python 3.11.
+
+**How to check:** Indicators, then at the bottom tick **Find setups**. Start a replay and press **N**: the replay stops at the next setup, and a card on the left says BUY or SELL with the levels. Press **Buy/Sell at market** to take it, or step on to skip it.
+
+---
+
+## 5 Nov 2026: zoom and scroll buttons (v2.9.1)
+
+**Asked for (Jeevesh):** add TradingView's chart buttons (zoom out, zoom in, scroll left, scroll right, reset), from a screenshot.
+
+**Built (Claude, from a chat session working on a copy of the project):**
+- **`ChartView.buildNav` and `navigate` in `chart.js`:** five buttons at the bottom of each chart's candle pane, shown while the mouse is over the chart. Both charts have their own.
+  - **− and +** show 25% more or fewer candles, keeping the right edge where it is (at least 10 candles).
+  - **‹ and ›** move by an eighth of the candles on screen. They stop at the newest candle and at the first one, and the 6,000-candle window reaches further on its own, as when dragging.
+  - **↻** puts the price scale back to automatic and shows the newest candles at the usual zoom (160 candles).
+  - Holding a button repeats it after 0.35 s.
+  - The buttons sit above the RSI and ATR panels: they are placed from the candle pane's height when the mouse comes in.
+- **Clicks on the buttons are ignored** by trade-line dragging and by the drawing tools (`onChartNav`), so a click with a tool armed draws nothing.
+
+**Tests:** no new automated tests: this is mouse handling on the chart library, which the Node tests do not load. 173 JavaScript tests still pass, and Python is unchanged.
+
+**In Chromium (Playwright), EURUSD H1 with RSI on:**
+- The buttons appeared on hover above the RSI panel.
+- Two presses of + zoomed in; four of − zoomed out to about three weeks.
+- Holding ‹ for 1.5 s scrolled back about a month.
+- ↻ returned to the newest candle at the usual zoom.
+- With the horizontal-line tool armed, clicking › drew nothing.
+- No console errors.
+
+**How to check:** hover over the chart. The buttons appear at the bottom centre. Hold ‹ to scroll back, and press ↻ to come back.
+
+---
+
+## 5 Nov 2026: closed trades leave the chart (v2.9.2)
+
+**Asked for (Jeevesh):** remove the trade details from the chart once a trade is done: zoomed out, and on low timeframes, the labels and then the arrows covered the candles.
+
+**Built (Claude):** `markersFor` in `main.js` now draws markers for open trades only: the entry arrow with its #id, and a dot for each partial close. A closed trade leaves no arrow, dot or label on the chart. It is still in the Closed list, the journal, its screenshots and Analytics. The entry and exit screenshots are taken as before; the exit picture no longer has the R label on it.
+
+**Tests:** 173 JavaScript tests pass; Python is unchanged. In Chromium on EURUSD M15, two market buys were placed and the first was closed: its arrow went, and the open one kept its arrow, its #2 label and its lines.
+
+**How to check:** close a trade. Its marker disappears; open trades keep theirs.
+

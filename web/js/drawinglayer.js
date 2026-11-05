@@ -20,6 +20,8 @@ import { formatDateTime } from "./time.js";
 import { timeframe as timeframeInfo } from "./timeframes.js";
 
 const BLUE = PALETTE[0];
+/** A mouse event on the chart's zoom and scroll buttons (chart.js buildNav): not a click on the chart. */
+const onChartNav = (event) => !!(event.target && event.target.closest && event.target.closest(".chart-nav"));
 const MAGNET_PIXELS = 12; // the magnet only pulls a point this close to a candle price
 const DASHES = { solid: [], dashed: [6, 4], dotted: [1.5, 3] };
 const STYLE = {
@@ -214,6 +216,7 @@ export class DrawingLayer {
   }
 
   handleDoubleClick(event) {
+    if (onChartNav(event)) return;
     const at = this.pointAt(event);
     if (!at || this.tool) return;
     const found = this.find(at.x, at.y);
@@ -281,7 +284,7 @@ export class DrawingLayer {
 
   // ----- mouse ------------------------------------------------------------------------
   handleDown(event) {
-    if (event.button !== 0 || this.view.drag) return; // a trade line is being dragged
+    if (event.button !== 0 || this.view.drag || onChartNav(event)) return; // a trade line is being dragged, or a zoom button
     if (this.editing) return; // the click that closes the text box (it keeps the text on blur)
     const at = this.pointAt(event, false, !!this.tool);
     if (!at) return;
@@ -334,7 +337,7 @@ export class DrawingLayer {
   }
 
   handleHover(event) {
-    if (this.drag) return;
+    if (this.drag || onChartNav(event)) return;
     const at = this.pointAt(event, false, !!this.draft);
     if (this.draft) {
       if (at) {
