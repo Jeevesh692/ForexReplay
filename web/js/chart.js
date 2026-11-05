@@ -134,7 +134,7 @@ class TradeMarkers {
   constructor(view) {
     this.view = view;
     this.markers = []; // [{ time, above, colour, shape, text }], sorted by time
-    const draw = (target) => target.useMediaCoordinateSpace(({ context }) => this.paint(context));
+    const draw = (target) => target.useMediaCoordinateSpace(({ context, mediaSize }) => this.paint(context, mediaSize.width));
     this.views = [{ zOrder: () => "top", renderer: () => ({ draw }) }];
   }
 
@@ -148,7 +148,7 @@ class TradeMarkers {
     if (this.requestUpdate) this.requestUpdate();
   }
 
-  paint(ctx) {
+  paint(ctx, width = Infinity) {
     const { candles, chart, series } = this.view;
     if (!candles || candles.length === 0 || this.markers.length === 0) return;
     const scale = chart.timeScale();
@@ -181,7 +181,11 @@ class TradeMarkers {
         ctx.arc(x, y, 4, 0, Math.PI * 2);
       }
       ctx.fill();
-      if (m.text) ctx.fillText(m.text, x, y + dir * 13 + (dir > 0 ? 4 : 0));
+      if (m.text) { // centred on the candle, but kept inside the chart: a long label on the newest candle went under the price axis
+        const half = ctx.measureText(m.text).width / 2;
+        const tx = Math.max(half + 2, Math.min(x, width - half - 2));
+        ctx.fillText(m.text, tx, y + dir * 13 + (dir > 0 ? 4 : 0));
+      }
     }
     ctx.restore();
   }

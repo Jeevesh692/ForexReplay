@@ -34,7 +34,7 @@ export const DEFAULT_INDICATORS = Object.freeze({
   atr: { on: false, period: 14 },
   adr: { on: false, period: 14, levels: true },
   bb: { on: false, period: 20, mult: 2 },
-  or: { on: false, start: "09:30", minutes: 30, levels: true },
+  or: { on: false, start: "09:30", minutes: 30, levels: true, breakout: true, buffers: {} }, // buffers: symbol -> price (breakout.js)
 });
 export const OR_ZONE = "America/New_York"; // the opening range's start time is New York time, so it follows US summer time
 export const STORAGE_KEY = "forexreplay.indicators";
@@ -262,6 +262,13 @@ export function cleanIndicators(raw) {
     if ("levels" in out[key] && typeof r.levels === "boolean") out[key].levels = r.levels;
     if ("period" in out[key]) out[key].period = goodPeriod(r.period) ?? out[key].period;
     if ("start" in out[key] && typeof r.start === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(r.start)) out[key].start = r.start;
+    if ("breakout" in out[key] && typeof r.breakout === "boolean") out[key].breakout = r.breakout;
+    if ("buffers" in out[key] && r.buffers && typeof r.buffers === "object") { // the breakout buffer per symbol, in price
+      for (const [symbol, value] of Object.entries(r.buffers)) {
+        const v = Number(value);
+        if (/^[A-Z]{6}$/.test(symbol) && value !== null && value !== "" && Number.isFinite(v) && v >= 0 && v <= 10000) out[key].buffers[symbol] = v;
+      }
+    }
     if ("minutes" in out[key]) {
       const m = Number(r.minutes);
       if (r.minutes !== null && r.minutes !== "" && Number.isInteger(m) && m >= 1 && m <= 720) out[key].minutes = m;

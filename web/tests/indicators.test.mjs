@@ -279,8 +279,8 @@ test("opening range during a replay: while it forms, the high and low so far; th
 });
 
 test("opening range settings: start time and minutes, nonsense refused; the step-by-step engine flags a redraw on a new day", () => {
-  assert.deepEqual(cleanIndicators(null).or, { on: false, start: "09:30", minutes: 30, levels: true });
-  assert.deepEqual(cleanIndicators({ or: { on: true, start: "03:00", minutes: "60", levels: false } }).or, { on: true, start: "03:00", minutes: 60, levels: false });
+  assert.deepEqual(cleanIndicators(null).or, { on: false, start: "09:30", minutes: 30, levels: true, breakout: true, buffers: {} });
+  assert.deepEqual(cleanIndicators({ or: { on: true, start: "03:00", minutes: "60", levels: false } }).or, { on: true, start: "03:00", minutes: 60, levels: false, breakout: true, buffers: {} });
   for (const bad of [{ start: "9:30" }, { start: "24:00" }, { minutes: 0 }, { minutes: 721 }, { minutes: 2.5 }, { minutes: "" }]) {
     const s = cleanIndicators({ or: { on: true, ...bad } }).or;
     assert.deepEqual([s.start, s.minutes], ["09:30", 30], JSON.stringify(bad));

@@ -40,7 +40,7 @@ python -m forex_replay nbb <strategy>  # rebuild a strategy's NBB log from every
 python -m forex_replay sweep <strategy>  # the same for the liquidity-sweep log
 ```
 
-Expected today: 115 Python tests, 179 JavaScript tests, all passing.
+Expected today: 115 Python tests, 188 JavaScript tests, all passing.
 
 ## Rules that must not be broken
 
@@ -67,6 +67,7 @@ Expected today: 115 Python tests, 179 JavaScript tests, all passing.
 | Replay | `web/js/replay.js` |
 | Chart | `web/js/chart.js` (candles, sessions, trade lines and markers, line dragging, crosshair sync, indicator lines) |
 | Indicators | `web/js/indicators.js` (five SMAs and five EMAs, RSI, VWAP, ATR, ADR, Bollinger Bands, the opening range and the step-by-step engine), `forex_replay/indicator_golden.py` |
+| Breakout candle | `web/js/breakout.js` (NY ORB: the first M5 close beyond the opening range ± buffer in 10:00-10:55 New York, judged for displacement, on closed M5 candles, decision 0032); drawn in `markersFor` in `web/js/main.js` |
 | Setup finder | `web/js/setups.js` (RSI + Bollinger reversal setups on closed H4 candles, decision 0030); the card, N jump and pause in `web/js/main.js` |
 | Two charts | `web/js/layergroup.js` (both charts' drawing layers as one); panes in `web/js/main.js` |
 | Sessions | `web/js/sessions.js`, `web/js/sessionsettings.js` |

@@ -440,7 +440,11 @@
         <td class="muted">the high, low and midpoint of the candles opening in that window, New York time (09:30 for 30 minutes is the
           NY ORB). Only the latest day's range is drawn, so a jump to the next day clears it.
           <label class="check inline-check"><input type="checkbox" data-levels="or"> show the high and low</label>
-          (needs candles that fit the window: M1 to M30 for 09:30&ndash;10:00)</td></tr>
+          (needs candles that fit the window: M1 to M30 for 09:30&ndash;10:00)
+          <label class="check inline-check"><input type="checkbox" data-breakout="or"> mark the breakout candle</label>
+          <label>buffer <input type="number" data-buffer="or" min="0" step="any" style="width:80px"></label> <span data-buffer-note="or"></span>
+          (the first M5 candle opening 10:00&ndash;10:55 New York to close beyond the range &plusmn; buffer; green if it is a
+          displacement candle: body &ge; 60% of its range and range &ge; half the opening range. M1, M5 and M15 charts)</td></tr>
     </tbody></table>
     <h3 class="ind-group">Setup finder <span class="muted">the RSI + Bollinger reversal setup, found on closed 4-hour candles whatever chart is on screen</span></h3>
     <table class="grid indicator-table setup-table"><tbody>

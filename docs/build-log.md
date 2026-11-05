@@ -1327,3 +1327,54 @@ The step-by-step replay test runs with the range on.
 - **The old lines:** hovering over 5 Aug from 19:40 IST onward, and over 6 Aug before its range, read "–" for the opening range. The old lines were gone.
 
 **How to check:** in Indicators, tick **Opening range**. Replay a New York session on M5 and jump past 10:00 New York: the three lines appear from 09:30. Jump to the next day and they move.
+
+
+---
+
+## 5 Nov 2026: breakout candle marker (v2.10.0)
+
+**Asked for (Jeevesh):** a "Breakout candle" marker for his NY Opening Range Breakout strategy, as an option of the Opening range indicator, to his exact rules.
+- **The breakout candle:** the first M5 candle opening 10:00 to 10:55 New York that closes above ORH + b or below ORL − b.
+- **The buffer b:** $1.00 on gold, 1 pip on a currency pair.
+- **Displacement:** body at least 60% of the range, and a range of at least half of ORW.
+- **On the chart:** a green arrow for "enter next open" and a grey one for "no trade", or "No breakout". The legend gives the figures.
+- **Rules about time:** the marker is judged on closed M5 candles only, and only the latest day's marker is shown.
+
+**Built (Claude):**
+- **The rules (`web/js/breakout.js`):** `judgeBreakout` applies them, and `BreakoutFinder` builds M5 from the base minutes and counts only the M5 candles closed at the replay's position. `describeBreakout` writes the words.
+- **The Opening range row:** "mark the breakout candle" (on by default) and a buffer for the pair on screen, saved per symbol.
+- **On the chart (`markersFor` in `main.js`):** the marker goes on the M1, M5 or M15 candle that holds the M5 candle's close, and the hovered breakout candle's legend gives body %, size and what it needed.
+- **Marker labels stay inside the chart's edges.** In the browser the label on the newest candle had run under the price axis.
+- See [decision 0032](decisions/0032-breakout-candle.md).
+- **Before starting:** `opening-range.patch` had already been applied and removed (v2.9.3). Its decision is 0031.
+
+**Tests:** 9 new JavaScript tests (188 in total); Python unchanged at 115.
+- **Hand-made candles:**
+  - a close above ORH but not above ORH + b is not counted
+  - the first close outside passes and is green
+  - the first one fails while a later one would pass, so still no trade
+  - the size test fails, and both tests fail
+  - a downward breakout
+  - no close outside gives "No breakout", only after the 10:55 candle closes
+- **Clocks:** summer and winter (13:30 and 14:30 UTC).
+- **Replay:** absent while the candle forms, and shown the minute it closes.
+- **Placement:** on the M1 and M15 candle that holds the close; only the latest day.
+- **Settings:** the buffer defaults and per-symbol values.
+- **Real XAUUSD, every figure from the brief:**
+  - 5 Aug: the 10:00 wick is not counted; 10:20 closes 3382.17, body 79%, 6.81 / 5.21, green.
+  - 6 Aug: 10:00 closes 3373.59, not counted; 10:20 closes 3375.89, body 85%, 3.55 / 4.16, grey, size failed.
+- **Broken on purpose:**
+  - counting the forming candle: 2 tests failed
+  - ignoring the buffer: 3 failed
+  - checking past the first close outside: 2 failed
+
+  All pass again after restoring. The opening-range settings test was updated for the two new fields.
+
+**In the in-app browser** (XAUUSD M5, a test strategy whose jump is New York KZ end, deleted afterwards with the server stopped first):
+- **5 Aug, at the jump:** J landed at 19:30 IST, with the range lines and no marker.
+- **5 Aug, stepping on:** still none at 19:50 IST (the 10:00 New York candle closed inside). At 19:55 IST the green "Displacement – enter next open" arrow appeared, and the legend read "body 79% · size 6.81 / needs 5.21".
+- **6 Aug:** J went to 19:30 IST, where the 5 Aug marker and lines had gone. At 19:55 IST the grey "Not displacement – no trade (size under ½ ORW)" arrow appeared, and the legend read "body 85% · size 3.55 / needs 4.16".
+- **Other timeframes:** M15 showed it on the 19:45 candle; H1 showed nothing.
+- **Console:** no errors except the usual `site.json` 404.
+
+**How to check:** tick Indicators → Opening range (the breakout box is ticked). Replay XAUUSD M5 on 5 Aug 2025 and press J for the New York KZ end. Step forward five candles to 19:55 IST.

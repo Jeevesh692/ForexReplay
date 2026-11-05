@@ -13,6 +13,7 @@ import { TradeNotes } from "./tradenotes.js";
 import { ChartView } from "./chart.js";
 import { DrawingLayer } from "./drawinglayer.js";
 import { jumpClock, jumpLabel, nextJump, SESSION_OPENS } from "./jump.js";
+import { BREAKOUT_TIMEFRAMES, BreakoutFinder, bufferPoints, describeBreakout } from "./breakout.js";
 import { cleanSetupRules, describeSetup, SetupFinder, setupJumpLimit, STORAGE_KEY as KEY_SETUPS } from "./setups.js";
 import { cleanIndicators, STORAGE_KEY as KEY_INDICATORS } from "./indicators.js";
 import { LayerGroup } from "./layergroup.js";
@@ -57,7 +58,7 @@ function showError(message) {
 }
 
 /** Legend in the chart's top-left corner, like TradingView's O H L C line. */
-function renderLegend(el, symbol, timeframeId, digits, info, forming) {
+function renderLegend(el, symbol, timeframeId, digits, info, forming, extra = "") {
   if (!info) {
     el.textContent = `${symbol} · ${timeframeId}`;
     return;
@@ -72,7 +73,8 @@ function renderLegend(el, symbol, timeframeId, digits, info, forming) {
     `L <b>${p(info.low)}</b> C <b>${p(info.close)}</b> ` +
     `${sign}${p(info.change)} (${sign}${info.changePercent.toFixed(2)}%)</span>` +
     `<span class="legend-volume">Vol ${number(info.volume)}</span>` +
-    (info.indicators || []).map((ind) => `<span class="legend-ind"><i style="background:${ind.colour}"></i>${ind.label} <b>${ind.text}</b></span>`).join("");
+    (info.indicators || []).map((ind) => `<span class="legend-ind"><i style="background:${ind.colour}"></i>${ind.label} <b>${ind.text}</b></span>`).join("") +
+    (extra ? `<span class="legend-ind">Breakout <b>${extra}</b></span>` : "");
 }
 
 /** "2026-03-05T13:30" typed in India time -> UTC seconds. */
@@ -184,7 +186,7 @@ async function boot() {
     digits: manifest.digits,
     pipPoints: manifest.pip_points,
     onHover: (info) => renderLegend(pane.legend, manifest.symbol, pane.tf, manifest.digits, info,
-      info && info.index === pane.view.display.length - 1 && pane.view.isForming()),
+      info && info.index === pane.view.display.length - 1 && pane.view.isForming(), breakoutLegend(pane, info)),
     onCrosshairTime: (time) => { // the other chart puts its crosshair on the same moment
       const other = pane === mainPane ? sidePane : mainPane;
       if (!layoutTwo || !other.chart) return;
@@ -235,6 +237,23 @@ async function boot() {
   // Its own H4 view of the replay's candles is built the first time it is switched on.
   let setupRules = cleanSetupRules((() => { try { return JSON.parse(recall(KEY_SETUPS, "null")); } catch { return null; } })());
   let finder = null;
+  // The NY ORB breakout candle (decision 0032): judged on closed M5 candles built from the minutes.
+  let breakoutFinder = null;
+  function breakoutNow(view) {
+    const or = indicators.or;
+    if (!or.on || !or.breakout || manifest.bar_seconds > 300 || !BREAKOUT_TIMEFRAMES.includes(view.id)) return null;
+    breakoutFinder = breakoutFinder || new BreakoutFinder(m5);
+    return breakoutFinder.at(clock.position, or, bufferPoints(or, manifest.symbol, manifest.digits, manifest.pip_points));
+  }
+  /** The legend's words on the breakout candle: body %, size, and half of ORW. */
+  function breakoutLegend(pane, info) {
+    if (!info || !pane.view) return "";
+    const b = breakoutNow(pane.view);
+    if (!b || b.state !== "breakout") return "";
+    const i = indexAtOrBefore(pane.view.full, b.closeTime - 1);
+    if (i < 0 || pane.view.full.time[i] !== info.time) return "";
+    return describeBreakout(b, manifest.digits).legend;
+  }
   const setupFinder = () => finder || (finder = new SetupFinder(m5, history.H4 || null, manifest.pip_points, setupRules));
   const pauseAtSetups = () => setupRules.on && setupRules.pause;
   const setupState = { dismissed: null, taken: new Set() }; // closeTime of a dismissed card; closeTimes of setups taken
@@ -309,6 +328,16 @@ async function boot() {
           time: view.full.time[view.bucketOf[part.time]], above: buy, colour: gain >= 0 ? UP : DOWN,
           shape: "circle", text: `#${t.id} part`,
         });
+      }
+    }
+    const b = breakoutNow(view);
+    if (b) { // the NY ORB breakout candle, on whichever candle of this chart holds its close (breakout.js)
+      const i = indexAtOrBefore(view.full, b.closeTime - 1);
+      if (i >= 0 && i < shown) {
+        const words = describeBreakout(b, manifest.digits).text;
+        markers.push(b.state === "none"
+          ? { time: view.full.time[i], above: false, colour: "#787b86", shape: "circle", text: words }
+          : { time: view.full.time[i], above: !b.up, colour: b.displacement ? UP : "#787b86", shape: b.up ? "arrowUp" : "arrowDown", text: words });
       }
     }
     if (setupRules.on) { // setups on the 4-hour candles closed so far, on whichever candle of this chart holds their close
@@ -897,6 +926,14 @@ async function boot() {
       if (start) start.value = s.start;
       const minutes = indicatorsDialog.querySelector(`[data-minutes="${key}"]`);
       if (minutes) minutes.value = s.minutes;
+      const breakout = indicatorsDialog.querySelector(`[data-breakout="${key}"]`);
+      if (breakout) breakout.checked = s.breakout;
+      const buffer = indicatorsDialog.querySelector(`[data-buffer="${key}"]`);
+      if (buffer) { // shown and set for the pair on screen only
+        buffer.value = (bufferPoints(s, manifest.symbol, manifest.digits, manifest.pip_points) / 10 ** manifest.digits).toFixed(manifest.digits);
+        buffer.step = String(1 / 10 ** manifest.digits);
+        indicatorsDialog.querySelector(`[data-buffer-note="${key}"]`).textContent = `for ${manifest.symbol}`;
+      }
     }
     indicatorsButton.classList.toggle("active", Object.values(indicators).some((s) => (Array.isArray(s) ? s.some((l) => l.on) : s.on)));
   }
@@ -914,15 +951,20 @@ async function boot() {
       const mult = indicatorsDialog.querySelector(`[data-mult="${key}"]`);
       const start = indicatorsDialog.querySelector(`[data-start="${key}"]`);
       const minutes = indicatorsDialog.querySelector(`[data-minutes="${key}"]`);
+      const breakout = indicatorsDialog.querySelector(`[data-breakout="${key}"]`);
+      const buffer = indicatorsDialog.querySelector(`[data-buffer="${key}"]`);
       raw[key] = {
         on: indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked,
         ...(period ? { period: period.value } : {}), ...(levels ? { levels: levels.checked } : {}), ...(mult ? { mult: mult.value } : {}),
         ...(start ? { start: start.value } : {}), ...(minutes ? { minutes: minutes.value } : {}),
+        ...(breakout ? { breakout: breakout.checked } : {}),
+        ...(buffer ? { buffers: { ...indicators[key].buffers, [manifest.symbol]: buffer.value } } : {}),
       };
     }
     indicators = cleanIndicators(raw);
     remember(KEY_INDICATORS, JSON.stringify(indicators));
     for (const c of [chart, sidePane.chart]) if (c) c.setIndicators(indicators);
+    drawTrades(); // the breakout marker follows the settings
     renderIndicatorForm(); // a refused period snaps back to what is used
   }
   indicatorsDialog.addEventListener("change", (event) => {
