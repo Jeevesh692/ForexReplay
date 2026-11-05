@@ -1292,3 +1292,38 @@ Each made a test fail.
 
 **How to check:** close a trade. Its marker disappears; open trades keep theirs.
 
+
+
+---
+
+## 5 Nov 2026: opening range indicator (v2.9.3)
+
+**Asked for (Jeevesh):** an indicator that draws each session's opening-range midpoint as lines, which disappear after a jump to another session. Written in Claude chat as `opening-range.patch`. Jeevesh asked Claude Code to apply it, test it, check it on XAUUSD M5, and commit and push.
+
+**Built (written in Claude chat, applied by Claude Code):**
+- **`latestOpeningRange()` in `indicators.js`:** the high and low of the candles opening in [start, start + minutes), New York time (default 09:30 for 30 minutes). Only the latest day's range is drawn.
+- **On the chart:** a yellow 2 px midpoint, and a dashed purple high and low that can be switched off.
+- **Replays:** the step-by-step engine flags `redraw` when a new day's range blanks the old one, and the chart then sends the whole line again.
+- **Settings:** Start, Minutes, and "show the high and low", in the Indicators dialog.
+- See [decision 0031](decisions/0031-opening-range.md).
+
+**Applying it:**
+- **Committed first:** the setup-finder work from Claude chat (v2.9.0 to v2.9.2) was still uncommitted, so it went in first as its own commit, unchanged.
+- **One file by hand:** the patch applied cleanly except `index.html`, where the chat work had added the Setup finder section next to the same spot. The Opening range row was added by hand, after Bollinger.
+- **Renumbering:** the patch's decision was numbered 0030, already the setup finder's, so it became 0031 (Jeevesh's choice). So did the version: 2.9.3 rather than 2.9.0, since 2.9.2 was already written.
+
+**Tests:** 6 new JavaScript tests (179 in total); Python unchanged at 115.
+- by hand in US summer and winter
+- M5 and M15 the same as M1, and H1 blank
+- the next day clears the old range, and a weekend keeps Friday's
+- a range still forming during a replay
+- the settings, and the engine's redraw flag
+
+The step-by-step replay test runs with the range on.
+
+**In the in-app browser** (XAUUSD M5, a test strategy whose jump is New York KZ end, deleted afterwards with the server stopped first):
+- **First jump:** the replay started at 05:50 IST on 5 Aug 2025. J landed at 19:30 IST, and the legend read **OR 09:30 mid 3374.44, high 3379.65, low 3369.23**, as asked.
+- **Second jump:** J landed at 6 Aug 19:30 IST with high 3373.55, low 3365.24, mid 3369.39.
+- **The old lines:** hovering over 5 Aug from 19:40 IST onward, and over 6 Aug before its range, read "–" for the opening range. The old lines were gone.
+
+**How to check:** in Indicators, tick **Opening range**. Replay a New York session on M5 and jump past 10:00 New York: the three lines appear from 09:30. Jump to the next day and they move.

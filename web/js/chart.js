@@ -46,6 +46,7 @@ export const INDICATOR_COLOURS = {
   sma: "#00a7b8", ema: "#9c4fd6", vwap: "#c27c0e", rsi: "#2962ff",
   atr: "#00a7b8", adr: "#868993", adrHigh: "#868993", adrLow: "#868993", // ATR has a panel to itself; ADR levels are quiet grey
   bbUpper: "#26a69a", bbBasis: "#f57f17", bbLower: "#26a69a", // Bollinger: the two bands alike, the basis apart
+  orMid: "#fdd835", orHigh: "#b39ddb", orLow: "#b39ddb", // opening range: a bright mid (the ORB stop), quiet high and low
 };
 const SUB_PANES = ["rsi", "atr"]; // panels under the chart, in this order
 
@@ -561,9 +562,9 @@ export class ChartView {
       const fresh = !series;
       if (fresh) {
         const panel = SUB_PANES.includes(line.pane);
-        const level = line.id === "adrHigh" || line.id === "adrLow";
+        const level = line.id === "adrHigh" || line.id === "adrLow" || line.id === "orHigh" || line.id === "orLow";
         series = this.chart.addSeries(this.lib.LineSeries, {
-          color: line.colour || INDICATOR_COLOURS[line.id], lineWidth: panel ? 2 : 1, priceLineVisible: false,
+          color: line.colour || INDICATOR_COLOURS[line.id], lineWidth: panel || line.id === "orMid" ? 2 : 1, priceLineVisible: false,
           lineStyle: level ? this.lib.LineStyle.Dashed : this.lib.LineStyle.Solid,
           crosshairMarkerVisible: false, lastValueVisible: true, title: line.label,
           priceFormat: panel ? { type: "price", precision: 1, minMove: 0.1 } : { type: "price", precision: this.digits, minMove: 1 / 10 ** this.digits },
@@ -584,7 +585,7 @@ export class ChartView {
       if (series.options().title !== line.label || series.options().color !== colour) {
         series.applyOptions({ title: line.label, color: colour }); // only when changed: changing options redoes the chart's layout
       }
-      if (fresh || from === null) {
+      if (fresh || from === null || line.redraw) { // redraw: earlier points changed (a new opening range blanks the old)
         series.setData(Array.from({ length: this.candles.length }, (_, i) => this.indicatorPoint(line, i)));
       } else {
         for (let i = Math.max(from, this.offset); i <= to; i++) series.update(this.indicatorPoint(line, i - this.offset));

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { Candles } from "../js/data.js";
-import { adr, atr, bollinger, cleanIndicators, computeIndicators, DEFAULT_INDICATORS, ema, IndicatorEngine, MA_LINES, rsi, sma, vwap } from "../js/indicators.js";
+import { adr, atr, bollinger, cleanIndicators, computeIndicators, DEFAULT_INDICATORS, ema, IndicatorEngine, latestOpeningRange, MA_LINES, rsi, sma, vwap } from "../js/indicators.js";
 import { ReplayClock } from "../js/replay.js";
 import { serverDate, TimeframeView } from "../js/timeframes.js";
 
@@ -155,6 +155,7 @@ test("the step-by-step engine always equals the full calculation, through a rand
     sma: [{ on: true, period: 20 }, { on: true, period: 5 }, null, null, { on: true, period: 50 }],
     ema: [{ on: true, period: 9 }, { on: true, period: 21 }], vwap: { on: true }, rsi: { on: true, period: 14 },
     atr: { on: true, period: 14 }, adr: { on: true, period: 2, levels: true }, bb: { on: true, period: 20, mult: 2 },
+    or: { on: true, start: "09:30", minutes: 30, levels: true },
   });
   let seed = 11; const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   for (const tf of ["M5", "M15", "H1"]) {
@@ -184,5 +185,128 @@ test("the step-by-step engine always equals the full calculation, through a rand
       }
     }
     assert.ok(checked > 10000, `${tf}: only ${checked} values checked`);
+  }
+});
+
+// ----- opening range ------------------------------------------------------------------------------------
+// One-minute candles from `fromUtc` (unix seconds) for `count` minutes. Candle k's high is 1000 + k and its
+// low 1000 - k, except where `shape` says otherwise, so a range's high and low are easy to work out by hand.
+function minutes(fromUtc, count, shape = (k) => [1000 + k, 1000 - k]) {
+  const rows = [];
+  for (let k = 0; k < count; k++) {
+    const [hi, lo] = shape(k);
+    rows.push([fromUtc + 60 * k, (hi + lo) >> 1, hi, lo, (hi + lo) >> 1, 1, 0]);
+  }
+  return Candles.fromBuffer(new Int32Array(rows.flat()).buffer);
+}
+const utc = (text) => Date.parse(text) / 1000;
+const orOn = (more = {}) => cleanIndicators({ or: { on: true, ...more } });
+const orLine = (lines, id) => lines.find((l) => l.id === id).values;
+
+test("opening range by hand: 09:30-10:00 New York in US summer (13:30 UTC) and winter (14:30 UTC)", () => {
+  for (const [day, openUtc] of [["2025-08-05", "13:30"], ["2025-11-05", "14:30"]]) {
+    const start = utc(`${day}T12:00:00Z`);
+    const m1 = minutes(start, 240); // 12:00-15:59 UTC
+    const first = (utc(`${day}T${openUtc}:00Z`) - start) / 60; // minute index of 09:30 New York
+    const r = latestOpeningRange(m1, orOn().or);
+    assert.deepEqual(r, { from: first, hi: 1000 + first + 29, lo: 1000 - (first + 29) }, day);
+    const lines = computeIndicators(m1, orOn());
+    assert.deepEqual(lines.map((l) => l.id), ["orMid", "orHigh", "orLow"]);
+    const mid = orLine(lines, "orMid"), high = orLine(lines, "orHigh");
+    assert.ok(Number.isNaN(mid[first - 1]), `${day}: nothing before the range`);
+    for (const i of [first, first + 29, first + 30, 239]) {
+      assert.equal(high[i], 1000 + first + 29, `${day}: high at ${i}`);
+      assert.equal(mid[i], 1000, `${day}: mid at ${i}`); // (1000 + x + 1000 - x) / 2
+    }
+  }
+});
+
+test("opening range on M5 and M15 is the same range; H1 has no candle inside 09:30-10:00, so nothing is drawn", () => {
+  const start = utc("2025-08-05T12:00:00Z");
+  const m1 = minutes(start, 240);
+  const want = latestOpeningRange(m1, orOn().or);
+  for (const tf of ["M5", "M15"]) {
+    const view = new TimeframeView(m1, tf);
+    const r = latestOpeningRange(view.full, orOn().or);
+    assert.deepEqual([r.hi, r.lo], [want.hi, want.lo], tf);
+  }
+  assert.equal(latestOpeningRange(new TimeframeView(m1, "H1").full, orOn().or), null);
+  const h1 = computeIndicators(new TimeframeView(m1, "H1").full, orOn());
+  assert.ok(h1.every((l) => l.values.every(Number.isNaN)), "H1: blank lines");
+});
+
+test("only the latest day's range is drawn: the next day's range clears the old one", () => {
+  const start = utc("2025-08-05T12:00:00Z"); // Tue 5 Aug, then Wed 6 Aug
+  const m1 = minutes(start, 26 * 60, (k) => (k < 24 * 60 ? [2000 + (k % 50), 1900] : [3000, 2900 - (k % 7)]));
+  const lines = computeIndicators(m1, orOn());
+  const day2 = (utc("2025-08-06T13:30:00Z") - start) / 60;
+  const mid = orLine(lines, "orMid");
+  assert.ok(Number.isNaN(mid[(utc("2025-08-05T14:00:00Z") - start) / 60]), "yesterday's range is gone");
+  assert.ok(Number.isNaN(mid[day2 - 1]));
+  assert.equal(orLine(lines, "orHigh")[day2], 3000);
+  assert.equal(orLine(lines, "orLow")[m1.length - 1], 2894); // the lowest of 2900 - (k % 7) over 30 minutes
+  // Before Wednesday's 09:30, Tuesday's range is still the latest one, and stays drawn.
+  const view = new TimeframeView(m1, "M1");
+  view.setPosition(day2);
+  const r = latestOpeningRange(view.display, orOn().or);
+  assert.equal(r.from, (utc("2025-08-05T13:30:00Z") - start) / 60);
+});
+
+test("a weekend: Monday before 09:30 still shows Friday's range", () => {
+  const fri = utc("2025-08-08T13:00:00Z");
+  const rows = [...minutes(fri, 120).time].map((t, k) => [t, 1000, 1100 + k, 900, 1000, 1, 0]);
+  const mon = utc("2025-08-11T08:00:00Z");
+  for (let k = 0; k < 60; k++) rows.push([mon + 60 * k, 1000, 1050, 950, 1000, 1, 0]);
+  const m1 = Candles.fromBuffer(new Int32Array(rows.flat()).buffer);
+  const r = latestOpeningRange(m1, orOn().or);
+  assert.equal(m1.time[r.from], utc("2025-08-08T13:30:00Z"));
+  assert.equal(r.hi, 1100 + 59); // Friday's 09:59 candle
+});
+
+test("opening range during a replay: while it forms, the high and low so far; then fixed", () => {
+  const start = utc("2025-08-05T12:00:00Z");
+  const m1 = minutes(start, 240);
+  const first = 90; // 13:30 UTC
+  const view = new TimeframeView(m1, "M5");
+  view.setPosition(first + 10); // 09:40 New York: ten minutes of the range revealed
+  let r = latestOpeningRange(view.display, orOn().or);
+  assert.equal(r.hi, 1000 + first + 9, "only revealed minutes count");
+  view.setPosition(first + 30); // the jump to 10:00 reveals every candle that opened before it
+  r = latestOpeningRange(view.display, orOn().or);
+  assert.equal(r.hi, 1000 + first + 29);
+  view.setPosition(first + 90);
+  assert.equal(latestOpeningRange(view.display, orOn().or).hi, 1000 + first + 29, "later candles do not move it");
+});
+
+test("opening range settings: start time and minutes, nonsense refused; the step-by-step engine flags a redraw on a new day", () => {
+  assert.deepEqual(cleanIndicators(null).or, { on: false, start: "09:30", minutes: 30, levels: true });
+  assert.deepEqual(cleanIndicators({ or: { on: true, start: "03:00", minutes: "60", levels: false } }).or, { on: true, start: "03:00", minutes: 60, levels: false });
+  for (const bad of [{ start: "9:30" }, { start: "24:00" }, { minutes: 0 }, { minutes: 721 }, { minutes: 2.5 }, { minutes: "" }]) {
+    const s = cleanIndicators({ or: { on: true, ...bad } }).or;
+    assert.deepEqual([s.start, s.minutes], ["09:30", 30], JSON.stringify(bad));
+  }
+  assert.deepEqual(computeIndicators(minutes(utc("2025-08-05T12:00:00Z"), 240), orOn({ levels: false })).map((l) => l.id), ["orMid"]);
+  // The engine: a step inside the same day only extends the lines; a step into a new day's range redraws them.
+  const start = utc("2025-08-05T12:00:00Z");
+  const m1 = minutes(start, 26 * 60);
+  const view = new TimeframeView(m1, "M5");
+  const engine = new IndicatorEngine();
+  const settings = orOn();
+  view.setPosition(200);
+  engine.compute(view.display, settings);
+  let change = view.setPosition(201);
+  assert.equal(engine.compute(view.display, settings, change.from)[0].redraw, false, "same range: no redraw");
+  const day2 = (utc("2025-08-06T13:30:00Z") - start) / 60;
+  view.setPosition(day2);
+  engine.compute(view.display, settings, 0);
+  change = view.setPosition(day2 + 1); // Wednesday's first range minute
+  const lines = engine.compute(view.display, settings, change.from);
+  assert.equal(lines[0].redraw, true, "a new range: redraw");
+  const full = computeIndicators(view.display, settings);
+  for (let k = 0; k < full.length; k++) {
+    for (let i = 0; i < full[k].values.length; i++) {
+      const a = lines[k].values[i], b = full[k].values[i];
+      assert.ok((Number.isNaN(a) && Number.isNaN(b)) || a === b, `${full[k].id}[${i}]: ${a} vs ${b}`);
+    }
   }
 });

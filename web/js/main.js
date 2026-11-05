@@ -893,6 +893,10 @@ async function boot() {
       if (levels) levels.checked = s.levels;
       const mult = indicatorsDialog.querySelector(`[data-mult="${key}"]`);
       if (mult) mult.value = s.mult;
+      const start = indicatorsDialog.querySelector(`[data-start="${key}"]`);
+      if (start) start.value = s.start;
+      const minutes = indicatorsDialog.querySelector(`[data-minutes="${key}"]`);
+      if (minutes) minutes.value = s.minutes;
     }
     indicatorsButton.classList.toggle("active", Object.values(indicators).some((s) => (Array.isArray(s) ? s.some((l) => l.on) : s.on)));
   }
@@ -908,9 +912,12 @@ async function boot() {
       const period = indicatorsDialog.querySelector(`[data-period="${key}"]`);
       const levels = indicatorsDialog.querySelector(`[data-levels="${key}"]`);
       const mult = indicatorsDialog.querySelector(`[data-mult="${key}"]`);
+      const start = indicatorsDialog.querySelector(`[data-start="${key}"]`);
+      const minutes = indicatorsDialog.querySelector(`[data-minutes="${key}"]`);
       raw[key] = {
         on: indicatorsDialog.querySelector(`[data-ind="${key}"]`).checked,
         ...(period ? { period: period.value } : {}), ...(levels ? { levels: levels.checked } : {}), ...(mult ? { mult: mult.value } : {}),
+        ...(start ? { start: start.value } : {}), ...(minutes ? { minutes: minutes.value } : {}),
       };
     }
     indicators = cleanIndicators(raw);

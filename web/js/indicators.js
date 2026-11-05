@@ -9,6 +9,7 @@
 // forex_replay/indicator_golden.py records the same calculations done in Python, and
 // web/tests/indicators.test.mjs requires the same numbers.
 
+import { zoneOffsetSeconds, zonedTimeToUtc } from "./sessions.js";
 import { serverDate } from "./timeframes.js";
 
 // Moving averages come in five lines of each kind, for crossover strategies (an EMA 9 against an EMA 21,
@@ -33,7 +34,9 @@ export const DEFAULT_INDICATORS = Object.freeze({
   atr: { on: false, period: 14 },
   adr: { on: false, period: 14, levels: true },
   bb: { on: false, period: 20, mult: 2 },
+  or: { on: false, start: "09:30", minutes: 30, levels: true },
 });
+export const OR_ZONE = "America/New_York"; // the opening range's start time is New York time, so it follows US summer time
 export const STORAGE_KEY = "forexreplay.indicators";
 
 /** Simple moving average: the mean of the last `n` values. */
@@ -186,6 +189,55 @@ function bandAt(values, n, mult, i, basis, upper, lower) {
   basis[i] = mean; upper[i] = mean + width; lower[i] = mean - width;
 }
 
+/**
+ * The latest opening range the candles have reached: the high and low of the candles that opened in
+ * [start, start + minutes) New York time on the most recent New York day that has any (a weekend or a
+ * holiday has none). Returns { from, hi, lo }, `from` being its first candle, or null.
+ *
+ * Only the latest range is drawn: its lines run from its first candle to the last candle shown, and every
+ * earlier day is blank, so a jump to the next day clears the old lines. While the range is still forming
+ * (a replay inside 09:30-10:00), its high and low are those of the candles revealed so far.
+ * A timeframe whose candles do not fit inside the range (H1 for 09:30-10:00) has none, so nothing is drawn.
+ */
+export function latestOpeningRange(candles, settings) {
+  const n = candles.length;
+  if (!n) return null;
+  const hour = Number(settings.start.slice(0, 2)), minute = Number(settings.start.slice(3, 5));
+  const last = candles.time[n - 1];
+  const local = new Date((last + zoneOffsetSeconds(OR_ZONE, last)) * 1000); // the last candle's date in New York
+  for (let k = 0; k <= 10; k++) {
+    const day = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - k));
+    const start = zonedTimeToUtc(OR_ZONE, day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), hour, minute);
+    if (start > last) continue; // today's range has not begun yet
+    const a = firstAtOrAfter(candles.time, n, start);
+    const b = firstAtOrAfter(candles.time, n, start + settings.minutes * 60);
+    if (b <= a) continue; // no candle opened inside it
+    let hi = -Infinity, lo = Infinity;
+    for (let i = a; i < b; i++) { hi = Math.max(hi, candles.high[i]); lo = Math.min(lo, candles.low[i]); }
+    return { from: a, hi, lo };
+  }
+  return null;
+}
+
+/** First index in times[0..n) whose time is at least t. */
+function firstAtOrAfter(times, n, t) {
+  let lo = 0, hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] < t) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+/** The opening-range lines, mid first (it is the strategy's stop reference), then high and low. */
+function orLines(or, high, mid, low, redraw = false) {
+  const name = `OR ${or.start}`;
+  const lines = [{ id: "orMid", label: `${name} mid`, values: mid, pane: "price", redraw }];
+  if (or.levels) lines.push({ id: "orHigh", label: `${name} high`, values: high, pane: "price", redraw },
+    { id: "orLow", label: `${name} low`, values: low, pane: "price", redraw });
+  return lines;
+}
+
 /** Settings from storage, with anything odd replaced by the defaults. */
 export function cleanIndicators(raw) {
   const out = structuredClone(DEFAULT_INDICATORS);
@@ -209,6 +261,11 @@ export function cleanIndicators(raw) {
     out[key].on = r.on === true;
     if ("levels" in out[key] && typeof r.levels === "boolean") out[key].levels = r.levels;
     if ("period" in out[key]) out[key].period = goodPeriod(r.period) ?? out[key].period;
+    if ("start" in out[key] && typeof r.start === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(r.start)) out[key].start = r.start;
+    if ("minutes" in out[key]) {
+      const m = Number(r.minutes);
+      if (r.minutes !== null && r.minutes !== "" && Number.isInteger(m) && m >= 1 && m <= 720) out[key].minutes = m;
+    }
     if ("mult" in out[key]) {
       const m = Math.round(Number(r.mult) * 10) / 10; // steps of 0.1 standard deviations
       if (r.mult !== null && r.mult !== "" && Number.isFinite(m) && m >= 0.1 && m <= 10) out[key].mult = m;
@@ -267,6 +324,13 @@ export function computeIndicators(candles, settings) {
       lines.push({ id: "adrLow", label: "ADR low", values: a.low, pane: "price" });
     }
   }
+  if (settings.or.on) {
+    const n = candles.length;
+    const [high, mid, low] = [0, 1, 2].map(() => new Float64Array(n).fill(NaN));
+    const r = latestOpeningRange(candles, settings.or);
+    if (r) { high.fill(r.hi, r.from); low.fill(r.lo, r.from); mid.fill((r.hi + r.lo) / 2, r.from); }
+    lines.push(...orLines(settings.or, high, mid, low));
+  }
   return lines;
 }
 
@@ -291,7 +355,7 @@ export class IndicatorEngine {
     const keep = (old) => { const a = new Float64Array(capacity).fill(NaN); if (old) a.set(old.subarray(0, this.length)); return a; };
     this.ma = this.ma || {}; // moving-average line id -> its values
     for (const id of Object.keys(this.ma)) this.ma[id] = keep(this.ma[id]);
-    for (const name of ["rsi", "gain", "loss", "vwap", "pv", "vol", "atr", "adr", "adrHigh", "adrLow", "dayHi", "dayLo", "bbBasis", "bbUpper", "bbLower"]) this[name] = keep(this[name]);
+    for (const name of ["rsi", "gain", "loss", "vwap", "pv", "vol", "atr", "adr", "adrHigh", "adrLow", "dayHi", "dayLo", "bbBasis", "bbUpper", "bbLower", "orHigh", "orMid", "orLow"]) this[name] = keep(this[name]);
     const keepPlain = (old) => { const a = new Float64Array(capacity); if (old) a.set(old.subarray(0, this.length)); return a; };
     this.day = keepPlain(this.day);
     this.adrDay = keepPlain(this.adrDay);
@@ -321,6 +385,7 @@ export class IndicatorEngine {
     if (settings.atr.on) this.atrFrom(candles, settings.atr.period, from, n);
     if (settings.bb.on) this.bbFrom(c, settings.bb.period, settings.bb.mult, from, n);
     if (settings.adr.on) this.adrFrom(candles, settings.adr.period, from, n);
+    const orRedraw = settings.or.on ? this.orFrom(candles, settings.or, from, n) : false;
     this.length = n;
     const lines = [];
     for (const m of mas) lines.push({ id: m.id, label: m.label, values: this.ma[m.id].subarray(0, n), pane: "price", colour: m.colour });
@@ -335,7 +400,32 @@ export class IndicatorEngine {
         lines.push({ id: "adrLow", label: "ADR low", values: this.adrLow.subarray(0, n), pane: "price" });
       }
     }
+    if (settings.or.on) lines.push(...orLines(settings.or, this.orHigh.subarray(0, n), this.orMid.subarray(0, n), this.orLow.subarray(0, n), orRedraw));
     return lines;
+  }
+
+  /**
+   * The latest opening range's lines. Only its own candles hold values, so a new range (the next day)
+   * blanks the old one: that rewrites points before `from`, and the returned true tells the chart to
+   * send the whole line again rather than only the changed candles.
+   */
+  orFrom(candles, s, from, n) {
+    const r = latestOpeningRange(candles, s);
+    const was = this.orSpan;
+    const same = from > 0 && (r === null ? was === null : !!was && r.from === was.from && r.hi === was.hi && r.lo === was.lo);
+    let start = n;
+    if (same) { if (r) start = Math.min(was.end, Math.max(from, r.from)); } // only the new candles
+    else {
+      if (was) for (const a of [this.orHigh, this.orMid, this.orLow]) a.fill(NaN, was.from, Math.min(was.end, this.capacity));
+      if (from === 0) for (const a of [this.orHigh, this.orMid, this.orLow]) a.fill(NaN, 0, n);
+      start = r ? r.from : n;
+    }
+    if (r) {
+      const mid = (r.hi + r.lo) / 2;
+      this.orHigh.fill(r.hi, start, n); this.orMid.fill(mid, start, n); this.orLow.fill(r.lo, start, n);
+      this.orSpan = { from: r.from, end: n, hi: r.hi, lo: r.lo };
+    } else this.orSpan = null;
+    return !same;
   }
 
   bbFrom(c, p, mult, from, n) {

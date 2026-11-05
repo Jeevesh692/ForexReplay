@@ -434,6 +434,13 @@
         <td><label>Period <input type="number" data-period="bb" min="2" max="500" step="1"></label>
           <label>Std dev <input type="number" data-mult="bb" min="0.1" max="10" step="0.1"></label></td>
         <td class="muted">Bollinger Bands: the SMA of the closes (basis, orange) with bands that many standard deviations above and below it</td></tr>
+      <tr><td><label class="check"><input type="checkbox" data-ind="or"> <i class="swatch" style="background:#fdd835"></i> Opening range</label></td>
+        <td><label>Start <input type="time" data-start="or" step="60"></label>
+          <label>Minutes <input type="number" data-minutes="or" min="1" max="720" step="1"></label></td>
+        <td class="muted">the high, low and midpoint of the candles opening in that window, New York time (09:30 for 30 minutes is the
+          NY ORB). Only the latest day's range is drawn, so a jump to the next day clears it.
+          <label class="check inline-check"><input type="checkbox" data-levels="or"> show the high and low</label>
+          (needs candles that fit the window: M1 to M30 for 09:30&ndash;10:00)</td></tr>
     </tbody></table>
     <h3 class="ind-group">Setup finder <span class="muted">the RSI + Bollinger reversal setup, found on closed 4-hour candles whatever chart is on screen</span></h3>
     <table class="grid indicator-table setup-table"><tbody>
