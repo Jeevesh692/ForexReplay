@@ -104,13 +104,17 @@ def cmd_site(args) -> None:
 
 def cmd_log(args) -> None:
     """Rebuild a strategy's automatic log (nbb or sweep) from every saved session."""
-    from . import loglib, nbb, sweep
+    from . import loglib, nbb, oflog, sweep
     from .backtests import check_name
 
-    module = {"nbb": nbb, "sweep": sweep}[args.command]
+    module = {"nbb": nbb, "sweep": sweep, "orderflow": oflog}[args.command]
     folder = JOURNALS_DIR / check_name(args.strategy, "A strategy name")
     if not folder.is_dir():
         raise SystemExit(f"No strategy folder {folder}")
+    if module is oflog:  # each session on its own pair's candles
+        totals = oflog.rebuild(folder)
+        print(f"{folder / oflog.LOG_FILE} and {oflog.WORKBOOK}: {totals['trades']} trades from {totals['sessions']} saved sessions")
+        return
     totals = module.rebuild(folder, loglib.load_base())
     print(f"{folder / module.LOG_FILE}: {totals['trades']} trades; {folder / module.DAYS_FILE}: {totals['days']} days; "
           f"from {totals['sessions']} saved sessions")
@@ -199,7 +203,8 @@ def build_parser() -> argparse.ArgumentParser:
     flow.add_argument("symbols", nargs="+", help="e.g. EURUSD XAUUSD")
     flow.set_defaults(func=cmd_flow)
 
-    for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv")):
+    for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv"),
+                        ("orderflow", "orderflow_log.csv, OrderFlow_Backtest_Log.xlsx")):
         log = sub.add_parser(name, help=f"rebuild a strategy's {name} log ({files}) from its saved sessions")
         log.add_argument("strategy", help="the strategy's folder name under strategies/, e.g. liquidity_sweep")
         log.set_defaults(func=cmd_log)

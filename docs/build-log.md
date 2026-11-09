@@ -1679,3 +1679,65 @@ node --test web/tests/trigger.test.mjs
 python -m pytest tests/test_costs.py
 node --test web/tests/costs.test.mjs web/tests/account.test.mjs
 ```
+
+## 9 Nov 2026: order flow, Phase 8 (trade logger and Excel export), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "continue". The brief:
+- **On every trade:** store it, and export to .xlsx, appending to an existing log workbook format if there is one, otherwise making one.
+- **The fields:**
+  - the trade: date, pair, session, model
+  - the state and its deciding 30-minute close
+  - the LVN zone and its retracement, and whether it is near an old VAH or VAL
+  - the trigger stats
+  - entry, stop, target, stop pips, lots
+  - cost in R, result after costs, MFE and MAE
+  - whether POC was reached, the exit reason, tags and the screenshot path
+- **Logging a trade takes under 10 seconds,** with everything the app knows filled in.
+
+**Built (Claude):**
+- **The log itself:** `forex_replay/oflog.py`, a new strategy log "orderflow" writing `orderflow_log.csv` and `OrderFlow_Backtest_Log.xlsx` on every save. Only the workbook's Log sheet is rewritten. It works out every field from the saved session with the Phase 2–7 definitions, at the moment the order was placed.
+- **Reading the data:** `flow.read_flow` reads the browser's order-flow files.
+- **Wired in:**
+  - **The logger lists:** `strategy_folders.py`, `strategies.js`.
+  - **The save writes it:** `backtests.run_logger`.
+  - **The rebuild command:** `python -m forex_replay orderflow <strategy>`.
+- **The questions:** a new order-flow strategy gets two checklist questions, Model (A/B) and Exit reason when the app cannot tell. The brief's preset tags join the journal box's suggestions.
+- **Saves carry the order-flow settings in use** (`backtest.snapshot`, `main.js`), so the log measures with your settings.
+- See [decision 0040](decisions/0040-orderflow-log.md).
+
+**Tests:** 9 new Python tests (177 in total) and 1 new JavaScript test (225 in total).
+- **A made-up market where every answer is known:**
+  - state and its close
+  - costs and the result after costs
+  - the trigger candle (the closed one, with its last minute)
+  - POC reached y / n / pending
+  - every exit reason, and your answer replacing it
+  - the LVN zone and its leg from a profile drawing
+- **The files:** the CSV, and the workbook keeping your own sheets.
+- **The default checklist.**
+- **A save carries the settings.**
+
+**Checked in the browser, end to end:**
+1. Made a test strategy with the log; it got the two questions.
+2. Took a long limit on EURUSD on 13 Oct 2026; it closed at its target (+2.00R).
+3. Answered model A, tagged "news day", and left the replay.
+4. The CSV and the workbook (46 columns) held it all:
+   - **State:** rejected below, decided at 07:30 IST.
+   - **The trigger numbers:** for the 10:50 IST candle, exactly the panel's (body 44%, range 1.46×, close at 4%, RVOL 0.87).
+   - **Costs:** 0.060R, and 1.94R after costs.
+   - **POC:** reached.
+   - **Screenshots:** both.
+5. **Speed:** the same trade from Python on real data took 1.8 seconds and gave the same numbers.
+6. **Cleaned up:** the test strategy folder and the remembered strategy choice were removed after the server stopped.
+
+**Found along the way:**
+- **Not caught at first:** measuring the decision at the start of the order's minute instead of its close was not caught by the first tests, because the made-up candle came out the same either way. A check that tells them apart (the candle's close at 58% of its range, not 50%) was added; it is caught now.
+- **My own test was wrong once:** about where the profile's leg starts. Day 2's first minute opens at day 1's last close, so the leg begins lower. The code was right.
+- **A made-up time after the data ends** gives blank trigger columns, as it should. I checked this rather than assume it.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_oflog.py
+python -m forex_replay orderflow <strategy>
+```

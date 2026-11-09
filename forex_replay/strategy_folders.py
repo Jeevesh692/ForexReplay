@@ -25,7 +25,7 @@ from pathlib import Path
 from .backtests import NAME, BacktestError, _lock, check_name, list_backtests
 from .config import JOURNALS_DIR
 
-LOGGERS = ("none", "nbb", "sweep")
+LOGGERS = ("none", "nbb", "sweep", "orderflow")
 # Jump to setup time (web/js/jump.js): a session's start or end from either preset, or a clock time in a zone.
 JUMP_SESSIONS = ("asia", "london", "newyork", "asia-kz", "london-kz", "ny-kz", "london-close-kz")
 JUMP_ZONES = ("Asia/Tokyo", "Asia/Hong_Kong", "Asia/Singapore", "Australia/Sydney", "Asia/Kolkata", "Europe/Berlin",
@@ -172,6 +172,9 @@ def save_strategy(name: str, data: dict, root: Path = JOURNALS_DIR) -> dict:
     if logger not in LOGGERS:
         raise BacktestError(f"Unknown log {logger!r}; choose one of {', '.join(LOGGERS)}.")
     checklist = clean_checklist(data["checklist"]) if "checklist" in data else read_config(name, root)["checklist"]
+    if logger == "orderflow" and not checklist:  # the order-flow log asks you the model and, when needed, the exit (oflog.py)
+        from .oflog import CHECKLIST
+        checklist = clean_checklist(CHECKLIST)
     jump = clean_jump(data["jump"]) if "jump" in data else read_config(name, root)["jump"]  # missing: keep it
     config = {"label": label.strip(), "logger": logger, "checklist": checklist, "jump": jump}
     folder = root / name

@@ -297,3 +297,20 @@ def write_golden(path: Path = GOLDEN) -> dict:
 if __name__ == "__main__":
     sample = write_golden()
     print(f"Wrote {GOLDEN.with_suffix('.bin').relative_to(PROJECT_ROOT)}: {len(sample['rows'])} 15-second buckets")
+
+
+# ---------------------------------------------------------------- reading the browser's files back (Phase 8)
+def read_flow(symbol: str, dataset: str = "M1", months: list[str] | None = None, root: Path | None = None) -> dict | None:
+    """The order-flow bars the browser reads (web/data/<PAIR>/flow/<dataset>/<month>.bin), as numpy arrays by
+    field plus `seconds`; only `months` ("YYYY-MM") when given. None when the pair has none built."""
+    from .config import PROJECT_ROOT
+
+    folder = (root or PROJECT_ROOT / "web" / "data") / symbol / "flow" / dataset
+    files = sorted(folder.glob("*.bin")) if months is None else [folder / f"{m}.bin" for m in sorted(set(months))]
+    files = [f for f in files if f.exists()]
+    if not files:
+        return None
+    rows = np.concatenate([np.fromfile(f, dtype="<i4").reshape(-1, len(FIELDS)) for f in files])
+    out = {name: rows[:, k] for k, name in enumerate(FIELDS)}
+    out["seconds"] = 15 if dataset == "S15" else 60
+    return out

@@ -125,8 +125,8 @@ def run_logger(data: dict, folder: Path, root: Path) -> dict:
     m5 = None
     if logger != "none":
         try:
-            from . import nbb, sweep
-            module = {"nbb": nbb, "sweep": sweep}[logger]
+            from . import nbb, oflog, sweep
+            module = {"nbb": nbb, "sweep": sweep, "orderflow": oflog}[logger]
             m5 = loglib.load_base(str(data.get("symbol") or "EURUSD"))
             out["log"] = {"logger": logger, **module.write_logs(data, folder, m5)}
         except Exception as err:  # noqa: BLE001 (any failure in a log must not lose the save)

@@ -920,6 +920,19 @@ async function boot() {
   }
   for (const b of document.querySelectorAll(".trigger-sides button")) b.addEventListener("click", () => saveTrigger({ side: b.dataset.side }));
 
+  /** The order-flow settings a save carries, for the order-flow log (oflog.py). */
+  function orderflowSettings() {
+    const d = flowSettings.defaults;
+    return {
+      profile: { valueArea: d.valueArea, smoothing: d.smoothing, lvn: d.lvn }, bin: flowSettings.bins[manifest.symbol] ?? null,
+      state: { timeframe: stateSettings.timeframe, accept: stateSettings.accept, window: stateSettings.window },
+      layer: { minRvol: flowLayer.minRvol, medium: flowLayer.medium, large: flowLayer.large,
+        bubbleMove: { ...flowLayer.bubbleMove }, absorptionMove: { ...flowLayer.absorptionMove } },
+      trigger: { atrPeriod: triggerSettings.atrPeriod, bubbleRvol: triggerSettings.bubbleRvol, on: { ...triggerSettings.on } },
+      costs: { slippagePips: costSettings.slippagePips },
+    };
+  }
+
   // ------------------------------------------------------------ order flow: position tool costs (Phase 7)
   const NO_MAX_STOP = 100000; // pips: a blank maximum is stored as this, which no stop reaches
   function renderCostSettings() {
@@ -1791,7 +1804,7 @@ async function boot() {
     store,
     dialog: $("backtests-dialog"),
     status: $("status-backtest"),
-    collect: () => ({ trading, drawings, notes, m5, clock, manifest, timeframe: current }),
+    collect: () => ({ trading, drawings, notes, m5, clock, manifest, timeframe: current, orderflow: orderflowSettings() }),
     onResume: resumeBacktest,
     onNewSession: newSession,
     chip: $("strategy-name"),
