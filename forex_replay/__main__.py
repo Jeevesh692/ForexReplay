@@ -116,6 +116,29 @@ def cmd_log(args) -> None:
           f"from {totals['sessions']} saved sessions")
 
 
+def cmd_ticks(args) -> None:
+    """Order flow, Phase 1: download FundedNext's bid/ask ticks through MT5 (cached per server day)."""
+    from datetime import date
+
+    from .ticks import download
+
+    end = date.fromisoformat(args.date_to) if args.date_to else None
+    download(args.symbols, date.fromisoformat(args.date_from), end)
+
+
+def cmd_flow(args) -> None:
+    """Order flow, Phase 1: build M1 bars, 15-second buckets, baselines and the quality report from the cached ticks."""
+    from .flow import FLOW_DIR, biggest_file, build
+
+    for symbol in args.symbols:
+        m = build(symbol)
+        d = m["datasets"]
+        print(f"{symbol}: M1 {d['M1']['count']:,} bars, S15 {d['S15']['count']:,} buckets, "
+              f"{len(d['M1']['months'])} months; biggest file {biggest_file(m) / 1e6:.1f} MB; "
+              f"quality: {m['quality']['gaps']} gaps, {m['quality']['zero_tick_minutes']:,} zero-tick minutes, "
+              f"{m['quality']['spread_spikes']} spread spikes (see {FLOW_DIR / (symbol + '_quality.md')})")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m forex_replay",
                                      description="Forex bar-replay simulator and backtester")
@@ -163,6 +186,18 @@ def build_parser() -> argparse.ArgumentParser:
     site = sub.add_parser("site", help="v2: build the app as a static website (backtests saved in the browser)")
     site.add_argument("--out", default="_site", help="folder to write the website into")
     site.set_defaults(func=cmd_site)
+
+    ticks = sub.add_parser("ticks", help="order flow: download bid/ask ticks from the MT5 terminal (must be logged in)")
+    ticks.add_argument("action", choices=["download"])
+    ticks.add_argument("symbols", nargs="+", help="e.g. EURUSD XAUUSD")
+    ticks.add_argument("--from", dest="date_from", default="2025-08-01", help="first broker-server day")
+    ticks.add_argument("--to", dest="date_to", help="last broker-server day (default today)")
+    ticks.set_defaults(func=cmd_ticks)
+
+    flow = sub.add_parser("flow", help="order flow: build M1 bars, 15-second buckets and baselines from cached ticks")
+    flow.add_argument("action", choices=["build"])
+    flow.add_argument("symbols", nargs="+", help="e.g. EURUSD XAUUSD")
+    flow.set_defaults(func=cmd_flow)
 
     for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv")):
         log = sub.add_parser(name, help=f"rebuild a strategy's {name} log ({files}) from its saved sessions")
