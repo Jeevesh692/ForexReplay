@@ -532,6 +532,21 @@
         <tr><td>Accepted</td><td><input type="number" id="state-accept" min="1" max="6" step="1"> closes in a row outside value</td></tr>
         <tr><td>Rejected</td><td>a close back inside within <input type="number" id="state-window" min="1" max="360" step="1"> minutes of first trading outside</td></tr>
       </tbody></table>
+      <h3 class="ind-group">Synthetic order flow</h3>
+      <label class="check"><input type="checkbox" id="layer-show"> Show the order-flow layer (Alt + O hides or shows all of it: levels, market state, and the items below)</label>
+      <label class="check"><input type="checkbox" id="layer-rvol"> RVOL panel: each candle's ticks against the same time of day over the last 20 days</label>
+      <label class="check"><input type="checkbox" id="layer-cvd"> CVD panel: up ticks minus down ticks, added up <label class="check inline-check"><input type="checkbox" id="layer-deltaBars"> with each candle's delta as bars</label></label>
+      <label class="check"><input type="checkbox" id="layer-bubbles"> Bubbles: 15-second bursts that moved price (green up, red down)</label>
+      <label class="check"><input type="checkbox" id="layer-absorption"> Absorption: bursts that did not move price (hollow grey)</label>
+      <label class="check"><input type="checkbox" id="layer-divergence"> CVD divergence: a new high or low of the period that CVD did not confirm</label>
+      <table class="grid indicator-table flow-table"><tbody>
+        <tr><td>Bubbles from</td><td>RVOL <input type="number" id="layer-min-rvol" min="1" max="50" step="0.1">x · medium from <input type="number" id="layer-medium" min="1" max="100" step="0.5">x · large from <input type="number" id="layer-large" min="1" max="200" step="0.5">x</td></tr>
+        <tr><td>Moves</td><td>bubble at least <input type="number" id="layer-bubble-move" min="0" step="any">, absorption at most <input type="number" id="layer-absorption-move" min="0" step="any"> <span class="muted" id="layer-move-note"></span></td></tr>
+        <tr><td>CVD starts</td><td><select id="layer-reset"><option value="session">at each session open</option><option value="day">at each trading day (17:00 New York)</option><option value="anchor">at a candle I pick</option></select>
+          <button type="button" class="plain bordered" id="layer-anchor-pick">Pick on chart</button> <span class="muted" id="layer-anchor-note"></span></td></tr>
+        <tr><td>Divergence</td><td>CVD compared over the last <input type="number" id="layer-lookback" min="2" max="500" step="1"> candles</td></tr>
+        <tr><td>Before ticks</td><td><label class="check inline-check"><input type="checkbox" id="layer-fallback"> estimate delta from the 1-minute candles where there are no ticks yet</label></td></tr>
+      </tbody></table>
     </section>
     <div class="dialog-actions"><span class="muted small" id="flow-message"></span><span class="spacer"></span>
       <button type="button" class="plain bordered" id="flow-close">Close</button>

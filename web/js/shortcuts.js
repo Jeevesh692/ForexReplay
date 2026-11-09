@@ -18,6 +18,7 @@ export const SHORTCUTS = [
   { keys: "Alt + N", code: "KeyN", alt: true, action: "tool:text", label: "Text note" },
   { keys: "Alt + P", code: "KeyP", alt: true, action: "tool:vprofile", label: "Fixed range volume profile (click the start candle, then the end)" },
   { keys: "Alt + A", code: "KeyA", alt: true, action: "tool:aprofile", label: "Anchored volume profile (click the start; it grows with the replay)" },
+  { keys: "Alt + O", code: "KeyO", alt: true, action: "flowlayer", label: "Order-flow layer shown or hidden (levels, market state, RVOL, CVD, bubbles)" },
   { keys: "Alt + M", code: "KeyM", alt: true, action: "magnet", label: "Magnet on or off (pulls a point to a nearby open, high, low or close)" },
   { keys: "Ctrl + Z", code: "KeyZ", ctrl: true, action: "undo", label: "Undo the last drawing change" },
   { keys: "Ctrl + Y", code: "KeyY", ctrl: true, action: "redo", label: "Redo" },

@@ -31,10 +31,12 @@ import { formatDate, formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
 import { hourlyBase, indexAtOrBefore, serverDate, timeframe as timeframeOf, TIMEFRAMES, TimeframeView } from "./timeframes.js";
 import { InvalidOrder, Side, Status, Trading } from "./trading.js";
 import { TradingPanel } from "./tradingpanel.js";
-import { loadFlow } from "./flowdata.js";
+import { FlowMonths, loadFlow } from "./flowdata.js";
 import { dayLevels, priceBin, profileFromBars } from "./profile.js";
 import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, ProfileLevels, profileWindow, STORAGE_KEY as KEY_FLOW } from "./profiletool.js";
 import { cleanStateSettings, eventLabel, marketState, STATE_WORDS } from "./marketstate.js";
+import { bubbles as findBubbles, BubbleLayer, cleanFlowLayer, dayResets, divergences, FlowSeries, STORAGE_KEY as KEY_FLOW_LAYER } from "./orderflow.js";
+import { getSessions, sessionsBetween } from "./sessions.js";
 
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
@@ -63,7 +65,7 @@ function showError(message) {
 }
 
 /** Legend in the chart's top-left corner, like TradingView's O H L C line. */
-function renderLegend(el, symbol, timeframeId, digits, info, forming, extra = "") {
+function renderLegend(el, symbol, timeframeId, digits, info, forming, extra = "", flowText = "") {
   if (!info) {
     el.textContent = `${symbol} · ${timeframeId}`;
     return;
@@ -79,7 +81,8 @@ function renderLegend(el, symbol, timeframeId, digits, info, forming, extra = ""
     `${sign}${p(info.change)} (${sign}${info.changePercent.toFixed(2)}%)</span>` +
     `<span class="legend-volume">Vol ${number(info.volume)}</span>` +
     (info.indicators || []).map((ind) => `<span class="legend-ind"><i style="background:${ind.colour}"></i>${ind.label} <b>${ind.text}</b></span>`).join("") +
-    (extra ? `<span class="legend-ind">Breakout <b>${extra}</b></span>` : "");
+    (extra ? `<span class="legend-ind">Breakout <b>${extra}</b></span>` : "") +
+    (flowText ? `<span class="legend-ind">${flowText}</span>` : "");
 }
 
 /** "2026-03-05T13:30" typed in India time -> UTC seconds. */
@@ -166,6 +169,9 @@ async function boot() {
   if (!usable.some((t) => t.id === current)) current = usable.some((t) => t.id === "M15") ? "M15" : usable[0].id;
   let view = viewFor(current);
   let picking = false; // waiting for a click on the candle to start the replay from
+  let anchorPicking = false; // waiting for a click on the candle the CVD should start from
+  // The order-flow layer's settings (orderflow.js): read here, before the charts are made, as their legends use them.
+  let flowLayer = cleanFlowLayer((() => { try { return JSON.parse(recall(KEY_FLOW_LAYER, "null")); } catch { return null; } })());
   let panel = null; // trading panel (created below, once the chart exists)
   loadSavedSessions();
 
@@ -191,13 +197,23 @@ async function boot() {
     digits: manifest.digits,
     pipPoints: manifest.pip_points,
     onHover: (info) => renderLegend(pane.legend, manifest.symbol, pane.tf, manifest.digits, info,
-      info && info.index === pane.view.display.length - 1 && pane.view.isForming(), breakoutLegend(pane, info)),
+      info && info.index === pane.view.display.length - 1 && pane.view.isForming(), breakoutLegend(pane, info), flowLegend(pane, info)),
     onCrosshairTime: (time) => { // the other chart puts its crosshair on the same moment
       const other = pane === mainPane ? sidePane : mainPane;
       if (!layoutTwo || !other.chart) return;
       if (time === null) other.chart.hideCrosshair(); else other.chart.showCrosshairAt(time);
     },
     onClick: (index, price) => {
+      if (anchorPicking) {
+        if (index === null || index < 0) return;
+        setAnchorPicking(false);
+        flowLayer = cleanFlowLayer({ ...flowLayer, reset: "anchor", anchor: pane.view.full.time[index] });
+        remember(KEY_FLOW_LAYER, JSON.stringify(flowLayer));
+        refreshFlowLayer();
+        setHint(`CVD now runs from ${formatDateTime(flowLayer.anchor)} IST.`);
+        setTimeout(() => setHint(null), 2500);
+        return;
+      }
       if (picking) {
         if (index === null) return;
         if (pane.view.isHistory(index)) { // older history has no 1-minute candles to replay
@@ -345,7 +361,7 @@ async function boot() {
           : { time: view.full.time[i], above: !b.up, colour: b.displacement ? UP : "#787b86", shape: b.up ? "arrowUp" : "arrowDown", text: words });
       }
     }
-    const st = stateSettings.on && stateSettings.labels ? stateInfo() : null;
+    const st = stateSettings.on && stateSettings.labels && flowLayer.show ? stateInfo() : null;
     if (st) { // market state labels, on whichever candle of this chart holds the close that made them
       for (const e of st.events) {
         const i = indexAtOrBefore(view.full, e.time - 1);
@@ -353,6 +369,10 @@ async function boot() {
         const bearish = (e.kind === "accepted") === (e.side === "below");
         markers.push({ time: view.full.time[i], above: e.side === "above", colour: bearish ? DOWN : UP, shape: "square", text: eventLabel(e) });
       }
+    }
+    for (const d of flowDivergences(view)) { // CVD divergence: a new high or low of the period that CVD did not confirm
+      const bearish = d.side === "bearish";
+      markers.push({ time: view.full.time[d.index], above: bearish, colour: bearish ? DOWN : UP, shape: "circle", text: "div" });
     }
     if (setupRules.on) { // setups on the 4-hour candles closed so far, on whichever candle of this chart holds their close
       let previous = null;
@@ -538,12 +558,12 @@ async function boot() {
   // The instrument's own default bin, in price, before its order-flow manifest has loaded (forex_replay/flow.INSTRUMENTS).
   const instrumentBin = () => (flowData.M1 && flowData.M1.manifest.instrument.bin) || { EURUSD: 0.0001, XAUUSD: 0.5 }[manifest.symbol]
     || manifest.pip_points / 10 ** manifest.digits;
-  const redrawProfiles = () => { layer.redraw(); for (const l of levelLayers) l.redraw(); renderStateBox(); };
+  const redrawProfiles = () => { layer.redraw(); for (const l of levelLayers) l.redraw(); renderStateBox(); for (const b of bubbleLayers) b.redraw(); };
   function ensureFlow(dataset) {
     if (flowData[dataset] !== undefined || flowLoading[dataset]) return;
     flowLoading[dataset] = loadFlow(manifest.symbol, dataset).then((r) => {
       flowData[dataset] = r ? { bars: r.bars, manifest: r.manifest, seconds: r.manifest.datasets[dataset].seconds } : null;
-    }).catch(() => { flowData[dataset] = null; }).finally(() => { flowLoading[dataset] = null; redrawProfiles(); drawTrades(); });
+    }).catch(() => { flowData[dataset] = null; }).finally(() => { flowLoading[dataset] = null; redrawProfiles(); if (dataset === "M1") refreshFlowLayer(); else drawTrades(); });
   }
   /** The replay's cursor: the close of the last revealed base candle; outside a replay, the close of the last
    *  candle there is (the order-flow files can run on past the candles, as gold's do). */
@@ -596,7 +616,7 @@ async function boot() {
   }
   /** What ProfileLevels paints: the prior day's lines and the naked POCs, each only when switched on. */
   function shownLevels() {
-    if (!flowSettings.priorDay && !flowSettings.naked) return null;
+    if (!flowLayer.show || (!flowSettings.priorDay && !flowSettings.naked)) return null;
     const info = levelsInfo();
     if (!info) return null;
     const l = info.levels;
@@ -624,8 +644,8 @@ async function boot() {
   const STATE_TONE = { accepted_above: "up", rejected_below: "up", accepted_below: "down", rejected_above: "down" };
   function renderStateBox() {
     const box = $("state-box");
-    box.hidden = !stateSettings.on;
-    if (!stateSettings.on) return;
+    box.hidden = !stateSettings.on || !flowLayer.show;
+    if (box.hidden) return;
     const info = stateInfo();
     if (!info) {
       box.className = "state-box";
@@ -642,8 +662,148 @@ async function boot() {
       + `outside the previous day's value area. Rejected: traded outside, then a close back inside within ${stateSettings.window / 60} minutes.`;
   }
 
+  // ------------------------------------------------------------ order flow: synthetic order flow (Phase 5)
+  // RVOL and CVD panels, bubbles and absorption from the 15-second buckets, CVD divergence (orderflow.js,
+  // decision 0037). Everything stops at the replay's cursor. The master switch (Alt + O) hides all of it.
+  const flowSeries = new Map(); // timeframe id -> FlowSeries
+  const bubbleLayers = [];
+  let s15 = null; // the 15-second buckets, a month at a time
+  const instrumentMove = (key) => (flowData.M1 && flowData.M1.manifest.instrument[key]) || { bubble_move: { EURUSD: 0.00015, XAUUSD: 0.5 },
+    absorption_move: { EURUSD: 0.00003, XAUUSD: 0.1 } }[key][manifest.symbol] || 0;
+  const bubbleMove = () => flowLayer.bubbleMove[manifest.symbol] ?? instrumentMove("bubble_move");
+  const absorptionMove = () => flowLayer.absorptionMove[manifest.symbol] ?? instrumentMove("absorption_move");
+  const wantsFlowSeries = () => flowLayer.show && (flowLayer.rvol || flowLayer.cvd || flowLayer.deltaBars || flowLayer.divergence);
+  let resetsMemo = { key: null, value: [] };
+  /** CVD reset times from `first` to a day past the cursor: trading days, session opens, or the anchor. */
+  function flowResets(first, cursor) {
+    if (flowLayer.reset === "anchor") return flowLayer.anchor ? [flowLayer.anchor] : [];
+    const last = Math.min(cursor, m5.time[m5.length - 1] + 60);
+    const key = JSON.stringify([flowLayer.reset, first, Math.floor(last / 86400), getSessions()]);
+    if (resetsMemo.key !== key) {
+      const to = (Math.floor(last / 86400) + 2) * 86400;
+      const value = flowLayer.reset === "day" ? dayResets(first, to, serverDate)
+        : [...new Set(sessionsBetween(first, to).map((w) => w.start))].sort((a, b) => a - b);
+      resetsMemo = { key, value };
+    }
+    return resetsMemo.value;
+  }
+  /** RVOL, delta and CVD for every candle of a timeframe so far (FlowSeries), or null before the bars load. */
+  function flowValuesFor(full, tfId) {
+    if (!wantsFlowSeries() || full.length === 0) return null;
+    const f = flowData.M1;
+    if (f === undefined) { ensureFlow("M1"); return null; }
+    if (!f) return null;
+    const cursor = flowCursor();
+    let fs = flowSeries.get(tfId);
+    if (!fs) flowSeries.set(tfId, (fs = new FlowSeries()));
+    const resets = flowResets(full.time[0], cursor);
+    const key = JSON.stringify([tfId, flowLayer.reset, flowLayer.anchor, flowLayer.fallback, getSessions()]);
+    return fs.compute(full, timeframeOf(tfId).seconds, cursor, f.bars, resets, flowLayer.fallback ? m5 : null, f.bars.time[0], key);
+  }
+  /** CVD to show: with an anchor, nothing before the anchor's candle (the sum there runs from the data's start). */
+  function shownCvd(v, full, tfId) {
+    if (flowLayer.reset !== "anchor" || !flowLayer.anchor) return v.cvd;
+    const tf = timeframeOf(tfId).seconds;
+    let before = 0, hi = full.length; // the first candle that ends after the anchor
+    while (before < hi) { const m = (before + hi) >> 1; if (full.time[m] + tf <= flowLayer.anchor) before = m + 1; else hi = m; }
+    return before > 0 ? v.cvd.map((x, i) => (i < before ? null : x)) : v.cvd;
+  }
+  /** The chart's RVOL, CVD and delta lines (chart.setFlowLines). */
+  function flowLinesFor(full, tfId, from) {
+    const v = flowValuesFor(full, tfId);
+    if (!v) return [];
+    const redraw = from !== null && v.changedFrom < from; // earlier candles changed: send them all again
+    const lines = [];
+    const signed = (x) => `${x > 0 ? "+" : ""}${Math.round(x).toLocaleString("en-IN")}`;
+    if (flowLayer.rvol) {
+      lines.push({ id: "rvol", label: "RVOL", pane: "rvol", style: "histogram", values: v.rvol, precision: 2, redraw,
+        colourOf: (x) => (x >= flowLayer.minRvol ? "#ffb300" : x >= 1.5 ? "#26a69a" : "#5d606b"), format: (x) => `${x.toFixed(2)}x` });
+    }
+    if (flowLayer.cvd) lines.push({ id: "cvd", label: "CVD", pane: "cvd", values: shownCvd(v, full, tfId), precision: 0, redraw, format: signed });
+    if (flowLayer.deltaBars) {
+      lines.push({ id: "delta", label: "Δ", pane: "cvd", style: "histogram", overlay: true, values: v.delta, precision: 0, redraw,
+        colourOf: (x) => (x >= 0 ? "rgba(38, 166, 154, 0.7)" : "rgba(239, 83, 80, 0.7)"), format: signed });
+    }
+    return lines;
+  }
+  let divergenceMemo = { key: null, value: [] };
+  /** CVD divergences on the closed candles of a chart (markers). */
+  function flowDivergences(view) {
+    if (!flowLayer.show || !flowLayer.divergence) return [];
+    const shown = view.display.length;
+    const closed = view.isForming() ? shown - 1 : shown;
+    if (closed < 2) return [];
+    const v = flowValuesFor(view.display, view.id);
+    if (!v) return [];
+    const key = JSON.stringify([view.id, closed, flowLayer.lookback, flowLayer.reset, flowLayer.anchor, v.cvd[closed - 1]]);
+    if (divergenceMemo.key !== key) {
+      const starts = Array.from(view.full.time.subarray(0, closed));
+      const resets = flowResets(starts[0], flowCursor());
+      divergenceMemo = { key, value: divergences(starts, Array.from(view.full.high.subarray(0, closed)), Array.from(view.full.low.subarray(0, closed)),
+        shownCvd(v, view.display, view.id).slice(0, closed), resets, flowLayer.lookback) };
+    }
+    return divergenceMemo.value;
+  }
+  let bubbleMemo = { key: null, value: null };
+  /** Bubbles and absorption between two times, from the buckets closed at the cursor. */
+  function bubbleItems(from, to, memo = true) {
+    if (!flowLayer.show || (!flowLayer.bubbles && !flowLayer.absorption)) return null;
+    const f = flowData.M1;
+    if (f === undefined) { ensureFlow("M1"); return null; }
+    if (!f) return null;
+    if (!s15) s15 = new FlowMonths(manifest.symbol, "S15", f.manifest, () => { bubbleMemo.key = null; redrawFlowLayer(); });
+    const cursor = flowCursor();
+    const end = Math.min(to, cursor);
+    const parts = s15.parts(from, end);
+    const key = JSON.stringify([from, end, cursor, flowLayer, s15.loaded.size]);
+    if (memo && bubbleMemo.key === key) return bubbleMemo.value;
+    const move = (price) => priceBin(price, manifest.digits);
+    const items = [];
+    for (const part of parts) {
+      for (const b of findBubbles(part, from, end, cursor, move(bubbleMove()), move(absorptionMove()), flowLayer.minRvol, flowLayer.medium, flowLayer.large)) {
+        if (b.kind === "bubble" ? flowLayer.bubbles : flowLayer.absorption) items.push(b);
+      }
+    }
+    const value = { items, digits: manifest.digits };
+    if (memo) bubbleMemo = { key, value };
+    return value;
+  }
+  /** The legend's order-flow words for the candle under the mouse: its bubbles and absorption. */
+  function flowLegend(pane, info) {
+    if (!info || !flowLayer.show || (!flowLayer.bubbles && !flowLayer.absorption)) return "";
+    const got = bubbleItems(info.time, info.time + timeframeOf(pane.tf).seconds, false);
+    if (!got || got.items.length === 0) return "";
+    const up = got.items.filter((b) => b.side === "up"), down = got.items.filter((b) => b.side === "down");
+    const held = got.items.filter((b) => b.kind === "absorption");
+    const most = (list) => Math.max(...list.map((b) => b.rvol)).toFixed(1);
+    const words = [];
+    if (up.length) words.push(`<b class="up">${up.length} ↑</b> (to ${most(up)}x)`);
+    if (down.length) words.push(`<b class="down">${down.length} ↓</b> (to ${most(down)}x)`);
+    if (held.length) words.push(`<b>${held.length} absorption</b> (to ${most(held)}x): high activity, no progress`);
+    return `Bubbles ${words.join(" · ")}`;
+  }
+  function redrawFlowLayer() { for (const b of bubbleLayers) b.redraw(); }
+  /** After a settings change or new data: the panels, markers and bubbles again. */
+  function refreshFlowLayer() {
+    for (const p of panes()) if (p.chart) p.chart.setFlowLines((full, tfId, from) => flowLinesFor(full, tfId, from));
+    renderStateBox();
+    for (const l of levelLayers) l.redraw();
+    redrawFlowLayer();
+    drawTrades();
+    $("flow-open").classList.toggle("active", flowSettings.priorDay || flowSettings.naked || stateSettings.on
+      || flowLayer.rvol || flowLayer.cvd || flowLayer.deltaBars || flowLayer.bubbles || flowLayer.absorption || flowLayer.divergence);
+    $("flow-open").classList.toggle("hidden-layer", !flowLayer.show);
+  }
+  function setAnchorPicking(on) {
+    if (on) layer.setTool(null);
+    anchorPicking = on;
+    setHint(on ? "Click the candle the CVD should start from. Press Esc to cancel." : null);
+    $("chart-view").classList.toggle("picking", on);
+  }
+
   const addLayer = (paneChart) => {
     const cb = layer.callbacks();
+    bubbleLayers.push(new BubbleLayer(paneChart, (from, to) => bubbleItems(from, to)));
     levelLayers.push(new ProfileLevels(paneChart, shownLevels));
     const l = new DrawingLayer(paneChart, {
       store: drawings, pipPoints: manifest.pip_points, note: positionNote, editor: $("text-editor"),
@@ -902,6 +1062,7 @@ async function boot() {
         sidePane.chart = new ChartView($("chart2"), chartOptions(sidePane));
         sidePane.chart.setSessionsVisible(sessionsOn);
         sidePane.chart.setIndicators(indicators);
+        sidePane.chart.setFlowLines((full, tfId, from) => flowLinesFor(full, tfId, from));
       }
       if (!sidePane.layer) sidePane.layer = addLayer(sidePane.chart);
       setSideTimeframe(sidePane.tf);
@@ -1054,6 +1215,18 @@ async function boot() {
     $("flow-prior").checked = flowSettings.priorDay;
     $("flow-naked").checked = flowSettings.naked;
     $("flow-naked-days").value = flowSettings.nakedDays;
+    $("layer-show").checked = flowLayer.show;
+    for (const k of ["rvol", "bubbles", "absorption", "cvd", "deltaBars", "divergence", "fallback"]) $(`layer-${k}`).checked = flowLayer[k];
+    $("layer-min-rvol").value = flowLayer.minRvol;
+    $("layer-medium").value = flowLayer.medium;
+    $("layer-large").value = flowLayer.large;
+    $("layer-bubble-move").value = bubbleMove();
+    $("layer-absorption-move").value = absorptionMove();
+    for (const id of ["layer-bubble-move", "layer-absorption-move"]) $(id).step = String(1 / 10 ** manifest.digits);
+    $("layer-move-note").textContent = `for ${manifest.symbol}`;
+    $("layer-reset").value = flowLayer.reset;
+    $("layer-anchor-note").textContent = flowLayer.anchor ? `from ${formatDateTime(flowLayer.anchor)} IST` : "not set";
+    $("layer-lookback").value = flowLayer.lookback;
     $("state-on").checked = stateSettings.on;
     $("state-labels").checked = stateSettings.labels;
     $("state-tf").value = String(stateSettings.timeframe);
@@ -1062,6 +1235,22 @@ async function boot() {
     $("flow-message").textContent = "";
     flowDialog.showModal();
   }
+  function readLayerForm() {
+    const flag = (k) => $(`layer-${k}`).checked;
+    return cleanFlowLayer({
+      ...flowLayer, show: flag("show"), rvol: flag("rvol"), bubbles: flag("bubbles"), absorption: flag("absorption"), cvd: flag("cvd"),
+      deltaBars: flag("deltaBars"), divergence: flag("divergence"), fallback: flag("fallback"),
+      minRvol: Number($("layer-min-rvol").value), medium: Number($("layer-medium").value), large: Number($("layer-large").value),
+      bubbleMove: { ...flowLayer.bubbleMove, [manifest.symbol]: Number($("layer-bubble-move").value) },
+      absorptionMove: { ...flowLayer.absorptionMove, [manifest.symbol]: Number($("layer-absorption-move").value) },
+      reset: $("layer-reset").value, lookback: Number($("layer-lookback").value),
+    });
+  }
+  $("layer-anchor-pick").addEventListener("click", () => {
+    flowLayer = readLayerForm(); // keep what was typed, then pick
+    flowDialog.close();
+    setAnchorPicking(true);
+  });
   function readFlowForm() {
     return cleanProfileSettings({
       source: $("flow-source").value, bin: $("flow-bin").value, valueArea: Number($("flow-va").value) / 100,
@@ -1087,19 +1276,23 @@ async function boot() {
         accept: Number($("state-accept").value), window: Number($("state-window").value) * 60,
       });
       remember(KEY_STATE, JSON.stringify(stateSettings));
+      flowLayer = readLayerForm();
+      remember(KEY_FLOW_LAYER, JSON.stringify(flowLayer));
       showFlowActive();
+      refreshFlowLayer();
     }
     flowDialog.close();
     redrawProfiles();
     drawTrades();
   });
   function showFlowActive() {
-    const on = flowSettings.priorDay || flowSettings.naked || stateSettings.on;
+    const on = flowSettings.priorDay || flowSettings.naked || stateSettings.on || wantsFlowSeries() || flowLayer.bubbles || flowLayer.absorption;
     $("flow-open").classList.toggle("active", on);
     if (on) ensureFlow("M1");
   }
   showFlowActive();
   renderStateBox();
+  refreshFlowLayer();
 
   // ------------------------------------------------------------ indicators
   const indicatorsDialog = $("indicators-dialog");
@@ -1379,12 +1572,20 @@ async function boot() {
         setMagnet(!layer.magnet);
         setHint(`Magnet ${layer.magnet ? "on: a point near a candle's open, high, low or close jumps onto it" : "off"}.`);
         setTimeout(() => setHint(null), 1800);
+      } else if (action === "flowlayer") {
+        flowLayer = cleanFlowLayer({ ...flowLayer, show: !flowLayer.show });
+        remember(KEY_FLOW_LAYER, JSON.stringify(flowLayer));
+        if (flowLayer.show) showFlowActive();
+        refreshFlowLayer();
+        setHint(`Order-flow layer ${flowLayer.show ? "shown" : "hidden"} (Alt + O).`);
+        setTimeout(() => setHint(null), 1800);
       } else if (action === "undo") undoDrawing();
       else if (action === "redo") redoDrawing();
       else if (action === "help") shortcutsDialog.showModal();
       return;
     }
     if (event.key === "Escape" && picking) { setPicking(false); return; }
+    if (event.key === "Escape" && anchorPicking) { setAnchorPicking(false); return; }
     if (event.key === "Escape" && panel.pickTarget) { panel.setPick(null); return; }
     if (!clock.active) return;
     if (event.key === " ") { event.preventDefault(); clock.toggle(); }

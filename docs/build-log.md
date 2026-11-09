@@ -1527,3 +1527,62 @@ node --test web/tests/profiletool.test.mjs web/tests/profile.test.mjs
 python -m pytest tests/test_marketstate.py
 node --test web/tests/marketstate.test.mjs
 ```
+
+## 9 Nov 2026: order flow, Phase 5 (synthetic order flow), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "start phase 5". The brief:
+- **RVOL** in a panel and the tooltip.
+- **Bubbles** from 15-second buckets (RVOL ≥ 3 and a move of 1.5 pips / $0.50), sized by RVOL.
+- **Absorption:** RVOL ≥ 3 without a move.
+- **A CVD panel** with resets, a fallback without ticks, delta bars and an optional divergence flag.
+- **Every threshold a setting,** and a master toggle.
+
+**Built (Claude):**
+- **The definitions, twice:** `forex_replay/orderflow.py` and `web/js/orderflow.js`, with `forex_replay/orderflow_golden.py`.
+- **The app:**
+  - `FlowSeries`, which keeps RVOL, delta and CVD up to date step by step
+  - `BubbleLayer`, which paints the bubbles
+  - `FlowMonths` in `flowdata.js`, which loads the 15-second buckets a month at a time
+  - `chart.js`: RVOL and CVD panels (histogram bars and a line, the delta bars on their own scale)
+  - `main.js`: the settings, the legend line for bubbles, divergence markers, picking a CVD anchor on the chart, and Alt + O
+- **The dialog:** a "Synthetic order flow" section in the Order flow dialog.
+- See [decision 0037](decisions/0037-synthetic-order-flow.md).
+
+**Tests:** 10 new Python tests (156 in total) and 8 new JavaScript tests (213 in total).
+- **Hand examples:** RVOL, bubble and absorption rules, sizes, delta and CVD, resets, a missing baseline, the fallback, the cursor, divergence both ways, and the summer and winter day start.
+- **Golden:** JavaScript matches all 148 cases.
+- **The step-by-step series:** it equals a full recompute.
+- **No look-ahead:** minutes and buckets after the cursor change nothing.
+- **The month loader:** it fetches only the months asked for, once each.
+
+**Checked:**
+- **On real data:** Python and JavaScript give the same October totals for both pairs (decision 0037).
+- **In the browser, EURUSD M15:**
+  - **The panels:** RVOL bars and the CVD line with delta bars; the legend reads "RVOL 0.74x · CVD −57 · Δ −21".
+  - **Loading:** the 15-second file loaded only for October.
+  - **What drew:** absorption circles, mostly at the rollover, and a few bubbles.
+- **In a replay at 04:00 IST on 14 Oct:**
+  - the newest bubble's bucket closed at 03:55
+  - the legend showed "high activity, no progress" over a candle with absorption
+  - Alt + O hid all of it and showed it again
+  - picking an anchor at 13 Oct 06:30 restarted the CVD there
+  - divergence markers appeared
+- **XAUUSD on 25 Aug 2026:** the fallback CVD runs until 03:30 IST, where the ticks begin. RVOL is blank, with no 20 days of baseline yet.
+- **Cleaned up:** the settings changed for the check were reset. No session was saved.
+
+**Found along the way:**
+- **The month loader never fetched in the browser** ("Illegal invocation": the browser's `fetch` called as a method of another object). Node's test did not show it. It now wraps `fetch`.
+- **The anchored CVD before the anchor** ran from the data's first minute and flattened the line. Those candles are now blank.
+- **The chart's panel code re-created a panel's series** only when its id matched the panel's name. The delta bars ("delta" in the CVD panel) would have stayed in the wrong panel when another panel was switched off. It now goes by the panel each series sits in.
+- **My test was wrong once:** RVOL of a candle mixing fallback minutes and tick minutes comes from the tick minutes. The code was right.
+
+**Open for Jeevesh:**
+- **The rollover:** many EURUSD absorption circles are at it. Should a window around it be left out?
+- **15-second profiles** still load every month (decision 0037).
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_orderflow.py
+node --test web/tests/orderflow.test.mjs web/tests/flowdata.test.mjs
+```

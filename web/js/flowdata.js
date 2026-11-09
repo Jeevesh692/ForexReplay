@@ -62,3 +62,54 @@ export function flowValues(bars, i, manifest) {
     spreadPoints: bars.spread_x10[i] / 10, baseline: bars.baseline_x2[i] < 0 ? null : bars.baseline_x2[i] / 2,
   };
 }
+
+/** "YYYY-MM" of a UTC second, as the files are named. */
+export const monthOf = (utcSeconds) => new Date(utcSeconds * 1000).toISOString().slice(0, 7);
+
+/**
+ * One dataset loaded a month at a time, only the months asked for (the 15-second buckets are about 5 MB a
+ * month, so the whole of EURUSD would be 75 MB). `parts(from, to)` returns the months already here that cover
+ * [from, to), each { length, time, ... }, and starts loading the missing ones; `onLoad` runs when one arrives.
+ */
+export class FlowMonths {
+  constructor(symbol, dataset, manifest, onLoad, base = "data", fetchFn = (url) => fetch(url)) { // a wrapper: the browser's fetch must not be called as a method of this object
+    Object.assign(this, { symbol, dataset, onLoad, base, fetchFn });
+    this.available = new Set(((manifest.datasets[dataset] || {}).months || []).map((m) => m.month));
+    this.loaded = new Map(); // month -> bars, or null while loading / when it failed
+  }
+
+  monthsBetween(from, to) {
+    const out = [];
+    let [y, m] = monthOf(from).split("-").map(Number);
+    const last = monthOf(Math.max(from, to - 1));
+    for (;;) {
+      const name = `${y}-${String(m).padStart(2, "0")}`;
+      out.push(name);
+      if (name >= last) return out;
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+  }
+
+  parts(from, to) {
+    const out = [];
+    for (const month of this.monthsBetween(from, to)) {
+      if (!this.available.has(month)) continue;
+      if (!this.loaded.has(month)) this.load(month);
+      const bars = this.loaded.get(month);
+      if (bars) out.push(bars);
+    }
+    return out;
+  }
+
+  load(month) {
+    this.loaded.set(month, null);
+    this.pending = this.pending || new Set();
+    this.pending.add(month);
+    this.fetchFn(`${this.base}/${this.symbol}/flow/${this.dataset}/${month}.bin`)
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((buffer) => { if (buffer) this.loaded.set(month, { ...decodeFlow(buffer), seconds: this.dataset === "S15" ? 15 : 60 }); })
+      .catch(() => {})
+      .finally(() => { this.pending.delete(month); if (this.onLoad) this.onLoad(month); });
+  }
+}

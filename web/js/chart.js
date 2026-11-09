@@ -47,8 +47,9 @@ export const INDICATOR_COLOURS = {
   atr: "#00a7b8", adr: "#868993", adrHigh: "#868993", adrLow: "#868993", // ATR has a panel to itself; ADR levels are quiet grey
   bbUpper: "#26a69a", bbBasis: "#f57f17", bbLower: "#26a69a", // Bollinger: the two bands alike, the basis apart
   orMid: "#fdd835", orHigh: "#b39ddb", orLow: "#b39ddb", // opening range: a bright mid (the ORB stop), quiet high and low
+  rvol: "#787b86", cvd: "#29b6f6", delta: "#787b86", // order flow (Phase 5): RVOL bars, the CVD line and its delta bars
 };
-const SUB_PANES = ["rsi", "atr"]; // panels under the chart, in this order
+const SUB_PANES = ["rsi", "atr", "rvol", "cvd"]; // panels under the chart, in this order
 
 const DEFAULT_VISIBLE_BARS = 160;
 const GRAB_PIXELS = 5; // how close the mouse must be to a line to drag it
@@ -306,8 +307,10 @@ export class ChartView {
 
     this.indicatorSettings = cleanIndicators(null);
     this.indicatorSeries = new Map(); // indicator id -> line series
+    this.seriesPane = new Map(); // indicator id -> the pane it was made in
     this.indicatorEngine = new IndicatorEngine(); // works out only what a replay step changed
     this.indicatorLines = []; // the last computed lines, for the legend
+    this.flowLines = null; // (full, timeframe, from) -> extra lines from the order flow (main.js), or null
     this.priceLines = [];
     this.lineSpecs = [];
     this.drag = null; // { spec, line, startY, points, moved } while a line is being dragged
@@ -533,12 +536,23 @@ export class ChartView {
 
   get pipPoints() { return this.pip; }
 
+  /**
+   * Lines that do not come from the candles (the order flow's RVOL, CVD and delta, Phase 5): a function
+   * (full, timeframeId, from) -> [{ id, label, pane, values (one per candle of `full`), style: "histogram"?,
+   * colourOf(v)?, precision?, overlay?, format(v)?, redraw? }]. Redraws them now.
+   */
+  setFlowLines(fn) {
+    this.flowLines = fn;
+    if (this.candles) { this.drawIndicators(); this.onHover(this.barInfo(this.candles.length - 1)); }
+  }
+
   /** Indicator point for window candle i (its value is at i + offset in the line, worked out on every candle). */
   indicatorPoint(line, i) {
     const v = line.values[i + this.offset];
     const time = toChartTime(this.candles.time[i]);
     if (!Number.isFinite(v)) return { time }; // not worked out yet: a gap in the line
     if (line.pane === "rsi") return { time, value: v };
+    if (line.pane === "rvol" || line.pane === "cvd") return line.colourOf ? { time, value: v, color: line.colourOf(v) } : { time, value: v };
     if (line.pane === "atr") return { time, value: v / this.pipPoints }; // ATR is shown in pips
     return { time, value: v / 10 ** this.digits };
   }
@@ -549,6 +563,7 @@ export class ChartView {
    */
   drawIndicators(from = null, to = null) {
     let lines = this.indicatorEngine.compute(this.full, this.indicatorSettings, from); // every candle: the window never changes a value
+    if (this.flowLines) lines = lines.concat(this.flowLines(this.full, this.timeframe, from));
     // ADR levels are for intraday charts: on D1 a day is one candle, so they say nothing (lines and legend alike).
     if (this.timeframe === "D1") lines = lines.filter((l) => l.id !== "adrHigh" && l.id !== "adrLow");
     this.indicatorLines = lines; // the legend shows every value, ADR included
@@ -559,7 +574,7 @@ export class ChartView {
     const paneKey = panes.join(",");
     const wanted = new Set(lines.map((l) => l.id));
     for (const [id, series] of this.indicatorSeries) {
-      const inPanel = SUB_PANES.includes(id);
+      const inPanel = SUB_PANES.includes(this.seriesPane.get(id) ?? id); // by the panel it sits in (the delta bars share the CVD's)
       if (!wanted.has(id) || (inPanel && paneKey !== this.paneKey)) { this.chart.removeSeries(series); this.indicatorSeries.delete(id); }
     }
     this.paneKey = paneKey;
@@ -569,13 +584,16 @@ export class ChartView {
       if (fresh) {
         const panel = SUB_PANES.includes(line.pane);
         const level = line.id === "adrHigh" || line.id === "adrLow" || line.id === "orHigh" || line.id === "orLow";
-        series = this.chart.addSeries(this.lib.LineSeries, {
+        const precision = line.precision ?? (panel ? 1 : this.digits);
+        series = this.chart.addSeries(line.style === "histogram" ? this.lib.HistogramSeries : this.lib.LineSeries, {
           color: line.colour || INDICATOR_COLOURS[line.id], lineWidth: panel || line.id === "orMid" ? 2 : 1, priceLineVisible: false,
           lineStyle: level ? this.lib.LineStyle.Dashed : this.lib.LineStyle.Solid,
           crosshairMarkerVisible: false, lastValueVisible: true, title: line.label,
-          priceFormat: panel ? { type: "price", precision: 1, minMove: 0.1 } : { type: "price", precision: this.digits, minMove: 1 / 10 ** this.digits },
+          priceFormat: { type: "price", precision, minMove: 1 / 10 ** precision },
           autoscaleInfoProvider: line.pane === "rsi" ? () => ({ priceRange: { minValue: 0, maxValue: 100 } }) : undefined,
+          ...(line.overlay ? { priceScaleId: line.id } : {}), // its own scale, low in the panel (the delta bars under the CVD line)
         }, panel ? panes.indexOf(line.pane) + 1 : 0);
+        if (line.overlay) series.priceScale().applyOptions({ scaleMargins: { top: 0.6, bottom: 0 } });
         if (line.pane === "rsi") {
           for (const value of [70, 30]) {
             series.createPriceLine({ price: value, color: "#4a4e5a", lineWidth: 1, lineStyle: this.lib.LineStyle.Dashed, axisLabelVisible: true, title: "" });
@@ -586,6 +604,7 @@ export class ChartView {
           if (pane) pane.setHeight(110);
         }
         this.indicatorSeries.set(line.id, series);
+        this.seriesPane.set(line.id, line.pane);
       }
       const colour = line.colour || INDICATOR_COLOURS[line.id];
       if (series.options().title !== line.label || series.options().color !== colour) {
@@ -604,7 +623,7 @@ export class ChartView {
     i += this.offset; // window candle -> every candle
     return this.indicatorLines.map((l) => ({
       id: l.id, label: l.label, colour: l.colour || INDICATOR_COLOURS[l.id],
-      text: !Number.isFinite(l.values[i]) ? "–" : l.pane === "rsi" ? l.values[i].toFixed(1)
+      text: !Number.isFinite(l.values[i]) ? "–" : l.format ? l.format(l.values[i]) : l.pane === "rsi" ? l.values[i].toFixed(1)
         : l.id === "atr" || l.id === "adr" ? `${(l.values[i] / this.pipPoints).toFixed(1)} pips`
           : (l.values[i] / 10 ** this.digits).toFixed(this.digits),
     }));
