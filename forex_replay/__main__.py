@@ -120,6 +120,34 @@ def cmd_log(args) -> None:
           f"from {totals['sessions']} saved sessions")
 
 
+def cmd_mbt(args) -> None:
+    """Order flow, Phase 9: the mechanical backtester (Models A and B), or your manual trades against it."""
+    from .mechanical import config as mconfig
+
+    config = mconfig.load(args.config, args.set)
+    if args.name:
+        config["name"] = args.name
+    if args.date_from:
+        config["from"] = args.date_from
+    if args.date_to:
+        config["to"] = args.date_to
+    if args.action == "run":
+        from .mechanical.report import run
+
+        summary = run(config, args.pairs)
+        if summary["trades"]:
+            print(f"{summary['trades']} trades, win rate {summary['win_rate']:.1%}, expectancy {summary['expectancy_r']:+.3f}R "
+                  f"after costs, profit factor {summary['profit_factor']:.2f}, max drawdown {summary['max_drawdown_percent']:.2f}%")
+        else:
+            print("No trades.")
+        print(f"Files in {summary['folder']}")
+    else:
+        from .mechanical.compare import compare
+
+        result = compare(args.strategy, config)
+        print(result["text"])
+
+
 def cmd_ticks(args) -> None:
     """Order flow, Phase 1: download FundedNext's bid/ask ticks through MT5 (cached per server day)."""
     from datetime import date
@@ -202,6 +230,17 @@ def build_parser() -> argparse.ArgumentParser:
     flow.add_argument("action", choices=["build"])
     flow.add_argument("symbols", nargs="+", help="e.g. EURUSD XAUUSD")
     flow.set_defaults(func=cmd_flow)
+
+    mbt = sub.add_parser("mbt", help="order flow: the mechanical backtester (Models A and B), or your trades against it")
+    mbt.add_argument("action", choices=["run", "compare"])
+    mbt.add_argument("strategy", nargs="?", help="compare: the strategy folder whose saved sessions to check")
+    mbt.add_argument("--config", default="configs/mechanical.yaml")
+    mbt.add_argument("--set", action="append", default=[], help="override one setting, e.g. --set model_a.leg_atr=2.5")
+    mbt.add_argument("--name", help="the run's name (its output folder)")
+    mbt.add_argument("--pairs", nargs="+")
+    mbt.add_argument("--from", dest="date_from")
+    mbt.add_argument("--to", dest="date_to")
+    mbt.set_defaults(func=cmd_mbt)
 
     for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv"),
                         ("orderflow", "orderflow_log.csv, OrderFlow_Backtest_Log.xlsx")):

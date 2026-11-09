@@ -1756,3 +1756,52 @@ python -m forex_replay orderflow <strategy>
 
 **Tests:** 179 Python and 226 JavaScript, all passing.
 - **My test was wrong once:** it forgot that Tokyo opens at 00:00 UTC.
+
+## 9 Nov 2026: order flow, Phase 9 (mechanical backtester), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "yes do the cleanup first, then phase 9".
+- **Models A and B** with every parameter in a YAML file.
+- **Trades** in the Phase 8 log format.
+- **A summary:** trades, win rate, expectancy after costs, profit factor, max drawdown at 0.5% risk, longest losing streak, results by pair, session, model and tag, and the rejection → POC rate.
+- **Management and limits** as the brief lists them.
+- **A mode that checks your manual trades against the rules.**
+
+**Built (Claude):**
+- **The package `forex_replay/mechanical/`:**
+  - `config.py`: defaults, the YAML, `--set`
+  - `engine.py`: Models A and B, management and limits, on `broker.py` and the Phase 2–7 definitions
+  - `report.py`: files and the summary, through `oflog.trade_row` and `stats.py`
+  - `compare.py`: your trades against the rules
+- **`configs/mechanical.yaml`** (every number) and **`configs/news.csv`** (empty: yours to fill).
+- **The command:** `python -m forex_replay mbt run|compare`. Output goes to `mechanical_output/` (gitignored).
+- **`profile.server_day`** now remembers each hour's answer: the same results, twice as fast.
+- See [decision 0041](decisions/0041-mechanical-backtester.md).
+
+**Tests:** 9 new Python tests (188 in total); JavaScript unchanged (226).
+- **A made-up market where Model A must trade:**
+  - the trigger, the stop under the zone
+  - breakeven at +1R to entry + costs, stopped at 0.00R after costs
+  - the same decision with later data cut away
+- **Limits, news, settings,** and the comparison (same, different, yours only).
+- **Broken on purpose:** breakeven without costs, and a stop ignoring the zone; each caught.
+
+**Run on real data (baseline settings):**
+- **EURUSD,** 28 Aug 2025 to 14 Oct 2026:
+  - 4 trades, all losses or breakeven: −3.26R after costs, 1.60% drawdown
+  - 756 setups or triggers turned down, with reasons; the four trigger rules together are rarely met (decision 0041 has the counts)
+- **XAUUSD:** no trades in its month of usable history.
+- **Rejections:** 567 of 942 (60%) reached the prior POC.
+- **Comparison on "marco"** (read only): 37 of your trades and 1 trade only the rules took, each with a reason.
+
+**Found along the way:**
+- **The log's LVN differed from the engine's:** the saved profile ran on past the setup. It now ends where the engine read it.
+- **Finding the trading day was slow,** and is now remembered per hour.
+- **Three mistakes in my made-up market;** the engine was right each time.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_mechanical.py
+python -m forex_replay mbt run --name baseline
+python -m forex_replay mbt run --name loose --set trigger.min_rvol=1.2
+```

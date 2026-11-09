@@ -23,6 +23,8 @@ in points), and the bin size is in the same units.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 
 def build_profile(lows, highs, volumes, bin_size: int, value_area: float = 0.70, smoothing: int = 3, lvn: float = 0.35) -> dict | None:
     """lows, highs: whole-number prices; volumes: each bar's tick count; bin_size in the same price units."""
@@ -129,11 +131,17 @@ def price_bin(price: float, digits: int) -> int:
 
 # ---------------------------------------------------------------- days: the prior day's levels and naked POCs
 def server_day(t: int) -> int:
-    """The broker-server date of a UTC second, as a day number: a trading day runs from 17:00 New York."""
+    """The broker-server date of a UTC second, as a day number: a trading day runs from 17:00 New York.
+    A trading day always changes on a whole UTC hour, so the answer is worked out once per hour and remembered."""
+    return _server_day_of_hour(int(t) // 3600)
+
+
+@lru_cache(maxsize=200_000)
+def _server_day_of_hour(hour: int) -> int:
     from .flow import trading_day_and_slot
     import numpy as np
 
-    day, _ = trading_day_and_slot(np.array([t]), 60)
+    day, _ = trading_day_and_slot(np.array([hour * 3600]), 60)
     return int(day[0].astype("int64"))
 
 
