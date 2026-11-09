@@ -8,6 +8,7 @@
 // works out what to draw (`layout`) and what is under the mouse (`hit`), so both can
 // be tested without a browser. drawinglayer.js does the actual painting and mouse work.
 
+import { cleanProfileSettings, profileLayout } from "./profiletool.js";
 import { indexAtOrBefore } from "./timeframes.js";
 
 export const STORAGE_PREFIX = "forexreplay.drawings.";
@@ -49,6 +50,9 @@ export const TOOLS = Object.freeze({
   long: { clicks: 1, label: "Long position", styled: false },
   short: { clicks: 1, label: "Short position", styled: false },
   text: { clicks: 1, label: "Text", styled: true },
+  // Volume profiles (order flow, Phase 3; profiletool.js): a fixed time range, or anchored and growing to now.
+  vprofile: { clicks: 2, label: "Fixed range profile", styled: false },
+  aprofile: { clicks: 1, label: "Anchored profile", styled: false },
 });
 
 /** Colours a drawing may have (the first is the default), and its line styles. */
@@ -56,7 +60,8 @@ export const PALETTE = ["#2962ff", "#26a69a", "#ef5350", "#f5a623", "#ab47bc", "
 export const LINE_STYLES = ["solid", "dashed", "dotted"];
 export const MAX_TEXT = 200;
 
-const ONE_POINT = new Set(["hline", "hray", "vline", "text"]);
+const ONE_POINT = new Set(["hline", "hray", "vline", "text", "aprofile"]);
+const isProfile = (type) => type === "vprofile" || type === "aprofile";
 const isPosition = (type) => type === "long" || type === "short";
 const whole = (value) => Number.isInteger(value);
 
@@ -126,6 +131,7 @@ export function logicalToTime(candles, tfSeconds, logical) {
 export function createDrawing(type, point, defaults) {
   const p = { time: point.time, price: point.price };
   if (type === "text") return { type, points: [p], text: "" };
+  if (isProfile(type)) return { type, points: type === "aprofile" ? [p] : [p, { ...p }], profile: { ...defaults.profile } };
   if (ONE_POINT.has(type)) return { type, points: [p] };
   if (isPosition(type)) {
     const direction = type === "long" ? 1 : -1;
@@ -227,6 +233,7 @@ export function positionStats(d) {
  * Colours are not decided here: painting uses the drawing's own colour for the roles "line", "fill" and "text".
  */
 export function layout(d, proj) {
+  if (isProfile(d.type)) return profileLayout(d, proj, proj.profile ? proj.profile(d) : null);
   const out = { lines: [], boxes: [], labels: [], handles: [] };
   const X = (time) => proj.x(time), Y = (price) => proj.y(price);
   const box = (xa, ya, xb, yb, role) => out.boxes.push({
@@ -388,6 +395,7 @@ export function cleanDrawing(raw) {
     if (levels) d.levels = levels;
     if (raw.ote === false) d.ote = false;
   }
+  if (isProfile(raw.type)) d.profile = cleanProfileSettings(raw.profile);
   if (isPosition(raw.type)) {
     const direction = raw.type === "long" ? 1 : -1;
     const entry = points[0].price;

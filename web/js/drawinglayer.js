@@ -61,8 +61,10 @@ export class DrawingLayer {
    *   onSelect(drawing | null), onToolChange(tool | null), editor: <input> for text notes,
    *   styleDefaults: { tool: { color, style } } for new drawings, onStyleDefaults(map) when they change }
    */
-  constructor(view, { store, pipPoints, note, onSelect, onToolChange, editor, styleDefaults = {}, onStyleDefaults }) {
+  constructor(view, { store, pipPoints, note, onSelect, onToolChange, editor, styleDefaults = {}, onStyleDefaults, profiler, profileDefaults }) {
     this.view = view;
+    this.profiler = profiler || null; // (drawing, tfSeconds) -> { start, end, profile } for a volume profile (profiletool.js)
+    this.profileDefaults = profileDefaults || null; // () -> settings for a new profile
     this.store = store;
     this.pipPoints = pipPoints;
     this.note = note || (() => "");
@@ -129,6 +131,7 @@ export class DrawingLayer {
       pips: (points) => points / this.pipPoints,
       textWidth: (text) => this.measure.measureText(text).width,
       note: this.note,
+      profile: (d) => (this.profiler ? this.profiler(d, this.tfSeconds) : null),
     };
   }
 
@@ -160,6 +163,16 @@ export class DrawingLayer {
 
   setMagnet(on) {
     this.magnet = !!on;
+  }
+
+  /** Change the selected volume profile's settings (bin, value area, colours...). */
+  setProfileSettings(profile) {
+    const d = this.selected;
+    if (!d || !d.profile) return false;
+    const { id, ...rest } = d;
+    this.store.update(id, { ...rest, profile });
+    this.onSelect(this.selected);
+    return true;
   }
 
   /** Change the colour or line style of the selected drawing; new drawings of that tool get it too. */
@@ -297,6 +310,7 @@ export class DrawingLayer {
         this.draft = {
           ...createDrawing(this.tool, at, {
             pipPoints: this.pipPoints,
+            profile: this.profileDefaults ? this.profileDefaults() : null,
             barsAhead: (time, bars) => logicalToTime(v.candles, this.tfSeconds, timeToLogical(v.candles, this.tfSeconds, time) + bars),
           }),
           ...(TOOLS[this.tool].styled ? this.styleDefaults[this.tool] : {}),
@@ -425,7 +439,7 @@ export class DrawingLayer {
       const active = d.id === this.selectedId || d.id === "draft";
       const shape = layout(d, proj);
       for (const b of shape.boxes) {
-        ctx.fillStyle = styleFor(b.role, d).fill;
+        ctx.fillStyle = b.colour || styleFor(b.role, d).fill; // a profile's pieces carry their own colours
         ctx.fillRect(b.x, b.y, b.w, b.h);
       }
       if (d.type === "text" && active) { // a selected note gets a faint frame so you can see what is selected
@@ -435,9 +449,9 @@ export class DrawingLayer {
         ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w, b.h);
       }
       for (const l of shape.lines) {
-        const style = styleFor(l.role, d);
+        const style = l.colour ? { stroke: l.colour, width: l.width || 1, dash: l.dash } : styleFor(l.role, d);
         ctx.strokeStyle = style.stroke;
-        ctx.lineWidth = style.width + (active && l.role === "line" ? 0.5 : 0);
+        ctx.lineWidth = style.width + (active && (l.role === "line" || l.colour) ? 0.5 : 0);
         ctx.setLineDash(style.dash || []);
         ctx.beginPath();
         ctx.moveTo(l.x1, l.y1);
@@ -452,7 +466,7 @@ export class DrawingLayer {
           if (lastLevelY !== null && Math.abs(t.y - lastLevelY) < 12) continue;
           lastLevelY = t.y;
         }
-        const style = styleFor(t.role, d);
+        const style = t.colour ? { text: t.colour } : styleFor(t.role, d);
         ctx.fillStyle = style.text || style.stroke;
         ctx.textAlign = t.align;
         ctx.font = t.role === "note" ? NOTE_FONT : FONT;

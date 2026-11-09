@@ -31,6 +31,7 @@
     <button class="plain toggle" id="sessions-toggle" title="Show or hide session shading (M5 to H1)">Sessions</button>
     <button class="plain" id="sessions-settings" title="Session settings: names, timezones, hours, colours" aria-label="Session settings">&#9881;</button>
     <button class="plain toggle" id="indicators-open" title="Indicators: SMA, EMA, VWAP and RSI">Indicators</button>
+    <button class="plain toggle" id="flow-open" title="Order flow: volume profile settings, the prior day's levels and naked POCs">Order flow</button>
     <button class="plain toggle" id="layout-toggle" title="Two charts side by side, on the same replay clock">&#9707; 2 charts</button>
     <div class="spacer"></div>
     <div class="clock" id="clock"></div>
@@ -80,6 +81,10 @@
       <svg viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="5"/><rect x="5" y="11" width="14" height="9"/><path d="M12 13v4.5M10 15.5l2 2 2-2"/></svg></button>
     <button data-tool="text" title="Text note: click where it goes, type, press Enter. Double-click a note to change it (Alt + N)">
       <svg viewBox="0 0 24 24"><path d="M6 6h12M12 6v13M9.5 19h5"/></svg></button>
+    <button data-tool="vprofile" title="Fixed range volume profile: click the start candle, then the end candle (Alt + P)">
+      <svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M4 6h6M4 9h10M4 12h14M4 15h8M4 18h4"/></svg></button>
+    <button data-tool="aprofile" title="Anchored volume profile: click the start; it grows with the replay (Alt + A)">
+      <svg viewBox="0 0 24 24"><path d="M4 4v16M4 7h5M4 10h9M4 13h12M4 16h7M18 12h3M19.5 10.5l1.5 1.5-1.5 1.5"/></svg></button>
     <span class="tools-gap"></span>
     <button id="magnet" title="Magnet: a point near a candle's open, high, low or close jumps onto it (Alt + M). Hold Ctrl to flip it for one move">
       <svg viewBox="0 0 24 24"><path d="M6 4v8a6 6 0 0 0 12 0V4M6 8h3M15 8h3M9 4v8a3 3 0 0 0 6 0V4"/></svg></button>
@@ -111,6 +116,7 @@
         </span>
         <button class="plain small" id="draw-edit-text" title="Change the text (or double-click the note)" hidden>Edit text</button>
         <button class="plain small" id="draw-fib-levels" title="Choose this Fibonacci's levels" hidden>Levels</button>
+        <button class="plain small" id="draw-profile" title="This profile's bin size, value area, LVN level, colours and more" hidden>Profile settings</button>
         <span class="draw-levels" id="draw-levels" hidden>
           <label title="Stop loss price: type it, then Enter">SL <input id="draw-stop" inputmode="decimal" autocomplete="off"></label>
           <label title="Take profit price: type it, then Enter">TP <input id="draw-target" inputmode="decimal" autocomplete="off"></label>
@@ -495,6 +501,32 @@
       <button type="button" class="plain bordered" id="fib-cancel">Cancel</button>
       <button type="button" class="primary" id="fib-apply">Apply</button>
     </div>
+  </dialog>
+
+  <dialog id="flow-dialog" class="dialog flow-dialog">
+    <h2 id="flow-title">Order flow</h2>
+    <p class="muted" id="flow-lead">Volume profiles are built from the order-flow bars (ticks, counted per M1 bar or 15-second bucket), never from the
+      candles on screen, and only from bars that had closed by the replay's cursor.</p>
+    <table class="grid indicator-table flow-table"><tbody>
+      <tr><td>Built from</td><td><select id="flow-source"><option value="M1">1-minute bars</option><option value="S15">15-second buckets</option></select></td></tr>
+      <tr><td>Bin size</td><td><input type="number" id="flow-bin" min="0" step="any"> <span class="muted" id="flow-bin-note"></span></td></tr>
+      <tr><td>Value area</td><td><input type="number" id="flow-va" min="10" max="99" step="1"> %</td></tr>
+      <tr><td>LVN below</td><td><input type="number" id="flow-lvn" min="1" max="95" step="1"> % of the POC (smoothed)</td></tr>
+      <tr><td>Smoothing</td><td><select id="flow-smoothing"><option value="1">none</option><option value="3">3 bins</option><option value="5">5 bins</option><option value="7">7 bins</option></select></td></tr>
+      <tr><td>Histogram</td><td><input type="number" id="flow-width" min="5" max="100" step="5"> % of the range wide, on the
+        <select id="flow-side"><option value="left">left</option><option value="right">right</option></select></td></tr>
+      <tr><td>Lines</td><td><label class="check inline-check"><input type="checkbox" id="flow-extend"> extend POC, VAH and VAL to the right</label></td></tr>
+      <tr><td>Colours</td><td>bars <input type="color" id="flow-colour"> POC <input type="color" id="flow-poc-colour"></td></tr>
+    </tbody></table>
+    <section id="flow-auto">
+      <h3 class="ind-group">Drawn for you</h3>
+      <label class="check"><input type="checkbox" id="flow-prior"> The prior trading day's POC, VAH and VAL across the current day</label>
+      <label class="check"><input type="checkbox" id="flow-naked"> Naked POCs of the last <input type="number" id="flow-naked-days" min="1" max="30" step="1" style="width:56px"> days, until price touches them</label>
+      <p class="muted small">A trading day runs from 17:00 New York. These use the settings above and the 1-minute bars.</p>
+    </section>
+    <div class="dialog-actions"><span class="muted small" id="flow-message"></span><span class="spacer"></span>
+      <button type="button" class="plain bordered" id="flow-close">Close</button>
+      <button type="button" class="primary" id="flow-save">Save</button></div>
   </dialog>
 
   <dialog id="shortcuts-dialog" class="dialog">

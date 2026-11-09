@@ -28,9 +28,12 @@ import { OrderType } from "./broker.js";
 import { ReplayClock, SPEEDS } from "./replay.js";
 import { loadSavedSessions, renderSessionKey, setupSessionSettings } from "./sessionsettings.js";
 import { formatDate, formatDateTime, IST_OFFSET_SECONDS } from "./time.js";
-import { hourlyBase, indexAtOrBefore, timeframe as timeframeOf, TIMEFRAMES, TimeframeView } from "./timeframes.js";
+import { hourlyBase, indexAtOrBefore, serverDate, timeframe as timeframeOf, TIMEFRAMES, TimeframeView } from "./timeframes.js";
 import { InvalidOrder, Side, Status, Trading } from "./trading.js";
 import { TradingPanel } from "./tradingpanel.js";
+import { loadFlow } from "./flowdata.js";
+import { dayLevels, priceBin, profileFromBars } from "./profile.js";
+import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, ProfileLevels, profileWindow, STORAGE_KEY as KEY_FLOW } from "./profiletool.js";
 
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
@@ -510,12 +513,85 @@ async function boot() {
   }
 
   // One drawing layer per chart, all on the same drawings, acting as one (see layergroup.js).
+  // ------------------------------------------------------------ order flow: volume profiles (Phase 3)
+  // The order-flow bars (forex_replay/flow.py) load the first time a profile needs them. A profile is built
+  // from them inside its own time window, never from the candles on screen, and only from bars that had
+  // closed at the replay's cursor (profile.js); its right edge stops at the cursor (profiletool.js).
+  let flowSettings = cleanFlowSettings((() => { try { return JSON.parse(recall(KEY_FLOW, "null")); } catch { return null; } })());
+  const flowData = {}; // "M1" / "S15" -> { bars, seconds, manifest } | null (not built for this pair) | undefined (not loaded)
+  const flowLoading = {};
+  const levelLayers = [];
+  const profileCache = new Map();
+  const levelsCache = new Map();
+  // The instrument's own default bin, in price, before its order-flow manifest has loaded (forex_replay/flow.INSTRUMENTS).
+  const instrumentBin = () => (flowData.M1 && flowData.M1.manifest.instrument.bin) || { EURUSD: 0.0001, XAUUSD: 0.5 }[manifest.symbol]
+    || manifest.pip_points / 10 ** manifest.digits;
+  const redrawProfiles = () => { layer.redraw(); for (const l of levelLayers) l.redraw(); };
+  function ensureFlow(dataset) {
+    if (flowData[dataset] !== undefined || flowLoading[dataset]) return;
+    flowLoading[dataset] = loadFlow(manifest.symbol, dataset).then((r) => {
+      flowData[dataset] = r ? { bars: r.bars, manifest: r.manifest, seconds: r.manifest.datasets[dataset].seconds } : null;
+    }).catch(() => { flowData[dataset] = null; }).finally(() => { flowLoading[dataset] = null; redrawProfiles(); });
+  }
+  /** The replay's cursor: the close of the last revealed base candle; outside a replay, the close of the last
+   *  candle there is (the order-flow files can run on past the candles, as gold's do). */
+  const flowCursor = () => m5.time[(clock.active ? clock.position : m5.length) - 1] + manifest.bar_seconds;
+  function profiler(d, tfSeconds) {
+    const s = d.profile;
+    const f = flowData[s.source];
+    if (f === undefined) { ensureFlow(s.source); return { message: "Profile: loading the order-flow bars…" }; }
+    if (!f) return { message: `Profile: no order-flow data for ${manifest.symbol} (python -m forex_replay flow build ${manifest.symbol})` };
+    const lastTime = f.bars.time[f.bars.length - 1] + f.seconds;
+    const w = profileWindow(d, tfSeconds, lastTime);
+    const cursor = flowCursor();
+    const end = Math.min(w.end, cursor, lastTime); // never past the cursor
+    if (end <= w.start) return { message: "Profile: starts after the replay's cursor" };
+    const bin = Math.max(1, priceBin(s.bin || instrumentBin(), manifest.digits));
+    const key = JSON.stringify([s, w.start, w.end, cursor, bin]);
+    if (!profileCache.has(key)) {
+      if (profileCache.size > 300) profileCache.clear();
+      profileCache.set(key, profileFromBars(f.bars, f.seconds, w.start, w.end, bin, cursor, { valueArea: s.valueArea, smoothing: s.smoothing, lvn: s.lvn }));
+    }
+    const profile = profileCache.get(key);
+    return profile ? { start: w.start, end, profile } : { message: "Profile: no order-flow bars in this range" };
+  }
+  /** The prior day's levels and naked POCs for ProfileLevels, worked out once per cursor position. */
+  let levelsMemo = { key: null, value: null };
+  function levelsInfo() {
+    if (!flowSettings.priorDay && !flowSettings.naked) return null;
+    const f = flowData.M1;
+    if (f === undefined) { ensureFlow("M1"); return null; }
+    if (!f) return null;
+    const lastTime = f.bars.time[f.bars.length - 1] + f.seconds;
+    const cursor = Math.min(flowCursor(), lastTime);
+    const s = flowSettings.defaults;
+    const bin = Math.max(1, priceBin(flowSettings.bins[manifest.symbol] || instrumentBin(), manifest.digits));
+    const key = JSON.stringify([cursor, s, bin, flowSettings.priorDay, flowSettings.naked, flowSettings.nakedDays]);
+    if (levelsMemo.key !== key) {
+      // Only the last few weeks matter: start at a trading-day boundary that many days back, so the first day is whole.
+      const from = cursor - (flowSettings.nakedDays + 10) * 86400;
+      let a = 0, b = f.bars.length;
+      while (a < b) { const mid = (a + b) >> 1; if (f.bars.time[mid] < from) a = mid + 1; else b = mid; }
+      const firstDay = a < f.bars.length ? serverDate(f.bars.time[a]) : 0;
+      while (a < f.bars.length && serverDate(f.bars.time[a]) === firstDay && a > 0) a++;
+      const part = { length: f.bars.length - a };
+      for (const name of ["time", "low", "high", "tick_count"]) part[name] = f.bars[name].subarray(a);
+      const levels = dayLevels(part, f.seconds, cursor, bin, flowSettings.naked ? flowSettings.nakedDays : 0,
+        { valueArea: s.valueArea, smoothing: s.smoothing, lvn: s.lvn }, levelsCache);
+      if (!flowSettings.priorDay) levels.prior = null;
+      levelsMemo = { key, value: { levels, cursor } };
+    }
+    return levelsMemo.value;
+  }
+
   const addLayer = (paneChart) => {
     const cb = layer.callbacks();
+    levelLayers.push(new ProfileLevels(paneChart, levelsInfo));
     const l = new DrawingLayer(paneChart, {
       store: drawings, pipPoints: manifest.pip_points, note: positionNote, editor: $("text-editor"),
       styleDefaults, onStyleDefaults: (map) => remember(KEY_DRAW_STYLES, JSON.stringify(map)),
       onSelect: cb.onSelect, onToolChange: cb.onToolChange,
+      profiler, profileDefaults: () => { ensureFlow("M1"); return newProfileSettings(flowSettings, manifest.symbol, instrumentBin()); },
     });
     cb.bind(l);
     return layer.add(l);
@@ -547,6 +623,7 @@ async function boot() {
       drawBar.styles.hidden = !styled || d.type === "text";
       drawBar.editText.hidden = d.type !== "text";
       drawBar.fibLevels.hidden = d.type !== "fib";
+      $("draw-profile").hidden = !d.profile;
       drawBar.colours.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.colour === (d.color || PALETTE[0])));
       drawBar.styles.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lineStyle === (d.style || "solid")));
     },
@@ -893,6 +970,64 @@ async function boot() {
   });
   for (const s of SESSION_OPENS) $(`jump-${s.id === "asia" ? "tokyo" : s.id}`).addEventListener("click", () => jumpTo(s.jump, `the ${s.label} open`));
 
+  // ------------------------------------------------------------ order flow settings (Phase 3)
+  // One dialog, two uses: from the toolbar it sets the defaults for new profiles, this pair's bin and the
+  // levels drawn for you; from a selected profile's "Profile settings" it changes that profile only.
+  const flowDialog = $("flow-dialog");
+  let flowEditing = null; // the selected profile drawing being edited, or null for the defaults
+  const percent = (v) => Math.round(v * 100);
+  function openFlowDialog(drawing) {
+    flowEditing = drawing || null;
+    const s = flowEditing ? flowEditing.profile : { ...flowSettings.defaults, bin: flowSettings.bins[manifest.symbol] ?? instrumentBin() };
+    $("flow-title").textContent = flowEditing ? "Profile settings" : "Order flow";
+    $("flow-auto").hidden = !!flowEditing;
+    $("flow-source").value = s.source;
+    $("flow-bin").value = s.bin ?? instrumentBin();
+    $("flow-bin").step = String(1 / 10 ** manifest.digits);
+    $("flow-bin-note").textContent = flowEditing ? "this profile" : `for ${manifest.symbol} (its default: ${instrumentBin()})`;
+    $("flow-va").value = percent(s.valueArea);
+    $("flow-lvn").value = percent(s.lvn);
+    $("flow-smoothing").value = String(s.smoothing);
+    $("flow-width").value = percent(s.width);
+    $("flow-side").value = s.side;
+    $("flow-extend").checked = s.extend;
+    $("flow-colour").value = s.colour;
+    $("flow-poc-colour").value = s.pocColour;
+    $("flow-prior").checked = flowSettings.priorDay;
+    $("flow-naked").checked = flowSettings.naked;
+    $("flow-naked-days").value = flowSettings.nakedDays;
+    $("flow-message").textContent = "";
+    flowDialog.showModal();
+  }
+  function readFlowForm() {
+    return cleanProfileSettings({
+      source: $("flow-source").value, bin: $("flow-bin").value, valueArea: Number($("flow-va").value) / 100,
+      lvn: Number($("flow-lvn").value) / 100, smoothing: Number($("flow-smoothing").value), width: Number($("flow-width").value) / 100,
+      side: $("flow-side").value, extend: $("flow-extend").checked, colour: $("flow-colour").value, pocColour: $("flow-poc-colour").value,
+    });
+  }
+  $("flow-open").addEventListener("click", () => openFlowDialog(null));
+  $("draw-profile").addEventListener("click", () => { if (layer.selected && layer.selected.profile) openFlowDialog(layer.selected); });
+  $("flow-close").addEventListener("click", () => flowDialog.close());
+  $("flow-save").addEventListener("click", () => {
+    const s = readFlowForm();
+    if (flowEditing) {
+      layer.setProfileSettings(s);
+    } else {
+      flowSettings = cleanFlowSettings({
+        ...flowSettings, defaults: s, bins: { ...flowSettings.bins, [manifest.symbol]: s.bin },
+        priorDay: $("flow-prior").checked, naked: $("flow-naked").checked, nakedDays: Number($("flow-naked-days").value),
+      });
+      remember(KEY_FLOW, JSON.stringify(flowSettings));
+      $("flow-open").classList.toggle("active", flowSettings.priorDay || flowSettings.naked);
+      if (flowSettings.priorDay || flowSettings.naked) ensureFlow("M1");
+    }
+    flowDialog.close();
+    redrawProfiles();
+  });
+  $("flow-open").classList.toggle("active", flowSettings.priorDay || flowSettings.naked);
+  if (flowSettings.priorDay || flowSettings.naked) ensureFlow("M1");
+
   // ------------------------------------------------------------ indicators
   const indicatorsDialog = $("indicators-dialog");
   const indicatorsButton = $("indicators-open");
@@ -1042,6 +1177,7 @@ async function boot() {
     ui.clock.classList.toggle("history", behind > 0);
   }
 
+  clock.onChange(() => redrawProfiles()); // anchored profiles grow, and the day levels move, with the replay
   clock.onChange((_, reason) => {
     if (reason === "start" && !resuming) { // a new replay is a new run: no trades carried over
       trading.reset();

@@ -112,13 +112,13 @@ def test_quality_finds_gaps_zero_tick_minutes_weekends_and_spread_spikes():
     t0 = int(pd.Timestamp("2025-08-05 13:00", tz="UTC").value // 10**9)
     times = [t0, t0 + 60, t0 + 120, t0 + 60 * 10, t0 + 60 * 11]  # 7 minutes missing: one gap
     times += [t0 + 4 * 86400]  # the weekend
-    spreads = [10, 10, 10, 10, 80, 10]  # 8.0 points against a median of 1.0
+    spreads = [10, 10, 10, 10, 800, 60]  # 80 points against a median of 1 point, counted as 1 pip (10 points): 5 x 10 = 50
     m1 = pd.DataFrame({"time": times, "spread_x10": spreads})
-    q = flow.quality(m1)
+    q = flow.quality(m1, pip_points=10)
     assert [g["minutes"] for g in q["gaps"]] == [7]
     assert q["zero_tick_minutes"] == 7
     assert q["weekend_closes"] == 1
-    assert [s["spread_points"] for s in q["spread_spikes"]] == [8.0]
+    assert [s["spread_points"] for s in q["spread_spikes"]] == [80.0]  # 6 points is half a pip: not a spike
 
 
 def write_day(root: Path, symbol: str, day: str, rows) -> None:

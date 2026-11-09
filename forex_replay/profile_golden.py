@@ -12,7 +12,7 @@ import random
 from pathlib import Path
 
 from .config import PROJECT_ROOT
-from .profile import build_profile
+from .profile import build_profile, day_levels
 
 FIXTURE = PROJECT_ROOT / "web" / "tests" / "fixtures" / "profile_golden.json"
 SEED = 20261109
@@ -49,7 +49,33 @@ def build(seed: int = SEED) -> dict:
     ]
     for case in cases:
         case["expected"] = build_profile(case["lows"], case["highs"], case["volumes"], case["bin_size"], **case["settings"])
-    return {"seed": seed, "cases": cases}
+    return {"seed": seed, "cases": cases, "levels": levels_cases(rng)}
+
+
+def levels_cases(rng: random.Random) -> list[dict]:
+    """5-minute bars over 9 calendar days from Mon 3 Nov 2025 (a weekend inside), and the levels at several cursors."""
+    start = 1762207200  # Mon 3 Nov 2025 22:00 UTC: a trading day starts (17:00 New York, winter)
+    time, low, high, ticks = [], [], [], []
+    price = 230_000
+    for k in range(9 * 288):
+        t = start + 300 * k
+        weekday = (k // 288) % 7  # 0 = the Tuesday trading day ... the weekend is days 4-5 (Sat, Sun) after Friday's
+        if weekday in (4, 5):
+            continue
+        price += rng.randint(-30, 30)
+        span = rng.randint(0, 60)
+        time.append(t)
+        low.append(price - span // 2)
+        high.append(price - span // 2 + span)
+        ticks.append(rng.randint(0, 400))
+    bars = {"seconds": 300, "time": time, "low": low, "high": high, "tick_count": ticks}
+    settings = {"value_area": 0.70, "smoothing": 3, "lvn": 0.35}
+    out = []
+    for cursor in (start + 300, start + 86400 + 3600, start + 3 * 86400 + 600, start + 6 * 86400 + 7200, start + 9 * 86400):
+        for days_back in (1, 5):
+            out.append({"bars": bars if not out else None, "cursor": cursor, "bin_size": 20, "days_back": days_back,
+                        "settings": settings, "expected": day_levels(bars, cursor, 20, days_back, **settings)})
+    return out
 
 
 def write_fixture(path: Path = FIXTURE) -> dict:

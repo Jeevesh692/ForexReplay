@@ -1429,3 +1429,54 @@ The step-by-step replay test runs with the range on.
 python -m pytest tests/test_flow.py tests/test_profile.py
 node --test web/tests/profile.test.mjs web/tests/flowdata.test.mjs
 ```
+
+## 9 Nov 2026: order flow, Phase 1 (data) and Phase 3 (profile tools), on the `orderflow` branch
+
+**Asked for (Jeevesh):**
+- "start phase 3 and mt5 is logged in with new account".
+- **Phase 3 of the brief:** a fixed range and an anchored volume profile to draw on the chart, the prior day's POC, VAH and VAL, and naked POCs, every number a setting, and no look-ahead.
+
+**Phase 1, finished:**
+- **The download:** the ticks came down from the new FundedNext demo account (FundedNext-Server 3). EURUSD runs from 1 Aug 2025 and gold only from 25 Aug 2026. Sizes, gaps and spikes are in [decision 0033](decisions/0033-order-flow-data.md).
+- **Spike rule changed (Claude):** a spread spike is now measured against a day's median of at least 1 pip, not 1 point. With 1 point, ordinary EURUSD minutes on days with a near-zero median counted as spikes. All 4,715 EURUSD spikes that remain are at the 16:00 to 18:59 New York rollover.
+
+**Built (Claude), Phase 3:**
+- `web/js/profiletool.js`: the two tools' settings, their drawing (histogram, POC, VAH and VAL, LVN zones), the profile's time window, and `ProfileLevels`, which paints the prior day's levels and naked POCs.
+- `day_levels` (Python) and `dayLevels` (JavaScript), one definition, with 10 golden cases added to `profile_golden.json`.
+- **The drawing tools**, wired in:
+  - `drawings.js`, `drawinglayer.js` and `layergroup.js`, so profiles save, reload, select, move and delete like any drawing
+  - Alt + P and Alt + A in `shortcuts.js`
+- **The Order flow dialog** in `main.js` and `index.html`: defaults, the bin per pair, the automatic levels, and **Profile settings** for one profile.
+- See [decision 0035](decisions/0035-profile-tools.md).
+
+**Tests:** 1 new Python test (137 in total) and 7 new JavaScript tests (200 in total).
+- the day levels against Python's golden answers, and by hand (a naked POC touched only once the touching bar has closed)
+- bars after the cursor make no difference
+- the settings' defaults and refusals
+- profiles saved and reloaded
+- the time window
+- a profile stopping at the cursor and growing with it
+- the drawing's layout
+
+**Checked in the browser:**
+- **EURUSD M15, no replay:** a fixed range profile drew its histogram, the POC in yellow, VAH, VAL and an LVN zone.
+- **EURUSD M15, in a replay from 13 Oct 2026:**
+  - **The anchored profile** ended at the last revealed candle. After stepping on to 18:00 IST its VAH had moved from 1.11900 to 1.11910, and it still ended at the cursor.
+  - **The prior-day lines** started at 02:30 IST (17:00 New York). An nPOC line stopped where price touched it.
+  - **Saved and resumed:** the session file held the profile with its settings, and resuming it drew the profile again.
+- **XAUUSD M15:** a fixed range profile with 0.50 bins and two LVN zones, and the prior-day levels.
+  - **Profile settings:** moving one profile's histogram to the right worked.
+- **Cleaned up:** the test session's folder (`strategies/manual_backtests`, created by the check) was removed with the server stopped, and the Order flow settings were reset.
+
+**Found along the way:**
+- **No cache, no levels:** `dayLevels` called without a cache computed nothing (`cache && cache.get(key)` is `null`, not `undefined`). The app always passes one, so it never showed, but the new test caught it. Fixed.
+- **Gold showed no prior-day levels outside a replay:** its order-flow files run to 9 Nov 2026, past its candles (23 Oct). Outside a replay the cursor is now the chart's last candle.
+
+**Not done:** the README and `docs/plan.md` are left as they are until the order-flow branch is merged.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_profile.py tests/test_flow.py
+node --test web/tests/profiletool.test.mjs web/tests/profile.test.mjs
+```

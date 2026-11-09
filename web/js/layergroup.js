@@ -103,6 +103,13 @@ export class LayerGroup {
     for (const l of this.layers) l.setMagnet(on);
   }
 
+  setProfileSettings(profile) {
+    const l = this.selectedLayer;
+    if (!l || !l.setProfileSettings(profile)) return false;
+    this.redraw(); // the other chart shows the same profile
+    return true;
+  }
+
   restyle(changes) {
     const l = this.selectedLayer;
     if (!l || !l.restyle(changes)) return false;

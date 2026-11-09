@@ -125,3 +125,61 @@ def price_bin(price: float, digits: int) -> int:
     """A bin size given in price (EURUSD 0.0001) -> the order-flow files' units (2 x points)."""
     return int(round(price * 2 * 10 ** digits))
 
+
+
+# ---------------------------------------------------------------- days: the prior day's levels and naked POCs
+def server_day(t: int) -> int:
+    """The broker-server date of a UTC second, as a day number: a trading day runs from 17:00 New York."""
+    from .flow import trading_day_and_slot
+    import numpy as np
+
+    day, _ = trading_day_and_slot(np.array([t]), 60)
+    return int(day[0].astype("int64"))
+
+
+def server_days(times) -> list[int]:
+    """server_day for many times at once."""
+    from .flow import trading_day_and_slot
+    import numpy as np
+
+    if len(times) == 0:
+        return []
+    day, _ = trading_day_and_slot(np.asarray(times, dtype=np.int64), 60)
+    return day.astype("int64").tolist()
+
+
+def day_levels(bars, cursor: int, bin_size: int, days_back: int = 5, **settings) -> dict:
+    """The prior day's POC, VAH and VAL, and the naked POCs of the last `days_back` finished days, at `cursor`.
+
+    Only bars that had closed by the cursor count, and only finished trading days (before the cursor's own day)
+    give levels. Each level's POC is the middle of its POC bin. A naked POC runs from its day's first bar until
+    the first later bar whose low and high reach it (`to` is that bar's open time); untouched, `to` is None
+    (it runs on to the cursor). `bars`: dict of arrays (time, low, high, tick_count) and `seconds`."""
+    seconds = bars["seconds"]
+    closed = [i for i, t in enumerate(bars["time"]) if t + seconds <= cursor]
+    if not closed:
+        return {"day": None, "day_start": None, "prior": None, "naked": []}
+    day_of = server_days([bars["time"][i] for i in closed])  # every bar's trading day, in one go
+    days = {}
+    for i, d in zip(closed, day_of):
+        days.setdefault(d, []).append(i)
+    bar_day = dict(zip(closed, day_of))
+    today = server_day(cursor - 1)
+    finished = sorted(d for d in days if d < today)
+    levels = {}
+    for d in finished[-max(days_back, 1):]:
+        rows = days[d]
+        p = build_profile([bars["low"][i] for i in rows], [bars["high"][i] for i in rows], [bars["tick_count"][i] for i in rows],
+                          bin_size, **settings)
+        if p is None:
+            continue
+        levels[d] = {"day": d, "from": bars["time"][rows[0]], "poc": (p["poc_low"] + p["poc_high"]) / 2, "val": p["val"], "vah": p["vah"]}
+    prior = levels.get(finished[-1]) if finished else None
+    naked = []
+    for d in sorted(levels)[-days_back:] if days_back > 0 else []:
+        level = levels[d]
+        touch = next((bars["time"][i] for i in closed if bar_day[i] > d
+                      and bars["low"][i] <= level["poc"] <= bars["high"][i]), None)
+        naked.append({"day": d, "from": level["from"], "poc": level["poc"], "to": touch})
+    start = bars["time"][days[today][0]] if today in days else None
+    return {"day": today, "day_start": start, "prior": prior, "naked": naked}

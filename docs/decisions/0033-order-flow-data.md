@@ -1,7 +1,7 @@
 # 0033: Order-flow data from ticks (order flow, Phase 1)
 
 - **Date:** 9 Nov 2026
-- **Status:** accepted. The code and tests are done; the data has not been downloaded yet, because MT5 was not logged in
+- **Status:** accepted. Code, tests and the download are done (the download on 9 Nov 2026, from a new FundedNext demo account on FundedNext-Server 3)
 - **Decided by:** Jeevesh Prakash (the order-flow brief, and "FundedNext ticks via MT5"; a new `orderflow` branch; install pyarrow), with Claude on the details below
 
 ## Where the ticks come from
@@ -12,7 +12,7 @@ The brief asked for Dukascopy. Its free feed has answered every request with HTT
 - they are what Phase 10's MT5 indicators will read with `CopyTicks`
 - the package is already installed
 
-**The catch:** how far back FundedNext keeps ticks is not known yet. Forex tick volume there is usually 0, so ticks are counted, not read from the volume field.
+**The catch:** FundedNext keeps a limited tick history, and it differs by symbol (below). Forex tick volume there is usually 0, so ticks are counted, not read from the volume field.
 
 ## The definitions
 
@@ -39,7 +39,7 @@ The brief asked for Dukascopy. Its free feed has answered every request with HTT
 - **Quality report:** `data_flow/<PAIR>_quality.md` and `.json`. It lists:
   - gaps of more than 5 minutes inside the week, marking the 17:00 New York daily break
   - minutes with no ticks
-  - spread spikes, meaning a minute whose average spread is more than 5 × its day's median, with the median taken as at least 1 point
+  - spread spikes, meaning a minute whose average spread is more than 5 × its day's median, with the median taken as at least **1 pip**. **Claude's call, changed after the download:** with a floor of 1 point, EURUSD days whose median spread is close to 0 marked thousands of ordinary minutes as spikes.
 - **Ticks cache:** `data_ticks/<PAIR>/<server day>.parquet`. A rerun fetches only missing days and refreshes the last two. `data_ticks/` and `data_flow/` are gitignored.
 - **Instrument settings:** pip, pip value per lot, bin, bubble and absorption moves, stop buffer, and minimum and maximum stop, from the brief. They are written into each pair's manifest, so the later phases read them as defaults.
 
@@ -47,7 +47,21 @@ The brief asked for Dukascopy. Its free feed has answered every request with HTT
 
 The browser never computes bars; it reads Python's files (`web/js/flowdata.js`). A golden sample (`web/tests/fixtures/flow_golden.*`), written by `python -m forex_replay.flow`, is read back field for field by the JavaScript test. A Python test fails if the sample is out of date.
 
+## What the download found (9 Nov 2026)
+
+- **How far back:**
+  - **EURUSD:** ticks from 1 Aug 2025 (server time), 470,942 M1 bars up to 9 Nov 2026.
+  - **XAUUSD:** ticks only from 25 Aug 2026 (server time), 74,374 M1 bars. Earlier dates return nothing on this server. With 20 days of baseline first, gold's RVOL starts around late September: about 7 usable weeks so far.
+  - **Gold's contract size:** 100 ounces a lot, read from MT5 (`trade_contract_size`).
+- **Sizes:**
+  - **Ticks cache:** EURUSD 293 MB, XAUUSD 256 MB.
+  - **Browser files:** EURUSD 88 MB, XAUUSD 15 MB. The biggest one-month file is 5.0 MB (EURUSD 15-second, Oct 2025).
+- **Quality:**
+  - **Gaps over 5 minutes:** EURUSD 53, 48 of them at the 17:00 New York break; XAUUSD 43, 42 at the break. Gold's other gap is 210 minutes on 7 Sep 2026, from 18:30 UTC.
+  - **Minutes with no ticks:** EURUSD 6,147; XAUUSD 2,730.
+  - **Spread spikes:** EURUSD 4,715, every one of them between 16:00 and 18:59 New York (the rollover). XAUUSD 14, 7 of them in that window; the others are at news times such as 12:30 UTC.
+
 ## Not yet done
 
-- The download itself: it needs MT5 open and logged in.
-- Then: how far the history goes, the real file sizes, and the quality report's findings.
+- More pairs: only EURUSD and XAUUSD so far, as the brief says.
+- About 650 MB of generated data sits inside the OneDrive folder; it is gitignored, but OneDrive still syncs it.

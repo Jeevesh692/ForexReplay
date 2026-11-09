@@ -8,6 +8,8 @@
 //   `lvn` x the smoothed POC volume with heavier bins on both sides.
 // Prices are whole numbers in the order-flow files' units (2 x points); so is the bin size.
 
+import { serverDate } from "./timeframes.js";
+
 export const PROFILE_DEFAULTS = Object.freeze({ valueArea: 0.70, smoothing: 3, lvn: 0.35 });
 
 export function smoothed(values, window) {
@@ -95,9 +97,11 @@ export function buildProfile(lows, highs, volumes, binSize, { valueArea = 0.70, 
 export function profileFromBars(bars, seconds, start, end, binSize, cursor = Infinity, settings = {}) {
   const limit = Math.min(end, cursor - seconds + 1);
   const lows = [], highs = [], volumes = [];
-  for (let i = 0; i < bars.length; i++) {
-    const t = bars.time[i];
-    if (t >= start && t < limit) { lows.push(bars.low[i]); highs.push(bars.high[i]); volumes.push(bars.tick_count[i]); }
+  // Bars are in time order: find the first one at or after `start` by halving, then read only the window.
+  let lo = 0, hi = bars.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (bars.time[mid] < start) lo = mid + 1; else hi = mid; }
+  for (let i = lo; i < bars.length && bars.time[i] < limit; i++) {
+    lows.push(bars.low[i]); highs.push(bars.high[i]); volumes.push(bars.tick_count[i]);
   }
   return lows.length ? buildProfile(lows, highs, volumes, binSize, settings) : null;
 }
@@ -105,4 +109,50 @@ export function profileFromBars(bars, seconds, start, end, binSize, cursor = Inf
 /** A bin size in price (EURUSD 0.0001, gold 0.50) -> the order-flow files' units (2 x points). */
 export function priceBin(price, digits) {
   return Math.round(price * 2 * 10 ** digits);
+}
+
+/**
+ * The prior day's POC, VAH and VAL, and the naked POCs of the last `daysBack` finished trading days, at
+ * `cursor` (UTC seconds), as forex_replay/profile.day_levels: only bars closed by the cursor, only finished
+ * days (a trading day runs from 17:00 New York). A POC is the middle of its POC bin. A naked POC runs from its
+ * day's first bar until the first later bar whose low and high reach it (`to`), or on to the cursor (`to` null).
+ * `cache` (a Map) may keep finished days' profiles between calls: they cannot change.
+ */
+export function dayLevels(bars, seconds, cursor, binSize, daysBack = 5, settings = {}, cache = null) {
+  const days = new Map();
+  let last = -1;
+  for (let i = 0; i < bars.length && bars.time[i] + seconds <= cursor; i++) {
+    const d = serverDate(bars.time[i]);
+    if (!days.has(d)) days.set(d, []);
+    days.get(d).push(i);
+    last = i;
+  }
+  if (last < 0) return { day: null, day_start: null, prior: null, naked: [] };
+  const today = serverDate(cursor - 1);
+  const finished = [...days.keys()].filter((d) => d < today).sort((a, b) => a - b);
+  const levels = new Map();
+  for (const d of finished.slice(-Math.max(daysBack, 1))) {
+    const key = `${d}|${binSize}|${settings.valueArea}|${settings.smoothing}|${settings.lvn}`;
+    let level = cache ? cache.get(key) : undefined;
+    if (level === undefined) {
+      const rows = days.get(d);
+      const p = buildProfile(rows.map((i) => bars.low[i]), rows.map((i) => bars.high[i]), rows.map((i) => bars.tick_count[i]), binSize, settings);
+      level = p && { day: d, from: bars.time[rows[0]], poc: (p.poc_low + p.poc_high) / 2, val: p.val, vah: p.vah };
+      if (cache) cache.set(key, level);
+    }
+    if (level) levels.set(d, level);
+  }
+  const prior = finished.length ? levels.get(finished.at(-1)) || null : null;
+  const naked = [];
+  if (daysBack > 0) {
+    for (const d of [...levels.keys()].sort((a, b) => a - b).slice(-daysBack)) {
+      const level = levels.get(d);
+      let to = null;
+      for (let i = 0; i <= last; i++) {
+        if (serverDate(bars.time[i]) > d && bars.low[i] <= level.poc && level.poc <= bars.high[i]) { to = bars.time[i]; break; }
+      }
+      naked.push({ day: d, from: level.from, poc: level.poc, to });
+    }
+  }
+  return { day: today, day_start: days.has(today) ? bars.time[days.get(today)[0]] : null, prior, naked };
 }

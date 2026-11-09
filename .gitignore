@@ -36,3 +36,4 @@ _site/
 # Order flow (Phase 1): raw ticks and the backtester copies are rebuilt by python -m forex_replay ticks/flow
 data_ticks/
 data_flow/
+data_flow_download.log

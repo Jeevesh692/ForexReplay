@@ -44,6 +44,7 @@ BASELINE_DAYS = 20
 GAP_MINUTES = 5  # a quiet stretch inside the trading week longer than this is listed as a gap
 SPIKE_MULTIPLE = 5.0  # a minute whose average spread is this many times the day's median is a spike
 FLOW_VERSION = 1
+PIP_POINTS = {"EURUSD": 10, "XAUUSD": 10}  # points in a pip: EURUSD 0.0001, gold $0.10 (decision 0026)
 
 # Every number the later phases start from, per instrument, in PRICE units (Phases 2-9 read these as defaults).
 INSTRUMENTS = {
@@ -138,8 +139,10 @@ def add_baselines(bars: pd.DataFrame, seconds: int, days: int = BASELINE_DAYS) -
 
 
 # ---------------------------------------------------------------- quality
-def quality(m1: pd.DataFrame, gap_minutes: int = GAP_MINUTES, spike_multiple: float = SPIKE_MULTIPLE) -> dict:
-    """Gaps inside the trading week, zero-tick minutes in them, and spread spikes."""
+def quality(m1: pd.DataFrame, gap_minutes: int = GAP_MINUTES, spike_multiple: float = SPIKE_MULTIPLE, pip_points: int = 10) -> dict:
+    """Gaps inside the trading week, zero-tick minutes in them, and spread spikes. A spike is a minute whose
+    average spread is over `spike_multiple` x its day's median, the median taken as at least one pip: on a
+    raw-spread account the median is often 0 or 1 point, and 5 x that flagged a sixth of all minutes."""
     report = {"bars": int(len(m1)), "gaps": [], "zero_tick_minutes": 0, "spread_spikes": [], "weekend_closes": 0}
     if len(m1) < 2:
         return report
@@ -158,7 +161,7 @@ def quality(m1: pd.DataFrame, gap_minutes: int = GAP_MINUTES, spike_multiple: fl
     day, _ = trading_day_and_slot(t, 60)
     spread = m1["spread_x10"].to_numpy() / 10
     frame = pd.DataFrame({"day": day, "spread": spread, "time": t})
-    median = frame.groupby("day")["spread"].transform("median").clip(lower=1)  # at least a point, or 0 spreads spike on anything
+    median = frame.groupby("day")["spread"].transform("median").clip(lower=pip_points)
     for i in np.flatnonzero(spread > spike_multiple * median.to_numpy()):
         report["spread_spikes"].append({"utc": pd.Timestamp(int(t[i]), unit="s", tz="UTC").isoformat(),
                                         "spread_points": round(float(spread[i]), 1), "day_median": round(float(median.iloc[i]), 1)})
@@ -172,7 +175,8 @@ def quality_markdown(symbol: str, report: dict, first: str, last: str) -> str:
              f"- Gaps over {GAP_MINUTES} minutes inside the week: {len(gaps)} "
              f"({sum(g['daily_break'] for g in gaps)} of them at the daily break, 17:00 New York)",
              f"- Minutes with no ticks inside the week: {report['zero_tick_minutes']:,}",
-             f"- Spread spikes (a minute's average spread over {SPIKE_MULTIPLE:g}x its day's median): {len(report['spread_spikes'])}", ""]
+             f"- Spread spikes (a minute's average spread over {SPIKE_MULTIPLE:g}x its day's median, the median taken as at least 1 pip): "
+             f"{len(report['spread_spikes'])}", ""]
     if gaps:
         lines += ["## Longest gaps (not the daily break)", "", "| from (UTC) | minutes |", "|---|---|"]
         for g in sorted((g for g in gaps if not g["daily_break"]), key=lambda g: -g["minutes"])[:20]:
@@ -249,7 +253,7 @@ def build(symbol: str, ticks_root: Path = TICKS_DIR, web_root: Path = WEB_DATA, 
                                       "first": int(bars["time"].iloc[0]), "last": int(bars["time"].iloc[-1])}
         if name == "M1":
             m1 = bars
-    report = quality(m1)
+    report = quality(m1, pip_points=PIP_POINTS[symbol])
     first = pd.Timestamp(int(m1["time"].iloc[0]), unit="s", tz="UTC").isoformat()
     last = pd.Timestamp(int(m1["time"].iloc[-1]), unit="s", tz="UTC").isoformat()
     manifest["quality"] = {"gaps": len(report["gaps"]), "zero_tick_minutes": report["zero_tick_minutes"],

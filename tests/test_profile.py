@@ -5,7 +5,7 @@ import json
 import pytest
 
 from forex_replay import profile_golden
-from forex_replay.profile import build_profile, price_bin, profile_from_bars, smoothed
+from forex_replay.profile import build_profile, day_levels, price_bin, profile_from_bars, server_day, smoothed
 
 
 def one_bin_bars(volumes):
@@ -81,6 +81,27 @@ def test_the_profile_never_reads_a_bar_that_has_not_closed_at_the_cursor():
 def test_bin_sizes_in_price_become_file_units():
     assert price_bin(0.0001, 5) == 20  # 1 pip on EURUSD = 10 points = 20 half-points
     assert price_bin(0.50, 2) == 100  # 50 cents on gold
+
+
+def test_prior_day_levels_and_naked_pocs_by_hand():
+    """Three trading days from Mon 3 Nov 2025 22:00 UTC (17:00 New York, winter), 5-minute bars, bins of 10.
+    Day A trades at 105 (POC bin 100-110, middle 105), day B at 205. On day C the third bar reaches 105."""
+    a = 1762207200
+    b, c = a + 86400, a + 2 * 86400
+    rows = [(a + 300 * k, 105, 105, 10) for k in range(3)] + [(b + 300 * k, 205, 205, 10) for k in range(3)]
+    rows += [(c, 150, 160, 10), (c + 300, 150, 160, 10), (c + 600, 100, 160, 10), (c + 900, 150, 160, 10)]
+    bars = {"seconds": 300, "time": [r[0] for r in rows], "low": [r[1] for r in rows], "high": [r[2] for r in rows],
+            "tick_count": [r[3] for r in rows]}
+    assert server_day(c) == server_day(a) + 2
+    early = day_levels(bars, c + 600, 10)  # two of day C's bars have closed; the touching one has not
+    assert early["day_start"] == c
+    assert early["prior"] == {"day": server_day(b), "from": b, "poc": 205, "val": 200, "vah": 210}
+    assert [(n["poc"], n["to"]) for n in early["naked"]] == [(105, None), (205, None)]
+    late = day_levels(bars, c + 900, 10)  # now it has closed: day A's POC is touched, at that bar's open
+    assert [(n["poc"], n["to"]) for n in late["naked"]] == [(105, c + 600), (205, None)]
+    assert day_levels(bars, c + 900, 10, days_back=1)["naked"] == [{"day": server_day(b), "from": b, "poc": 205, "to": None}]
+    inside_a = day_levels(bars, a + 900, 10)  # during day A: nothing has finished, so no levels at all
+    assert inside_a["prior"] is None and inside_a["naked"] == []
 
 
 def test_the_golden_file_is_what_python_computes_today():
