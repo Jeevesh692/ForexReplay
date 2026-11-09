@@ -177,6 +177,8 @@ class TradeMarkers {
         ctx.lineTo(x - 5, y + (up ? 3 : -3));
         ctx.lineTo(x + 5, y + (up ? 3 : -3));
         ctx.closePath();
+      } else if (m.shape === "square") { // the market state labels (order flow, Phase 4)
+        ctx.rect(x - 3.5, y - 3.5, 7, 7);
       } else {
         ctx.arc(x, y, 4, 0, Math.PI * 2);
       }

@@ -114,6 +114,19 @@ export function timeToLogical(candles, tfSeconds, time) {
   return indexAtOrBefore(candles, time);
 }
 
+/**
+ * The pixel x of a logical position that may fall between candles (a time part-way into a candle past the
+ * last one, such as the replay's cursor). The chart library answers only whole positions there (null for a
+ * fraction, which was drawn at the left edge), so this goes between the two whole ones.
+ */
+export function logicalToX(scale, logical) {
+  const a = Math.floor(logical);
+  const xa = scale.logicalToCoordinate(a);
+  if (logical === a || xa === null) return xa;
+  const xb = scale.logicalToCoordinate(a + 1);
+  return xb === null ? xa : xa + (xb - xa) * (logical - a);
+}
+
 export function logicalToTime(candles, tfSeconds, logical) {
   const n = candles.length;
   const i = Math.round(logical);

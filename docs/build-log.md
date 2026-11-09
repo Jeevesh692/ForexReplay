@@ -1480,3 +1480,50 @@ node --test web/tests/profile.test.mjs web/tests/flowdata.test.mjs
 python -m pytest tests/test_profile.py tests/test_flow.py
 node --test web/tests/profiletool.test.mjs web/tests/profile.test.mjs
 ```
+
+## 9 Nov 2026: order flow, Phase 4 (market state labels), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "start phase 4". The brief:
+- **Accepted** above or below the previous day's value area: 2 consecutive 30-minute closes outside it.
+- **Rejected:** traded outside, then a 30-minute close back inside within 60 minutes, before a second outside close.
+- **Shown** as labels on the chart and in a status box; times and thresholds are settings.
+
+**Built (Claude):**
+- **The definition, twice:** `forex_replay/marketstate.py` and `web/js/marketstate.js`, with `forex_replay/state_golden.py` writing 252 golden cases.
+- **In the app:**
+  - a status box at the bottom right of the chart
+  - "Acc ↑", "Rej ↓" squares on the candles, on any timeframe
+  - a Market state section in the Order flow dialog (on/off, labels, 15/30/60-minute candles, closes for acceptance, the rejection window)
+- **`logicalToX`** in `drawings.js`, the fix below.
+- See [decision 0036](decisions/0036-market-state.md).
+
+**Tests:** 10 new Python tests (146 in total) and 5 new JavaScript tests (205 in total).
+- **Hand examples:** acceptance; a wick rejection; one outside close allowed, two not; the window's edge; the state through a day; only today's bars.
+- **Golden:** JavaScript matches all 252 cases.
+- **No look-ahead:** bars after the cursor, or past an array's length, change nothing.
+- **The fix:** the position between candles.
+
+**Checked:**
+- **On real data:** Python and JavaScript gave the same states and labels at 10 cursors on EURUSD over a year.
+- **In the browser, EURUSD M15 in a replay from 14 Oct 2026, 03:30 IST:**
+  - **03:30:** "Inside value", with VAH 1.12020 and VAL 1.11810.
+  - **06:15:** "Above value" after one close above.
+  - **06:45:** "Accepted above", with "Acc ↑" on the 06:00 candle (the 06:30 close at 1.12034), the same label as Python's.
+- **XAUUSD M15 on 22 Oct 2026:**
+  - **Labels:** Rej ↑ at about 04:30 IST, three Rej ↓ while price chopped around VAL, then Acc ↓ at 09:30.
+  - **The box:** "Accepted below".
+- **Cleaned up:** the settings changed for the check were reset. The replay saved no session (no trade or drawing).
+
+**Found along the way:**
+- **The prior-day lines ended at the chart's left edge outside a replay.** The cursor falls part-way into a candle past the last one, and for such a position the chart library answers null, which was drawn at x = 0. Phase 3's checks happened to land on whole candles. A shared `logicalToX` now works out the position between the two whole candles, for the levels and for all drawings (an anchored profile had the same weakness).
+- **My test was wrong once:** I expected "Inside value" where the rule gives a second rejection, because price went out and back within 60 minutes again. The code was right; the test now says so.
+- **The status box covered the legend** on a narrow window, at the top right and then one row down. It moved to the bottom right, over the volume bars.
+
+**Open for Jeevesh:** price chopping around VAL or VAH gives a rejection label at every return inside. Should only the first on each side be labelled until an acceptance or a new day?
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_marketstate.py
+node --test web/tests/marketstate.test.mjs
+```

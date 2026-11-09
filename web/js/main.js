@@ -34,10 +34,12 @@ import { TradingPanel } from "./tradingpanel.js";
 import { loadFlow } from "./flowdata.js";
 import { dayLevels, priceBin, profileFromBars } from "./profile.js";
 import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, ProfileLevels, profileWindow, STORAGE_KEY as KEY_FLOW } from "./profiletool.js";
+import { cleanStateSettings, eventLabel, marketState, STATE_WORDS } from "./marketstate.js";
 
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
 const KEY_TIMEFRAME = "forexreplay.timeframe";
+const KEY_STATE = "forexreplay.marketstate";
 const KEY_SYMBOL = "forexreplay.symbol";
 const KEY_BASE = "forexreplay.base"; // "M1" (the default) or "H1" for swing replays over the older history
 const KEY_SESSIONS = "forexreplay.sessions";
@@ -343,6 +345,15 @@ async function boot() {
           : { time: view.full.time[i], above: !b.up, colour: b.displacement ? UP : "#787b86", shape: b.up ? "arrowUp" : "arrowDown", text: words });
       }
     }
+    const st = stateSettings.on && stateSettings.labels ? stateInfo() : null;
+    if (st) { // market state labels, on whichever candle of this chart holds the close that made them
+      for (const e of st.events) {
+        const i = indexAtOrBefore(view.full, e.time - 1);
+        if (i < 0 || i >= shown) continue;
+        const bearish = (e.kind === "accepted") === (e.side === "below");
+        markers.push({ time: view.full.time[i], above: e.side === "above", colour: bearish ? DOWN : UP, shape: "square", text: eventLabel(e) });
+      }
+    }
     if (setupRules.on) { // setups on the 4-hour candles closed so far, on whichever candle of this chart holds their close
       let previous = null;
       for (const s of setupFinder().setupsAt(clock.position)) {
@@ -518,6 +529,7 @@ async function boot() {
   // from them inside its own time window, never from the candles on screen, and only from bars that had
   // closed at the replay's cursor (profile.js); its right edge stops at the cursor (profiletool.js).
   let flowSettings = cleanFlowSettings((() => { try { return JSON.parse(recall(KEY_FLOW, "null")); } catch { return null; } })());
+  let stateSettings = cleanStateSettings((() => { try { return JSON.parse(recall(KEY_STATE, "null")); } catch { return null; } })());
   const flowData = {}; // "M1" / "S15" -> { bars, seconds, manifest } | null (not built for this pair) | undefined (not loaded)
   const flowLoading = {};
   const levelLayers = [];
@@ -526,12 +538,12 @@ async function boot() {
   // The instrument's own default bin, in price, before its order-flow manifest has loaded (forex_replay/flow.INSTRUMENTS).
   const instrumentBin = () => (flowData.M1 && flowData.M1.manifest.instrument.bin) || { EURUSD: 0.0001, XAUUSD: 0.5 }[manifest.symbol]
     || manifest.pip_points / 10 ** manifest.digits;
-  const redrawProfiles = () => { layer.redraw(); for (const l of levelLayers) l.redraw(); };
+  const redrawProfiles = () => { layer.redraw(); for (const l of levelLayers) l.redraw(); renderStateBox(); };
   function ensureFlow(dataset) {
     if (flowData[dataset] !== undefined || flowLoading[dataset]) return;
     flowLoading[dataset] = loadFlow(manifest.symbol, dataset).then((r) => {
       flowData[dataset] = r ? { bars: r.bars, manifest: r.manifest, seconds: r.manifest.datasets[dataset].seconds } : null;
-    }).catch(() => { flowData[dataset] = null; }).finally(() => { flowLoading[dataset] = null; redrawProfiles(); });
+    }).catch(() => { flowData[dataset] = null; }).finally(() => { flowLoading[dataset] = null; redrawProfiles(); drawTrades(); });
   }
   /** The replay's cursor: the close of the last revealed base candle; outside a replay, the close of the last
    *  candle there is (the order-flow files can run on past the candles, as gold's do). */
@@ -555,10 +567,10 @@ async function boot() {
     const profile = profileCache.get(key);
     return profile ? { start: w.start, end, profile } : { message: "Profile: no order-flow bars in this range" };
   }
-  /** The prior day's levels and naked POCs for ProfileLevels, worked out once per cursor position. */
+  /** The prior day's levels and naked POCs (for ProfileLevels and the market state), worked out once per cursor position. */
   let levelsMemo = { key: null, value: null };
   function levelsInfo() {
-    if (!flowSettings.priorDay && !flowSettings.naked) return null;
+    if (!flowSettings.priorDay && !flowSettings.naked && !stateSettings.on) return null;
     const f = flowData.M1;
     if (f === undefined) { ensureFlow("M1"); return null; }
     if (!f) return null;
@@ -566,7 +578,7 @@ async function boot() {
     const cursor = Math.min(flowCursor(), lastTime);
     const s = flowSettings.defaults;
     const bin = Math.max(1, priceBin(flowSettings.bins[manifest.symbol] || instrumentBin(), manifest.digits));
-    const key = JSON.stringify([cursor, s, bin, flowSettings.priorDay, flowSettings.naked, flowSettings.nakedDays]);
+    const key = JSON.stringify([cursor, s, bin, flowSettings.naked, flowSettings.nakedDays]);
     if (levelsMemo.key !== key) {
       // Only the last few weeks matter: start at a trading-day boundary that many days back, so the first day is whole.
       const from = cursor - (flowSettings.nakedDays + 10) * 86400;
@@ -578,15 +590,61 @@ async function boot() {
       for (const name of ["time", "low", "high", "tick_count"]) part[name] = f.bars[name].subarray(a);
       const levels = dayLevels(part, f.seconds, cursor, bin, flowSettings.naked ? flowSettings.nakedDays : 0,
         { valueArea: s.valueArea, smoothing: s.smoothing, lvn: s.lvn }, levelsCache);
-      if (!flowSettings.priorDay) levels.prior = null;
       levelsMemo = { key, value: { levels, cursor } };
     }
     return levelsMemo.value;
   }
+  /** What ProfileLevels paints: the prior day's lines and the naked POCs, each only when switched on. */
+  function shownLevels() {
+    if (!flowSettings.priorDay && !flowSettings.naked) return null;
+    const info = levelsInfo();
+    if (!info) return null;
+    const l = info.levels;
+    return { cursor: info.cursor, levels: { ...l, prior: flowSettings.priorDay ? l.prior : null, naked: flowSettings.naked ? l.naked : [] } };
+  }
+
+  // ------------------------------------------------------------ order flow: market state (Phase 4)
+  // Accepted or rejected relative to the previous day's value area, on 30-minute closes of the order-flow
+  // 1-minute bars of the current trading day, closed by the cursor (marketstate.js, decision 0036).
+  let stateMemo = { key: null, value: null };
+  function stateInfo() {
+    if (!stateSettings.on) return null;
+    const info = levelsInfo();
+    if (!info) return null;
+    const f = flowData.M1;
+    const p = info.levels.prior;
+    const key = JSON.stringify([info.cursor, p && p.val, p && p.vah, stateSettings]);
+    if (stateMemo.key !== key) {
+      const st = stateSettings;
+      const result = marketState(f.bars, f.seconds, info.cursor, p ? p.val : null, p ? p.vah : null, st.timeframe, st.accept, st.window);
+      stateMemo = { key, value: { ...result, prior: p } };
+    }
+    return stateMemo.value;
+  }
+  const STATE_TONE = { accepted_above: "up", rejected_below: "up", accepted_below: "down", rejected_above: "down" };
+  function renderStateBox() {
+    const box = $("state-box");
+    box.hidden = !stateSettings.on;
+    if (!stateSettings.on) return;
+    const info = stateInfo();
+    if (!info) {
+      box.className = "state-box";
+      box.textContent = flowData.M1 === null ? "Market state: no order-flow data for this pair" : "Market state: loading…";
+      return;
+    }
+    const price = (units) => (units / 2 / 10 ** manifest.digits).toFixed(manifest.digits);
+    const last = info.events.at(-1);
+    box.className = `state-box ${STATE_TONE[info.state] || ""}`;
+    box.innerHTML = `<b>${STATE_WORDS[info.state]}</b>`
+      + (info.prior ? `<span class="muted"> · VAH ${price(info.prior.vah)} · VAL ${price(info.prior.val)}</span>` : "")
+      + (last ? `<span class="muted"> · ${eventLabel(last)} ${formatDateTime(last.time).slice(-5)}</span>` : "");
+    box.title = `On ${stateSettings.timeframe / 60}-minute closes of the current trading day. Accepted: ${stateSettings.accept} closes in a row `
+      + `outside the previous day's value area. Rejected: traded outside, then a close back inside within ${stateSettings.window / 60} minutes.`;
+  }
 
   const addLayer = (paneChart) => {
     const cb = layer.callbacks();
-    levelLayers.push(new ProfileLevels(paneChart, levelsInfo));
+    levelLayers.push(new ProfileLevels(paneChart, shownLevels));
     const l = new DrawingLayer(paneChart, {
       store: drawings, pipPoints: manifest.pip_points, note: positionNote, editor: $("text-editor"),
       styleDefaults, onStyleDefaults: (map) => remember(KEY_DRAW_STYLES, JSON.stringify(map)),
@@ -996,6 +1054,11 @@ async function boot() {
     $("flow-prior").checked = flowSettings.priorDay;
     $("flow-naked").checked = flowSettings.naked;
     $("flow-naked-days").value = flowSettings.nakedDays;
+    $("state-on").checked = stateSettings.on;
+    $("state-labels").checked = stateSettings.labels;
+    $("state-tf").value = String(stateSettings.timeframe);
+    $("state-accept").value = stateSettings.accept;
+    $("state-window").value = stateSettings.window / 60;
     $("flow-message").textContent = "";
     flowDialog.showModal();
   }
@@ -1019,14 +1082,24 @@ async function boot() {
         priorDay: $("flow-prior").checked, naked: $("flow-naked").checked, nakedDays: Number($("flow-naked-days").value),
       });
       remember(KEY_FLOW, JSON.stringify(flowSettings));
-      $("flow-open").classList.toggle("active", flowSettings.priorDay || flowSettings.naked);
-      if (flowSettings.priorDay || flowSettings.naked) ensureFlow("M1");
+      stateSettings = cleanStateSettings({
+        on: $("state-on").checked, labels: $("state-labels").checked, timeframe: Number($("state-tf").value),
+        accept: Number($("state-accept").value), window: Number($("state-window").value) * 60,
+      });
+      remember(KEY_STATE, JSON.stringify(stateSettings));
+      showFlowActive();
     }
     flowDialog.close();
     redrawProfiles();
+    drawTrades();
   });
-  $("flow-open").classList.toggle("active", flowSettings.priorDay || flowSettings.naked);
-  if (flowSettings.priorDay || flowSettings.naked) ensureFlow("M1");
+  function showFlowActive() {
+    const on = flowSettings.priorDay || flowSettings.naked || stateSettings.on;
+    $("flow-open").classList.toggle("active", on);
+    if (on) ensureFlow("M1");
+  }
+  showFlowActive();
+  renderStateBox();
 
   // ------------------------------------------------------------ indicators
   const indicatorsDialog = $("indicators-dialog");

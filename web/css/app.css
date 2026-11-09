@@ -736,3 +736,13 @@ table.calendar .count { color: var(--muted); font-size: 11.5px; }
 .flow-table td:first-child { white-space: nowrap; color: var(--muted); }
 .flow-table input[type="number"] { width: 90px; }
 #flow-auto .check { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+
+/* ---------- market state box (order flow, Phase 4) ---------- */
+.state-box {
+  position: absolute; z-index: 6; bottom: 40px; right: 84px; max-width: calc(100% - 120px); /* over the volume: the legend's rows wrap at the top */
+  background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--muted);
+  border-radius: 6px; padding: 4px 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.state-box[hidden] { display: none; }
+.state-box.up { border-left-color: var(--up); }
+.state-box.down { border-left-color: var(--down); }

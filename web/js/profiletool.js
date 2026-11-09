@@ -9,7 +9,7 @@
 // that had closed by the replay cursor: a profile's right edge is clamped to the cursor. Prices: the
 // order-flow files hold 2 x points, the chart holds points, so values are halved for drawing.
 
-import { timeToLogical } from "./drawings.js";
+import { logicalToX, timeToLogical } from "./drawings.js";
 import { timeframe as timeframeInfo } from "./timeframes.js";
 
 export const PROFILE_TOOLS = ["vprofile", "aprofile"];
@@ -157,7 +157,7 @@ export class ProfileLevels {
     if (!info || !v.candles || v.candles.length === 0) return;
     const { levels, cursor } = info;
     const tf = timeframeInfo(v.timeframe).seconds;
-    const x = (time) => v.chart.timeScale().logicalToCoordinate(timeToLogical(v.candles, tf, time));
+    const x = (time) => logicalToX(v.chart.timeScale(), timeToLogical(v.candles, tf, time));
     const unit = 10 ** v.digits;
     const y = (units) => v.series.priceToCoordinate(units / 2 / unit);
     const now = Math.min(cursor, v.candles.time[v.candles.length - 1] + tf);

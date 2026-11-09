@@ -105,6 +105,7 @@
       <div class="legend" id="legend"></div>
       <div class="hint" id="hint" hidden></div>
       <div class="setup-card" id="setup-card" hidden></div>
+      <div class="state-box" id="state-box" hidden></div>
       <input class="text-editor" id="text-editor" type="text" autocomplete="off" hidden aria-label="Text note">
       <div class="draw-bar" id="draw-bar" hidden>
         <span id="draw-bar-text"></span>
@@ -523,6 +524,14 @@
       <label class="check"><input type="checkbox" id="flow-prior"> The prior trading day's POC, VAH and VAL across the current day</label>
       <label class="check"><input type="checkbox" id="flow-naked"> Naked POCs of the last <input type="number" id="flow-naked-days" min="1" max="30" step="1" style="width:56px"> days, until price touches them</label>
       <p class="muted small">A trading day runs from 17:00 New York. These use the settings above and the 1-minute bars.</p>
+      <h3 class="ind-group">Market state</h3>
+      <label class="check"><input type="checkbox" id="state-on"> Accepted or rejected against the previous day's value area, in a box on the chart</label>
+      <label class="check"><input type="checkbox" id="state-labels"> and as labels on the candles (Acc ↑, Rej ↓ ...)</label>
+      <table class="grid indicator-table flow-table"><tbody>
+        <tr><td>On closes of</td><td><select id="state-tf"><option value="900">15-minute</option><option value="1800">30-minute</option><option value="3600">1-hour</option></select> candles</td></tr>
+        <tr><td>Accepted</td><td><input type="number" id="state-accept" min="1" max="6" step="1"> closes in a row outside value</td></tr>
+        <tr><td>Rejected</td><td>a close back inside within <input type="number" id="state-window" min="1" max="360" step="1"> minutes of first trading outside</td></tr>
+      </tbody></table>
     </section>
     <div class="dialog-actions"><span class="muted small" id="flow-message"></span><span class="spacer"></span>
       <button type="button" class="plain bordered" id="flow-close">Close</button>

@@ -14,7 +14,7 @@
 //    the candle under the mouse. Holding Ctrl turns it the other way for that move.
 
 import {
-  createDrawing, hit, layout, logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, positionLevel, snapPrice, timeToLogical, TOOLS,
+  createDrawing, hit, layout, logicalToTime, MAX_TEXT, moveAll, moveHandle, PALETTE, positionLevel, snapPrice, logicalToX, timeToLogical, TOOLS,
 } from "./drawings.js";
 import { formatDateTime } from "./time.js";
 import { timeframe as timeframeInfo } from "./timeframes.js";
@@ -122,7 +122,7 @@ export class DrawingLayer {
     const scale = v.chart.timeScale();
     const unit = 10 ** v.digits;
     return {
-      x: (time) => scale.logicalToCoordinate(timeToLogical(v.candles, this.tfSeconds, time)) ?? 0,
+      x: (time) => logicalToX(scale, timeToLogical(v.candles, this.tfSeconds, time)) ?? 0,
       y: (price) => v.series.priceToCoordinate(price / unit) ?? 0,
       width: this.paneWidth,
       height: this.paneHeight,

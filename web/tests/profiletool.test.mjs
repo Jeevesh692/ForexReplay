@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { cleanDrawing, createDrawing, layout, TOOLS } from "../js/drawings.js";
+import { cleanDrawing, createDrawing, layout, logicalToX, TOOLS } from "../js/drawings.js";
 import { buildProfile, dayLevels, profileFromBars } from "../js/profile.js";
 import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, PROFILE_SETTINGS, profileLayout, profileWindow } from "../js/profiletool.js";
 
@@ -105,4 +105,12 @@ test("the drawing: a bar per bin, the POC in its own colour, POC/VAH/VAL lines, 
   assert.ok(right.boxes.filter((b) => b.role === "bin").every((b) => Math.abs(b.x + b.w - 400) < 1e-9), "or on the right side");
   const waiting = layout(d, { ...proj, profile: () => ({ message: "Profile: loading" }) });
   assert.equal(waiting.labels[0].text, "Profile: loading");
+});
+
+test("a time part-way into a candle past the last one is drawn between the candles, not at the left edge", () => {
+  // Like the chart library: whole positions have a pixel (10 px a candle), fractions answer null.
+  const scale = { logicalToCoordinate: (l) => (Number.isInteger(l) ? 5 + 10 * l : null) };
+  assert.equal(logicalToX(scale, 2999), 29995);
+  assert.equal(logicalToX(scale, 2999.25), 29997.5);
+  assert.equal(logicalToX({ logicalToCoordinate: () => null }, 3.5), null);
 });
