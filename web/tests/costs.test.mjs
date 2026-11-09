@@ -70,3 +70,12 @@ test("the position drawing shows the costs on its labels, and warnings on a line
   const stop = shown.labels.find((l) => l.text.startsWith("Stop")), warn = shown.labels.find((l) => l.text.startsWith("⚠"));
   assert.equal(warn.y, stop.y + 13, "one line beyond the stop's label, so the two never overlap");
 });
+
+test("dollars per point per lot: Python's costs.point_value is the account's pointValueFor", async () => {
+  const { pointValueFor } = await import("../js/account.js");
+  for (const c of g.point_values) {
+    const pv = pointValueFor(c.symbol, c.digits, c.contract);
+    assert.equal(typeof pv === "function" ? pv(c.price) : pv, c.expected, `${c.symbol} at ${c.price}`);
+  }
+  assert.ok(g.point_values.some((c) => c.symbol === "USDJPY"), "a pair whose point value moves with the price");
+});

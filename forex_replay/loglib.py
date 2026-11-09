@@ -264,19 +264,14 @@ def week_bars(days: Bars) -> dict:
 
 # ----------------------------------------------------------------- measures
 def wilder_atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, n: int = 14) -> np.ndarray:
-    """Wilder ATR, exactly as atr() in web/js/indicators.js (NaN until n candles)."""
-    out = np.full(len(high), np.nan)
-    prev, total = np.nan, 0.0
-    for i in range(len(high)):
-        h, lo = float(high[i]), float(low[i])
-        tr = h - lo if i == 0 else max(h - lo, abs(h - close[i - 1]), abs(lo - close[i - 1]))
-        if i < n:
-            total += tr
-            if i == n - 1:
-                out[i] = prev = total / n
-            continue
-        out[i] = prev = (prev * (n - 1) + tr) / n
-    return out
+    """Wilder ATR (NaN until n candles): the one definition, indicator_golden.atr, which the chart's atr()
+    in web/js/indicators.js is held to. Here as numpy, for the logs."""
+    from .indicator_golden import atr
+
+    if len(high) == 0:
+        return np.array([], dtype=float)
+    values = atr(np.asarray(high, dtype=float).tolist(), np.asarray(low, dtype=float).tolist(), np.asarray(close, dtype=float).tolist(), n)
+    return np.array([np.nan if v is None else v for v in values], dtype=float)
 
 
 def is_swing_high(high, k: int) -> bool:

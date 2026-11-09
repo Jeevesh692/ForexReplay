@@ -1741,3 +1741,18 @@ node --test web/tests/costs.test.mjs web/tests/account.test.mjs
 python -m pytest tests/test_oflog.py
 python -m forex_replay orderflow <strategy>
 ```
+
+## 9 Nov 2026: order flow, cleanup before Phase 9, on the `orderflow` branch
+
+**Asked for (Jeevesh):** "does building phase 7 and 8 made a copy for all the features we already had", then "yes do the cleanup first, then phase 9".
+
+**What was checked:** Phases 7 and 8 reuse the app's own position drawing, account sizing and commission, and the logs' save hook, columns, journal box and checklist. Four repeats were found.
+
+**Done (Claude):**
+- **Dollars per point:** `point_value` moved from `oflog.py` into `costs.py`, and is now held to the app's `account.js` `pointValueFor` by 30 golden cases, USDJPY included. Before, nothing tested it.
+- **One ATR in Python:** `loglib.wilder_atr` now calls `indicator_golden.atr`, the definition the chart's ATR is held to. Before switching, the two were compared on 200 random cases and all 89,640 EURUSD 5-minute candles: no difference at all. The NBB and sweep logs' tests still pass.
+- **One session definition for v2 in Python:** `sessions.STANDARD` (Asia, London, New York, each in its own city's clock), held to `web/js/sessions.js`'s standard set by a test that reads that file. The log uses it, and so will the backtester. The old v1 `SESSIONS` (broker clock) stay for v1.
+- **Left as it was:** `checklist_log.csv`, which repeats the Model and Exit answers for an order-flow strategy; harmless.
+
+**Tests:** 179 Python and 226 JavaScript, all passing.
+- **My test was wrong once:** it forgot that Tokyo opens at 00:00 UTC.

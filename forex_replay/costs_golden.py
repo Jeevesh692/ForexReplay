@@ -12,7 +12,7 @@ import random
 from pathlib import Path
 
 from .config import PROJECT_ROOT
-from .costs import position_plan
+from .costs import point_value, position_plan
 
 FIXTURE = PROJECT_ROOT / "web" / "tests" / "fixtures" / "costs_golden.json"
 SEED = 20261113
@@ -44,7 +44,13 @@ def build() -> dict:
         }
         args = {k2: v for k2, v in inputs.items() if k2 not in ("side", "entry", "stop", "target")}
         cases.append({"inputs": inputs, "expected": position_plan(side, entry, stop, target, **args)})
-    return {"seed": SEED, "cases": cases}
+    values = []  # dollars per point per lot, held to account.js pointValueFor
+    for symbol, digits, contract in (("EURUSD", 5, 100000), ("GBPUSD", 5, 100000), ("XAUUSD", 2, 100), ("USDJPY", 3, 100000), ("USDCAD", 5, 100000)):
+        for _ in range(6):
+            price = rng.randint(50_000, 250_000)
+            values.append({"symbol": symbol, "digits": digits, "contract": contract, "price": price,
+                           "expected": point_value(symbol, digits, contract, price)})
+    return {"seed": SEED, "cases": cases, "point_values": values}
 
 
 def write_fixture(path: Path = FIXTURE) -> dict:

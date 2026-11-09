@@ -23,6 +23,18 @@ LOT_UNITS = 100  # sizes are whole numbers of 0.01 lots
 DEFAULTS = {"slippage_pips": 0.2, "commission_per_lot": 4.0, "per_side": False, "target_a": 2.0, "target_b": 1.5}
 
 
+def point_value(symbol: str, digits: int, contract_size: int, price_points: int | None = None) -> float:
+    """Dollars per point per lot (account.js pointValueFor): fixed on a pair quoted in dollars (EURUSD $1 a point,
+    gold $1 with 100 ounces and 2 digits); on a dollar-first pair (USDJPY) it depends on the price, in points."""
+    if symbol[3:] == "USD":
+        return contract_size / 10 ** digits
+    if symbol[:3] == "USD":
+        if not price_points or price_points <= 0:
+            raise ValueError(f"{symbol}: the money needs the price it happens at")
+        return contract_size / price_points
+    raise ValueError(f"{symbol}: money for a pair without the dollar needs another rate; not supported.")
+
+
 def units_for_risk(balance: float, risk_percent: float, risk_points: int, point_value: float) -> int:
     """Largest size in 0.01 lots whose loss at the stop is no more than the risk (account.js unitsForRisk)."""
     if not (balance > 0) or not (risk_percent > 0) or not (risk_points > 0):

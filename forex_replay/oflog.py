@@ -25,11 +25,12 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 from . import flow
-from .costs import position_plan
+from .costs import point_value, position_plan
 from .loglib import (Candles, fmt_num, fmt_price, logger_candles, previous_rows, replace_file, settings_at, spread_at,
                      trade_fields, wilder_atr, write_keyed_csv)
 from .marketstate import market_state
 from .orderflow import bubbles, candle_flow
+from .sessions import session_label
 from .profile import build_profile, day_levels, price_bin, profile_from_bars, server_day, server_days
 from .trigger import candle_rules, current_m5
 
@@ -51,17 +52,10 @@ INSTRUMENT_MOVES = {"EURUSD": (0.00015, 0.00003), "XAUUSD": (0.50, 0.10)}  # bub
 NEAR_VA_PIPS = 3.0  # a zone (or the entry) this close to an older VAH or VAL counts as near it
 OLD_VA_DAYS = 5
 IST = ZoneInfo("Asia/Kolkata")
-SESSIONS = (("Asia", "Asia/Tokyo", 9, 18), ("London", "Europe/London", 8, 17), ("New York", "America/New_York", 8, 17))
 
 
 def ist_text(utc) -> str:
     return "" if utc is None else datetime.fromtimestamp(int(utc), IST).strftime("%Y-%m-%d %H:%M")
-
-
-def session_label(utc: int) -> str:
-    """The standard sessions open at a moment, each in its own city's clock (as sessions.js's standard set)."""
-    open_ = [name for name, zone, start, end in SESSIONS if start <= datetime.fromtimestamp(utc, ZoneInfo(zone)).hour < end]
-    return "/".join(open_) or "Off session"
 
 
 def cut(bars: dict, start: float, end: float) -> dict:
@@ -79,13 +73,6 @@ def settings(data: dict) -> dict:
     trigger = {"atrPeriod": 14, "bubbleRvol": 3.0, "on": {}, **(of.get("trigger") or {})}
     costs = {"slippagePips": 0.2, **(of.get("costs") or {})}
     return {"profile": profile, "state": state, "layer": layer, "trigger": trigger, "costs": costs, "bin": of.get("bin")}
-
-
-def point_value(symbol: str, digits: int, contract: int, price_points: int) -> float:
-    """Dollars per point per lot (account.pointValueFor)."""
-    if symbol[3:] == "USD":
-        return contract / 10 ** digits
-    return contract / price_points
 
 
 def months_between(start: int, end: int) -> list[str]:
