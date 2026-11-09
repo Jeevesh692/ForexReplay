@@ -1378,3 +1378,54 @@ The step-by-step replay test runs with the range on.
 - **Console:** no errors except the usual `site.json` 404.
 
 **How to check:** tick Indicators → Opening range (the breakout box is ticked). Replay XAUUSD M5 on 5 Aug 2025 and press J for the New York KZ end. Step forward five candles to 19:55 IST.
+
+---
+
+## 9 Nov 2026: order flow, Phases 1 (code) and 2, on the `orderflow` branch
+
+**Asked for (Jeevesh):** an Auction Market Theory and synthetic order-flow toolkit, in ten phases, stopping after each one.
+- **Phase 1:** tick data, built into M1 bars and 15-second buckets with same-slot baselines.
+- **Phase 2:** a volume profile engine (POC, value area, HVNs, LVN zones), shared by Python and the browser and held to golden cases.
+
+**Decided first (Jeevesh, when asked):**
+- **The ticks:** FundedNext's own ticks through MT5. Dukascopy still answers HTTP 429 and needs an AWS account of his own.
+- **Where:** a new `orderflow` branch.
+- **pyarrow:** installed, for the Parquet copies.
+
+**Built (Claude):**
+- **Phase 1:**
+  - `forex_replay/ticks.py` downloads and caches the ticks.
+  - `forex_replay/flow.py` does the mid, the tick rule, M1 and 15-second bars, 20-day same-slot baselines with no look-ahead, the trading day from 17:00 New York, the quality report, and the browser's and backtester's files.
+  - `web/js/flowdata.js` reads the files.
+  - Two commands: `python -m forex_replay ticks download` and `flow build`.
+  - See [decision 0033](decisions/0033-order-flow-data.md).
+- **Phase 2:** `forex_replay/profile.py` and `web/js/profile.js`, the same definition twice, with `forex_replay/profile_golden.py`. See [decision 0034](decisions/0034-volume-profile.md).
+
+**Tests:** 21 new Python tests (136 in total) and 5 new JavaScript tests (193 in total).
+- **Phase 1:**
+  - the tick rule
+  - the clock in summer and winter, and the 17:00 New York day boundary
+  - the baseline never reading today or later
+  - a slot with no bar counting as 0
+  - weekends, gaps and spread spikes
+  - an end-to-end build whose files read back exactly
+  - the cached downloads
+  - the browser reading Python's golden sample
+- **Phase 2:**
+  - hand examples for the bins, the value area, ties, smoothing, HVNs and LVN zones
+  - the cursor
+  - 45 golden profiles that JavaScript matches exactly
+- **Broken on purpose:** three changes to the profile rules each made tests fail. The value-area tie was at first caught only on the Python side; a tie case was added to the golden file and the JavaScript tests.
+
+**Found along the way:**
+- **MT5 was not logged in** ("Authorization failed"), so no ticks are downloaded yet. Phase 1 finishes with the download, the real file sizes, how far FundedNext's tick history goes, and the quality report.
+- **My arithmetic:** two expected values in my own Phase 1 test were wrong (220,001 for 220,010); the code was right.
+
+**Not checked in the browser:** nothing is drawn yet. The profile appears on the chart in Phase 3.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_flow.py tests/test_profile.py
+node --test web/tests/profile.test.mjs web/tests/flowdata.test.mjs
+```
