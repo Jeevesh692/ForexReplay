@@ -241,6 +241,24 @@
         <p class="muted small" id="challenge-detail"></p>
       </div>
     </section>
+    <details class="trigger-panel" id="trigger-panel" open>
+      <summary><b>Trigger 5m</b> <span class="trigger-light" id="trigger-light"></span> <span class="muted" id="trigger-summary"></span></summary>
+      <div class="trigger-head">
+        <div class="segmented trigger-sides"><button type="button" data-side="long" class="buy">Long</button><button type="button" data-side="short" class="sell">Short</button></div>
+        <span class="muted small" id="trigger-candle"></span>
+      </div>
+      <table class="trigger-table"><tbody id="trigger-rows"></tbody></table>
+      <details class="trigger-settings">
+        <summary class="muted small">Settings</summary>
+        <div class="trigger-form">
+          <label>Body ≥ <input type="number" id="trig-body" min="5" max="100" step="5">%</label>
+          <label>Range ≥ <input type="number" id="trig-range" min="0.1" max="10" step="0.1">× ATR(<input type="number" id="trig-atr" min="2" max="200" step="1">)</label>
+          <label>Close in the <input type="number" id="trig-close" min="5" max="50" step="5">% at the end</label>
+          <label>RVOL ≥ <input type="number" id="trig-rvol" min="0" max="50" step="0.1">x</label>
+          <label>Bubble ≥ <input type="number" id="trig-bubble" min="1" max="50" step="0.5">x</label>
+        </div>
+      </details>
+    </details>
     <details class="adr-plan" id="adr-plan" open>
       <summary><b>ADR plan</b> <span class="muted" id="adr-summary"></span></summary>
       <p class="muted small" id="adr-asof"></p>

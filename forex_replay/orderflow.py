@@ -49,7 +49,8 @@ def classify_bucket(open_, close, ticks, baseline_x2, bubble_move, absorption_mo
 
 
 def bubbles(buckets, start: int, end: int, cursor: int, bubble_move, absorption_move, **settings) -> list[dict]:
-    """Every bubble and absorption among the buckets in [start, end) that had closed by the cursor."""
+    """Every bubble and absorption among the buckets in [start, end) that had closed by the cursor, with its
+    bucket's delta (up - down ticks; the trigger's bubble rule reads it)."""
     seconds, times = buckets["seconds"], buckets["time"]
     out = []
     for i in range(bisect_left(times, start), len(times)):
@@ -59,7 +60,7 @@ def bubbles(buckets, start: int, end: int, cursor: int, bubble_move, absorption_
         c = classify_bucket(buckets["open"][i], buckets["close"][i], buckets["tick_count"][i], buckets["baseline_x2"][i],
                             bubble_move, absorption_move, **settings)
         if c:
-            out.append({"time": t, "price": buckets["close"][i], **c})
+            out.append({"time": t, "price": buckets["close"][i], **c, "delta": buckets["up_ticks"][i] - buckets["down_ticks"][i]})
     return out
 
 

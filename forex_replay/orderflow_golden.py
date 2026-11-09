@@ -47,7 +47,7 @@ def build() -> dict:
                 "low": [r[3] for r in early], "close": [r[4] for r in early], "volume": [r[5] for r in early]}
     s15 = walk(rng, FLOW_FIRST, FLOW_FIRST + 8 * 3600, 15, 0.02)
     buckets = {"seconds": 15, "time": [r[0] for r in s15], "open": [r[1] for r in s15], "close": [r[4] for r in s15],
-               "tick_count": [r[5] for r in s15], "baseline_x2": [rng.choice([-1, 0] + [rng.randint(4, 60)] * 8) for _ in s15]}
+               "tick_count": [r[5] for r in s15], "up_ticks": [r[6] for r in s15], "down_ticks": [r[7] for r in s15], "baseline_x2": [rng.choice([-1, 0] + [rng.randint(4, 60)] * 8) for _ in s15]}
     # Price for the chart candles, from the fallback before the flow begins and from the minutes after.
     prices = [(t, h, low) for t, _, h, low, *_ in early if t < FLOW_FIRST] + [(r[0], r[2], r[3]) for r in minutes]
 

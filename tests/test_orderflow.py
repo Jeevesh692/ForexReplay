@@ -29,9 +29,10 @@ def test_a_bubble_needs_rvol_and_a_move_and_absorption_is_activity_without_progr
 
 def test_bubbles_only_from_buckets_closed_at_the_cursor():
     b = {"seconds": 15, "time": [T, T + 15, T + 30], "open": [100, 100, 100], "close": [140, 100, 60],
-         "tick_count": [40, 40, 40], "baseline_x2": [20, 20, 20]}
+         "tick_count": [40, 40, 40], "up_ticks": [30, 25, 5], "down_ticks": [10, 15, 35], "baseline_x2": [20, 20, 20]}
     assert [x["kind"] for x in bubbles(b, T, T + 60, T + 45, 30, 6)] == ["bubble", "absorption", "bubble"]
     assert len(bubbles(b, T, T + 60, T + 44, 30, 6)) == 2  # the third bucket closes at T + 45
+    assert [x["delta"] for x in bubbles(b, T, T + 60, T + 45, 30, 6)] == [20, 10, -30]  # up - down ticks of each bucket
 
 
 def test_candle_delta_cvd_and_rvol_by_hand():

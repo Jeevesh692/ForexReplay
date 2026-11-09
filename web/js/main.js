@@ -15,7 +15,7 @@ import { DrawingLayer } from "./drawinglayer.js";
 import { jumpClock, jumpLabel, nextJump, SESSION_OPENS } from "./jump.js";
 import { BREAKOUT_TIMEFRAMES, BreakoutFinder, bufferPoints, describeBreakout } from "./breakout.js";
 import { cleanSetupRules, describeSetup, SetupFinder, setupJumpLimit, STORAGE_KEY as KEY_SETUPS } from "./setups.js";
-import { cleanIndicators, STORAGE_KEY as KEY_INDICATORS } from "./indicators.js";
+import { atr as atrOf, cleanIndicators, STORAGE_KEY as KEY_INDICATORS } from "./indicators.js";
 import { LayerGroup } from "./layergroup.js";
 import {
   cleanFibLevels, DrawingStore, FIB_LEVELS, fibLevelsOf, LINE_STYLES, loadSaved as loadSavedDrawings, moveHandle, PALETTE,
@@ -35,8 +35,9 @@ import { FlowMonths, loadFlow } from "./flowdata.js";
 import { dayLevels, priceBin, profileFromBars } from "./profile.js";
 import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, ProfileLevels, profileWindow, STORAGE_KEY as KEY_FLOW } from "./profiletool.js";
 import { cleanStateSettings, eventLabel, marketState, STATE_WORDS } from "./marketstate.js";
-import { bubbles as findBubbles, BubbleLayer, cleanFlowLayer, dayResets, divergences, FlowSeries, STORAGE_KEY as KEY_FLOW_LAYER } from "./orderflow.js";
+import { bubbles as findBubbles, BubbleLayer, candleFlow, cleanFlowLayer, dayResets, divergences, FlowSeries, STORAGE_KEY as KEY_FLOW_LAYER } from "./orderflow.js";
 import { getSessions, sessionsBetween } from "./sessions.js";
+import { atrBefore, bubbleRule, candleRules, cleanTriggerSettings, currentM5, RULE_HELP, RULE_NAMES, RULES, STORAGE_KEY as KEY_TRIGGER, trigger as triggerOn } from "./trigger.js";
 
 const $ = (id) => document.getElementById(id);
 const number = (n) => n.toLocaleString("en-IN");
@@ -172,6 +173,8 @@ async function boot() {
   let anchorPicking = false; // waiting for a click on the candle the CVD should start from
   // The order-flow layer's settings (orderflow.js): read here, before the charts are made, as their legends use them.
   let flowLayer = cleanFlowLayer((() => { try { return JSON.parse(recall(KEY_FLOW_LAYER, "null")); } catch { return null; } })());
+  let triggerSettings = cleanTriggerSettings((() => { try { return JSON.parse(recall(KEY_TRIGGER, "null")); } catch { return null; } })());
+  let atrMemo = { period: null, values: null }; // the trigger panel's ATR on every 5-minute candle
   let panel = null; // trading panel (created below, once the chart exists)
   loadSavedSessions();
 
@@ -415,6 +418,7 @@ async function boot() {
     if (adrPanel) adrPanel.render();
     if (panel) panel.render();
     renderSetupCard();
+    renderTrigger();
     drawTrades();
     if (clock.active && backtests) backtests.changed(); // saved shortly after (see backtestpanel.js)
     autoScreenshots();
@@ -558,7 +562,9 @@ async function boot() {
   // The instrument's own default bin, in price, before its order-flow manifest has loaded (forex_replay/flow.INSTRUMENTS).
   const instrumentBin = () => (flowData.M1 && flowData.M1.manifest.instrument.bin) || { EURUSD: 0.0001, XAUUSD: 0.5 }[manifest.symbol]
     || manifest.pip_points / 10 ** manifest.digits;
-  const redrawProfiles = () => { layer.redraw(); for (const l of levelLayers) l.redraw(); renderStateBox(); for (const b of bubbleLayers) b.redraw(); };
+  const redrawProfiles = () => {
+    layer.redraw(); for (const l of levelLayers) l.redraw(); renderStateBox(); for (const b of bubbleLayers) b.redraw(); renderTrigger();
+  };
   function ensureFlow(dataset) {
     if (flowData[dataset] !== undefined || flowLoading[dataset]) return;
     flowLoading[dataset] = loadFlow(manifest.symbol, dataset).then((r) => {
@@ -799,6 +805,102 @@ async function boot() {
     anchorPicking = on;
     setHint(on ? "Click the candle the CVD should start from. Press Esc to cancel." : null);
     $("chart-view").classList.toggle("picking", on);
+  }
+
+  // ------------------------------------------------------------ order flow: trigger panel (Phase 6)
+  // Is the current 5-minute candle a trigger? Body, range against ATR, close position, RVOL and (switched on)
+  // the bubble rule in an LVN zone of the profiles drawn (trigger.js, decision 0038). Judged on the minutes the
+  // replay has revealed; at a 5-minute close, on the candle that has just closed.
+  function triggerState() {
+    const cursor = flowCursor();
+    const candle = currentM5(m5, cursor);
+    if (!candle) return null;
+    const ts = triggerSettings;
+    const m5View = viewFor("M5");
+    if (atrMemo.period !== ts.atrPeriod) atrMemo = { period: ts.atrPeriod, values: atrOf(m5View.full, ts.atrPeriod) };
+    const atr = atrBefore(m5View.full, atrMemo.values, candle.start); // the candles before this one only
+    const f = flowData.M1;
+    if (f === undefined) ensureFlow("M1");
+    const rvol = f ? candleFlow([candle.start], 1, 300, cursor, f.bars, [], null, null, candle.start).rvol[0] : null;
+    const rules = candleRules(candle.open, candle.high, candle.low, candle.close, atr, rvol, ts.side, ts.body, ts.rangeAtr, ts.closeZone, ts.minRvol);
+    if (ts.on.bubble) {
+      const zones = [];
+      for (const d of drawings.items) {
+        if (!d.profile) continue;
+        const got = profiler(d, timeframeOf(current).seconds);
+        if (got && got.profile) for (const z of got.profile.lvns) zones.push({ low: z.low, high: z.high });
+      }
+      let items = [];
+      if (f) {
+        if (!s15) s15 = new FlowMonths(manifest.symbol, "S15", f.manifest, () => { bubbleMemo.key = null; redrawFlowLayer(); renderTrigger(); });
+        const move = (price) => priceBin(price, manifest.digits);
+        for (const part of s15.parts(candle.start, candle.start + 300)) {
+          items = items.concat(findBubbles(part, candle.start, candle.start + 300, cursor, move(bubbleMove()), move(absorptionMove()),
+            flowLayer.minRvol, flowLayer.medium, flowLayer.large));
+        }
+      }
+      rules.bubble = { ...bubbleRule(items, zones, 2 * candle.low, 2 * candle.high, ts.side, ts.bubbleRvol), zones: zones.length };
+    }
+    return { candle, atr, rvol, rules, on: triggerOn(rules, ts.on), hasFlow: !!f };
+  }
+  function renderTrigger() {
+    const panelEl = $("trigger-panel");
+    panelEl.hidden = manifest.bar_seconds !== 60; // a 5-minute candle needs the 1-minute candles
+    if (panelEl.hidden) return;
+    const ts = triggerSettings;
+    for (const b of document.querySelectorAll(".trigger-sides button")) b.classList.toggle("active", b.dataset.side === ts.side);
+    const st = triggerState();
+    const light = $("trigger-light");
+    if (!st) { light.className = "trigger-light"; $("trigger-summary").textContent = ""; $("trigger-rows").innerHTML = ""; return; }
+    light.className = `trigger-light ${st.on ? "pass" : "fail"}`;
+    $("trigger-summary").textContent = st.on ? `${ts.side === "long" ? "Long" : "Short"} trigger` : `no ${ts.side} trigger`;
+    const c = st.candle;
+    $("trigger-candle").textContent = `${formatDateTime(c.start).slice(-5)} IST · ${c.closed ? "closed" : `forming, ${c.minutes} of 5 min`}`;
+    const pips = (points) => (points / manifest.pip_points).toFixed(1);
+    const words = {
+      body: () => (st.rules.body.value === null ? "no range" : `${Math.round(st.rules.body.value * 100)}%`),
+      range: () => (st.atr === null ? "ATR not ready" : `${pips(c.high - c.low)} p, ${st.rules.range.value.toFixed(2)}×`),
+      close: () => (st.rules.close.value === null ? "no range" : `at ${Math.round(st.rules.close.value * 100)}%`),
+      rvol: () => (st.rvol === null ? (st.hasFlow ? "no baseline" : "no order-flow data") : `${st.rvol.toFixed(2)}x`),
+      bubble: () => {
+        const b = st.rules.bubble;
+        if (!b) return "";
+        if (!b.zone) return b.zones ? "not in an LVN" : "no LVN: draw a profile";
+        return `${b.same} with, ${b.opposite} against`;
+      },
+    };
+    const names = {
+      body: RULE_NAMES.body.replace("{body}", Math.round(ts.body * 100)),
+      range: RULE_NAMES.range.replace("{range}", ts.rangeAtr),
+      close: RULE_NAMES.close.replace("{zone}", Math.round(ts.closeZone * 100)).replace("{end}", ts.side === "long" ? "in top" : "in bottom"),
+      rvol: RULE_NAMES.rvol.replace("{rvol}", ts.minRvol),
+      bubble: RULE_NAMES.bubble.replace("{bubbleRvol}", ts.bubbleRvol),
+    };
+    $("trigger-rows").innerHTML = RULES.map((r) => {
+      const on = ts.on[r];
+      const rule = st.rules[r];
+      const lightClass = !on ? "off" : rule && rule.pass ? "pass" : "fail";
+      return `<tr class="${on ? "" : "disabled"}" title="${RULE_HELP[r].replace("{atr}", ts.atrPeriod)}"><td><input type="checkbox" data-rule="${r}" ${on ? "checked" : ""} aria-label="Use this rule"></td>`
+        + `<td><span class="trigger-light ${lightClass}"></span></td><td>${names[r]}</td><td class="value">${on || rule ? words[r]() : ""}</td></tr>`;
+    }).join("");
+  }
+  function saveTrigger(change) {
+    triggerSettings = cleanTriggerSettings({ ...triggerSettings, ...change });
+    remember(KEY_TRIGGER, JSON.stringify(triggerSettings));
+    renderTrigger();
+  }
+  for (const b of document.querySelectorAll(".trigger-sides button")) b.addEventListener("click", () => saveTrigger({ side: b.dataset.side }));
+  $("trigger-rows").addEventListener("change", (event) => {
+    const r = event.target.dataset.rule;
+    if (r) saveTrigger({ on: { ...triggerSettings.on, [r]: event.target.checked } });
+  });
+  const TRIGGER_FIELDS = { "trig-body": ["body", 100], "trig-range": ["rangeAtr", 1], "trig-atr": ["atrPeriod", 1], "trig-close": ["closeZone", 100], "trig-rvol": ["minRvol", 1], "trig-bubble": ["bubbleRvol", 1] };
+  for (const [id, [key, scale]] of Object.entries(TRIGGER_FIELDS)) {
+    $(id).value = Math.round(triggerSettings[key] * scale * 100) / 100;
+    $(id).addEventListener("change", () => {
+      saveTrigger({ [key]: Number($(id).value) / scale });
+      $(id).value = Math.round(triggerSettings[key] * scale * 100) / 100; // shows what was kept, if the number was refused
+    });
   }
 
   const addLayer = (paneChart) => {

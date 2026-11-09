@@ -1586,3 +1586,52 @@ node --test web/tests/marketstate.test.mjs
 python -m pytest tests/test_orderflow.py
 node --test web/tests/orderflow.test.mjs web/tests/flowdata.test.mjs
 ```
+
+## 9 Nov 2026: order flow, Phase 6 (trigger panel), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "start phase 6".
+- **The panel:** for the current 5-minute candle, a pass/fail light for:
+  - body ≥ 50% of the range
+  - range ≥ 1.2 × ATR(14)
+  - a close in the top or bottom 25%
+  - RVOL ≥ 1.5
+  - a bubble rule that can be switched on
+- **The overall light:** green only when all the rules switched on pass for the chosen direction.
+
+**Built (Claude):**
+- **The rules, twice:** `forex_replay/trigger.py` and `web/js/trigger.js`, with `forex_replay/trigger_golden.py`.
+- **The panel:** "Trigger 5m" in the side panel (`index.html`, `app.css`), wired in `main.js`, with:
+  - the candle it judges
+  - Long / Short
+  - a light and a value per rule
+  - a box per rule
+  - settings
+  - full explanations on hover
+- **Phase 5's bubbles now carry their delta,** for the bubble rule's "opposite absorption". The Phase 5 golden file was regenerated; only that field changed.
+- See [decision 0038](decisions/0038-trigger-panel.md).
+
+**Tests:** 7 new Python tests (163 in total) and 6 new JavaScript tests (219 in total).
+- **Golden:** the candle, its ATR and the four rules (384 cases), the bubble rule (120), the overall light (40).
+- **The chart's own 5-minute candles** are the same as the panel's.
+- **No look-ahead.**
+- **Hand examples,** including candles exactly on every line.
+
+**Checked:**
+- **On real data:** Python from the raw M1 file gives the panel's numbers for the last EURUSD candle: body 0.90, close 0.075, ATR 2.741 pips, range 1.459×.
+- **In the browser, EURUSD:**
+  - **Outside a replay:** "14:00 IST · forming, 4 of 5 min"; body 90% ✓, range 4.0 pips = 1.46× ✓, close at 8% ✗ (long), RVOL 0.74x ✗.
+  - **In a replay at 05:45 IST:** it judged the 05:40 candle, "closed".
+  - **With a fixed range profile** drawn over the night and the bubble rule on: "not in an LVN" above the zone; stepping back to 04:45 IST put the 04:40 candle in the zone, "0 with, 0 against".
+  - **Short:** fails the close rule where long passed it.
+- **Cleaned up:** the settings changed for the check were reset. The test session folder (`strategies/manual_backtests`, created by the check at 14:05) was removed after the server was stopped.
+
+**Found along the way:**
+- **Not caught at first:** making "at least" into "more than" for the range rule was not caught by any test, because no case sat exactly on the line. Tests of candles exactly on every line were added; the change is now caught.
+- **The panel was too cramped at a narrow window:** values were cut off. The rule names are now short, and the full wording is in each row's tooltip.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_trigger.py
+node --test web/tests/trigger.test.mjs
+```

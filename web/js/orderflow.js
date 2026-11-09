@@ -62,14 +62,14 @@ export function classifyBucket(open, close, ticks, baselineX2, bubbleMove, absor
   return null;
 }
 
-/** Every bubble and absorption among the buckets in [start, end) that had closed by the cursor. */
+/** Every bubble and absorption among the buckets in [start, end) that had closed by the cursor, with its bucket's delta. */
 export function bubbles(buckets, start, end, cursor, bubbleMove, absorptionMove, minRvol = 3.0, medium = 5.0, large = 8.0) {
   const out = [];
   const t = buckets.time, s = buckets.seconds;
   for (let i = lowerBound(t, buckets.length, start); i < buckets.length; i++) {
     if (t[i] >= end || t[i] + s > cursor) break;
     const c = classifyBucket(buckets.open[i], buckets.close[i], buckets.tick_count[i], buckets.baseline_x2[i], bubbleMove, absorptionMove, minRvol, medium, large);
-    if (c) out.push({ time: t[i], price: buckets.close[i], ...c });
+    if (c) out.push({ time: t[i], price: buckets.close[i], ...c, delta: buckets.up_ticks[i] - buckets.down_ticks[i] });
   }
   return out;
 }
