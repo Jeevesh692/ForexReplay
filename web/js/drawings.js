@@ -329,17 +329,26 @@ export function layout(d, proj) {
     const right = Math.max(x0 + 1, Math.min(x1, proj.width - 10));
     const middle = (x0 + right) / 2;
     const above = (y, other) => (y < other ? y - 5 : y + 14); // put the text outside the box
+    // The note (main.js) adds to each line: a string for the entry line, or { entry, target, stop } (costs, Phase 7).
+    const raw = proj.note ? proj.note(d) : "";
+    const note = typeof raw === "string" ? { entry: raw } : raw || {};
+    const more = (text) => (text ? ` · ${text}` : "");
     out.labels.push({ x: middle, y: above(yTarget, yEntry), align: "center", role: "profit",
-      text: `Target ${proj.formatPrice(d.target)} · ${proj.pips(stats.reward).toFixed(1)} pips · ${stats.ratio.toFixed(2)}R` });
+      text: `Target ${proj.formatPrice(d.target)} · ${proj.pips(stats.reward).toFixed(1)} pips · ${stats.ratio.toFixed(2)}R${more(note.target)}` });
     out.labels.push({ x: middle, y: above(yStop, yEntry), align: "center", role: "loss",
-      text: `Stop ${proj.formatPrice(d.stop)} · ${proj.pips(stats.risk).toFixed(1)} pips` });
-    const note = proj.note ? proj.note(d) : "";
+      text: `Stop ${proj.formatPrice(d.stop)} · ${proj.pips(stats.risk).toFixed(1)} pips${more(note.stop)}` });
     out.labels.push({ x: middle, y: yEntry - 5, align: "center", role: "entry",
-      text: `${d.type === "long" ? "Long" : "Short"} ${proj.formatPrice(entry.price)}${note ? ` · ${note}` : ""}` });
+      text: `${d.type === "long" ? "Long" : "Short"} ${proj.formatPrice(entry.price)}${more(note.entry)}` });
+    let placed = 3;
+    if (note.warn) { // warnings (stop limits, target too small) on a line of their own, one line beyond the stop's label
+      const stopY = above(yStop, yEntry);
+      out.labels.push({ x: middle, y: stopY + (yStop < yEntry ? -13 : 13), align: "center", role: "loss", text: note.warn });
+      placed = 4;
+    }
     // The stop and target handles sit in the middle of their edges, away from the entry handle.
     // Labels are centred on the visible part, but never run past the right edge into the price scale.
     if (proj.textWidth) {
-      for (const label of out.labels.slice(-3)) {
+      for (const label of out.labels.slice(-placed)) {
         const half = proj.textWidth(label.text) / 2;
         label.x = Math.min(Math.max(x0 + half, label.x), proj.width - 4 - half); // the right edge wins over the box's left edge
       }

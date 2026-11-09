@@ -346,10 +346,20 @@
         <span title="Round turn (in and out), charged when a trade opens">Commission ($ per lot)</span>
         <input id="set-commission" type="number" min="0" step="0.5">
       </label>
+      <label class="check small"><input type="checkbox" id="set-commission-side"> Charged per side (in and out: twice a lot)</label>
       <label class="field inline">
         <span title="The broker's recorded spread for each candle is used when it is wider than this">Minimum spread (pips)</span>
         <input id="order-spread" type="number" min="0" step="0.1">
       </label>
+      <h4 class="cost-head">Position tool (Long / Short drawings)</h4>
+      <label class="field inline"><span title="Added to each round trip in the costs; replay fills stay exact">Slippage (pips)</span>
+        <input id="cost-slippage" type="number" min="0" step="0.1"></label>
+      <label class="field inline"><span>Target at least</span>
+        <select id="cost-model"><option value="A">Model A</option><option value="B">Model B</option><option value="none">no minimum</option></select></label>
+      <label class="field inline"><span>Model A / B (R after costs)</span>
+        <span class="pair-inputs"><input id="cost-target-a" type="number" min="0" step="0.1"><input id="cost-target-b" type="number" min="0" step="0.1"></span></label>
+      <label class="field inline"><span id="cost-stop-label">Stop, pips (min / max)</span>
+        <span class="pair-inputs"><input id="cost-min-stop" type="number" min="0" step="1" placeholder="none"><input id="cost-max-stop" type="number" min="0" step="1" placeholder="none"></span></label>
       <p class="muted small">1 lot = 100,000 units, so a pip is $10 per lot. Sizes are in steps of 0.01 lots.
         Saved in this browser.</p>
     </details>

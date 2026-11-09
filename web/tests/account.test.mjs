@@ -188,6 +188,11 @@ test("the commission guessed on day 5 ($7) is replaced by the broker's real $4; 
   assert.equal(cleanSettings({ commissionPerLot: 7, riskPercent: 2 }).commissionPerLot, 4); // saved before versions existed
   assert.equal(cleanSettings({ commissionPerLot: 7, riskPercent: 2 }).riskPercent, 2);
   assert.equal(cleanSettings({ version: 2, commissionPerLot: 7 }).commissionPerLot, 7);     // chosen after the change
+  assert.equal(DEFAULT_SETTINGS.commissionPerSide, false);
+  assert.equal(cleanSettings({ commissionPerSide: true }).commissionPerSide, true);
+  assert.equal(cleanSettings({ commissionPerSide: "yes" }).commissionPerSide, false);
+  const perSide = new Account({ ...DEFAULT_SETTINGS, commissionPerSide: true }, 1);
+  assert.equal(perSide.size(100, 10000).commission, 2 * new Account(DEFAULT_SETTINGS, 1).size(100, 10000).commission, "per side: charged twice");
   assert.equal(cleanSettings({ commissionPerLot: 3.5 }).commissionPerLot, 3.5);
 });
 

@@ -1635,3 +1635,47 @@ node --test web/tests/orderflow.test.mjs web/tests/flowdata.test.mjs
 python -m pytest tests/test_trigger.py
 node --test web/tests/trigger.test.mjs
 ```
+
+## 9 Nov 2026: order flow, Phase 7 (position tool with costs), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "start phase 7". The brief:
+- **Inputs:** account size, risk %, entry, stop and target.
+- **Outputs:** stop in pips, lot size, R:R and cost in R.
+- **Cost per round trip:** spread from the data, $4 a lot commission (with a per-side toggle), and slippage (0.2 pip).
+- **Warnings:** stop under or over the pair's limits; target under 2R (Model A) or 1.5R (Model B).
+- **R always after costs.**
+
+**Built (Claude):**
+- **The sums, twice:** `forex_replay/costs.py` and `web/js/costs.js`, with `forex_replay/costs_golden.py`.
+- **The Long/Short drawings** show the costs and R after costs on their labels, with a warning line when needed (`drawings.js`, `main.js`).
+- **"Charged per side"** is a new account setting, applied by the account itself (`account.js`, `tradingpanel.js`).
+- **Position tool settings** under Account settings: slippage, model, target minimums, stop limits for the pair.
+- See [decision 0039](decisions/0039-position-costs.md).
+
+**Tests:** 5 new Python tests (168 in total) and 6 new JavaScript tests (224 in total).
+- **Golden:** 240 cases.
+- **Hand examples:** size, costs, R after costs, per side, shorts, wrong sides, each warning, USDJPY sizing.
+- **The account** charges twice when "per side" is on.
+- **The labels:** the costs appear, and the warning line never overlaps the stop's label.
+
+**Checked in the browser:**
+- **EURUSD, 10-pip stop:** 1.00 lots, $100 of risk, costs 0.06R ($6.00), 1.94R after costs at the 2.00R target, Model A's warning.
+- **With a 4.4-pip stop and per side on:** 2.27 lots, costs 0.23R ($22.70), 4.32R after costs, "stop under 6 pips".
+- **Gold, $1.00 stop:** 1.00 lots, $100, costs 0.48R ($48.00), both warnings.
+- **Cleaned up:** "per side" was turned back off, the tool's settings reset, and the two test drawings removed. No replay was saved.
+
+**Found along the way:**
+- **The warnings ran the entry label off the chart,** and then overlapped the stop's label on a short box. They now sit on their own line beyond the stop's label.
+- **A blank maximum stop** was stored as a number the settings refused, which would have quietly brought back the 20-pip limit. Fixed.
+
+**Open for Jeevesh:**
+- Should the journal's R also be after costs?
+- Should risk default to the brief's 0.5% or stay at 1%?
+- Should the ticket show the cost line?
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_costs.py
+node --test web/tests/costs.test.mjs web/tests/account.test.mjs
+```

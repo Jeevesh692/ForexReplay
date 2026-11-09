@@ -37,6 +37,7 @@ import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, ProfileLev
 import { cleanStateSettings, eventLabel, marketState, STATE_WORDS } from "./marketstate.js";
 import { bubbles as findBubbles, BubbleLayer, candleFlow, cleanFlowLayer, dayResets, divergences, FlowSeries, STORAGE_KEY as KEY_FLOW_LAYER } from "./orderflow.js";
 import { getSessions, sessionsBetween } from "./sessions.js";
+import { cleanCostSettings, minTargetR, positionPlan, STORAGE_KEY as KEY_COSTS, stopLimits, warningText } from "./costs.js";
 import { atrBefore, bubbleRule, candleRules, cleanTriggerSettings, currentM5, RULE_HELP, RULE_NAMES, RULES, STORAGE_KEY as KEY_TRIGGER, trigger as triggerOn } from "./trigger.js";
 
 const $ = (id) => document.getElementById(id);
@@ -173,6 +174,7 @@ async function boot() {
   let anchorPicking = false; // waiting for a click on the candle the CVD should start from
   // The order-flow layer's settings (orderflow.js): read here, before the charts are made, as their legends use them.
   let flowLayer = cleanFlowLayer((() => { try { return JSON.parse(recall(KEY_FLOW_LAYER, "null")); } catch { return null; } })());
+  let costSettings = cleanCostSettings((() => { try { return JSON.parse(recall(KEY_COSTS, "null")); } catch { return null; } })());
   let triggerSettings = cleanTriggerSettings((() => { try { return JSON.parse(recall(KEY_TRIGGER, "null")); } catch { return null; } })());
   let atrMemo = { period: null, values: null }; // the trigger panel's ATR on every 5-minute candle
   let panel = null; // trading panel (created below, once the chart exists)
@@ -541,10 +543,37 @@ async function boot() {
   };
   const priceText = (points) => (points / 10 ** manifest.digits).toFixed(manifest.digits);
 
-  /** Lots and dollars at risk for a long/short drawing, from the account's size settings. */
+  /**
+   * The words a long/short drawing adds to its three labels (Phase 7, costs.js): lots and risk from the account,
+   * the round trip's cost in R and dollars, R after costs at the target and the stop, and any warnings.
+   * The spread is the 1-minute candle's own at the entry time (never past the cursor), at least the minimum.
+   */
   function positionNote(d) {
-    const sized = trading.account.size(positionStats(d).risk, trading.balance, d.points[0].price);
-    return sized.error ? "" : `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}`;
+    const entry = d.points[0].price;
+    const sized = trading.account.size(positionStats(d).risk, trading.balance, entry);
+    if (sized.error) return "";
+    const last = clock.active ? clock.position - 1 : m5.length - 1;
+    const i = Math.min(last, Math.max(0, indexAtOrBefore(m5, d.points[0].time)));
+    const spreadPoints = Math.max(trading.minSpreadPoints, m5.spread[i]);
+    const cs = costSettings;
+    const [minStop, maxStop] = stopLimits(cs, manifest.symbol);
+    const s = trading.account.settings;
+    const plan = positionPlan(d.type, entry, d.stop, d.target, {
+      balance: trading.balance, riskPercent: s.riskPercent, pointValue: trading.account.pv(entry), pipPoints: manifest.pip_points,
+      spreadPoints, commissionPerLot: s.commissionPerLot, perSide: s.commissionPerSide, slippagePips: cs.slippagePips,
+      minStopPips: minStop, maxStopPips: maxStop, minTargetR: minTargetR(cs),
+    });
+    const base = `${formatLots(sized.units)} lots · risk ${formatMoney(sized.riskMoney)}`;
+    if (plan.error) return base;
+    const r = (v) => `${v >= 0 ? "" : "−"}${Math.abs(v).toFixed(2)}R`;
+    const warnings = warningText({ ...plan, warnings: plan.warnings.filter((w) => w !== "too_small") },
+      { minStopPips: minStop, maxStopPips: maxStop, minTargetR: minTargetR(cs), model: cs.model });
+    return {
+      entry: `${base} · costs ${plan.cost_r.toFixed(2)}R (${formatMoney(plan.cost_r * sized.riskMoney)})`,
+      warn: warnings.length ? `⚠ ${warnings.join(" · ")}` : "",
+      target: `${r(plan.target_r)} after costs`,
+      stop: `${r(plan.stop_r)} after costs`,
+    };
   }
 
   // One drawing layer per chart, all on the same drawings, acting as one (see layergroup.js).
@@ -890,6 +919,34 @@ async function boot() {
     renderTrigger();
   }
   for (const b of document.querySelectorAll(".trigger-sides button")) b.addEventListener("click", () => saveTrigger({ side: b.dataset.side }));
+
+  // ------------------------------------------------------------ order flow: position tool costs (Phase 7)
+  const NO_MAX_STOP = 100000; // pips: a blank maximum is stored as this, which no stop reaches
+  function renderCostSettings() {
+    const cs = costSettings;
+    $("cost-slippage").value = cs.slippagePips;
+    $("cost-model").value = cs.model;
+    $("cost-target-a").value = cs.targetA;
+    $("cost-target-b").value = cs.targetB;
+    const [minStop, maxStop] = stopLimits(cs, manifest.symbol);
+    $("cost-min-stop").value = minStop ?? "";
+    $("cost-max-stop").value = maxStop === null || maxStop >= NO_MAX_STOP ? "" : maxStop;
+    $("cost-stop-label").textContent = `${manifest.symbol} stop, pips (min / max)`;
+  }
+  function saveCosts() {
+    const value = (id) => ($(id).value === "" ? null : Number($(id).value));
+    const stopValue = (id) => ($(id).value === "" ? (id === "cost-max-stop" ? NO_MAX_STOP : 0) : Number($(id).value)); // blank: no limit
+    costSettings = cleanCostSettings({
+      ...costSettings, slippagePips: value("cost-slippage"), model: $("cost-model").value, targetA: value("cost-target-a"), targetB: value("cost-target-b"),
+      minStop: { ...costSettings.minStop, [manifest.symbol]: stopValue("cost-min-stop") },
+      maxStop: { ...costSettings.maxStop, [manifest.symbol]: stopValue("cost-max-stop") },
+    });
+    remember(KEY_COSTS, JSON.stringify(costSettings));
+    renderCostSettings();
+    layer.redraw();
+  }
+  for (const id of ["cost-slippage", "cost-model", "cost-target-a", "cost-target-b", "cost-min-stop", "cost-max-stop"]) $(id).addEventListener("change", saveCosts);
+  renderCostSettings();
   $("trigger-rows").addEventListener("change", (event) => {
     const r = event.target.dataset.rule;
     if (r) saveTrigger({ on: { ...triggerSettings.on, [r]: event.target.checked } });

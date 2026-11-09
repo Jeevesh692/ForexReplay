@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   riskPercent: 1,
   fixedLots: 0.1,
   commissionPerLot: 4, // $ per lot, round turn (Jeevesh's broker)
+  commissionPerSide: false, // true: the $ per lot is charged on the way in and again on the way out (twice)
   minSpreadPips: 0,
 });
 
@@ -54,6 +55,7 @@ export function cleanSettings(raw) {
     if (raw[key] !== null && raw[key] !== "" && Number.isFinite(value) && value >= low && value <= high) out[key] = value;
   }
   if (raw.sizeMode === "risk" || raw.sizeMode === "lots") out.sizeMode = raw.sizeMode;
+  if (typeof raw.commissionPerSide === "boolean") out.commissionPerSide = raw.commissionPerSide;
   out.fixedLots = Math.round(out.fixedLots * LOT_UNITS) / LOT_UNITS;
   return out;
 }
@@ -145,7 +147,7 @@ export class Account {
     return {
       units,
       riskMoney: this.money(units, riskPoints, price),
-      commission: this.commissionFor(units, s.commissionPerLot),
+      commission: this.commissionFor(units, this.roundTripPerLot()),
       riskPercent: s.sizeMode === "risk" ? s.riskPercent : null,
     };
   }
@@ -162,6 +164,11 @@ export class Account {
     return units * points * this.pv(price) / LOT_UNITS;
   }
 
+  /** Commission for a round trip of one lot: the setting, twice when it is charged per side. */
+  roundTripPerLot() {
+    return this.settings.commissionPerLot * (this.settings.commissionPerSide ? 2 : 1);
+  }
+
   commissionFor(units, perLot) {
     return units * perLot / LOT_UNITS;
   }
@@ -169,7 +176,7 @@ export class Account {
   /** Remember the size of a trade the engine has just accepted. */
   attach(trade, sized) {
     this.sizes.set(trade.id, {
-      units: sized.units, commissionPerLot: this.settings.commissionPerLot, riskPercent: sized.riskPercent,
+      units: sized.units, commissionPerLot: this.roundTripPerLot(), riskPercent: sized.riskPercent, // kept with the trade: a later change does not rewrite it
     });
   }
 
