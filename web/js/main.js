@@ -33,7 +33,7 @@ import { InvalidOrder, Side, Status, Trading } from "./trading.js";
 import { TradingPanel } from "./tradingpanel.js";
 import { FlowMonths, loadFlow } from "./flowdata.js";
 import { dayLevels, priceBin, profileFromBars } from "./profile.js";
-import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, ProfileLevels, profileWindow, STORAGE_KEY as KEY_FLOW } from "./profiletool.js";
+import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, pipsToSlider, ProfileLevels, profileWindow, sliderToPips, STORAGE_KEY as KEY_FLOW } from "./profiletool.js";
 import { cleanStateSettings, eventLabel, marketState, STATE_WORDS } from "./marketstate.js";
 import { bubbles as findBubbles, BubbleLayer, candleFlow, cleanFlowLayer, dayResets, divergences, FlowSeries, STORAGE_KEY as KEY_FLOW_LAYER } from "./orderflow.js";
 import { getSessions, sessionsBetween } from "./sessions.js";
@@ -979,6 +979,32 @@ async function boot() {
     };
   }
 
+  // The Detail slider of a selected profile: its bin, in pips, on a log scale.
+  const pipSize = () => manifest.pip_points / 10 ** manifest.digits;
+  function showDetail(bin) {
+    const pips = bin / pipSize();
+    $("draw-detail-range").value = pipsToSlider(pips);
+    $("draw-detail-text").textContent = `${pips < 1 ? pips.toFixed(2) : pips.toFixed(1)} pip${pips === 1 ? "" : "s"}`;
+  }
+  let detailBefore = null; // the selected profile's bin when the drag began, so undo goes back to it in one step
+  $("draw-detail-range").addEventListener("input", () => {
+    const d = layer.selected;
+    if (!d || !d.profile) return;
+    if (detailBefore === null) detailBefore = d.profile.bin;
+    const bin = Math.max(0.5 / 10 ** manifest.digits, sliderToPips($("draw-detail-range").value) * pipSize());
+    d.profile = { ...d.profile, bin };
+    showDetail(bin);
+    layer.redraw();
+  });
+  $("draw-detail-range").addEventListener("change", () => {
+    const d = layer.selected;
+    if (!d || !d.profile || detailBefore === null) return;
+    const bin = d.profile.bin;
+    d.profile = { ...d.profile, bin: detailBefore };
+    detailBefore = null;
+    layer.setProfileSettings(cleanProfileSettings({ ...d.profile, bin }));
+  });
+
   // ------------------------------------------------------------ order flow: position tool costs (Phase 7)
   const NO_MAX_STOP = 100000; // pips: a blank maximum is stored as this, which no stop reaches
   function renderCostSettings() {
@@ -1061,6 +1087,8 @@ async function boot() {
       drawBar.editText.hidden = d.type !== "text";
       drawBar.fibLevels.hidden = d.type !== "fib";
       $("draw-profile").hidden = !d.profile;
+      $("draw-detail").hidden = !d.profile;
+      if (d.profile) showDetail(d.profile.bin ?? instrumentBin());
       drawBar.colours.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.colour === (d.color || PALETTE[0])));
       drawBar.styles.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lineStyle === (d.style || "solid")));
     },
@@ -1416,13 +1444,16 @@ async function boot() {
   const percent = (v) => Math.round(v * 100);
   function openFlowDialog(drawing) {
     flowEditing = drawing || null;
-    const s = flowEditing ? flowEditing.profile : { ...flowSettings.defaults, bin: flowSettings.bins[manifest.symbol] ?? instrumentBin() };
+    const s = flowEditing ? flowEditing.profile : newProfileSettings(flowSettings, manifest.symbol, instrumentBin());
     $("flow-title").textContent = flowEditing ? "Profile settings" : "Order flow";
     $("flow-auto").hidden = !!flowEditing;
     $("flow-source").value = s.source;
     $("flow-bin").value = s.bin ?? instrumentBin();
     $("flow-bin").step = String(1 / 10 ** manifest.digits);
-    $("flow-bin-note").textContent = flowEditing ? "this profile" : `for ${manifest.symbol} (its default: ${instrumentBin()})`;
+    $("flow-bin-note").textContent = flowEditing ? "this profile" : `new ${manifest.symbol} profiles (finer than the levels' bin)`;
+    $("flow-level-bin").value = flowSettings.bins[manifest.symbol] ?? instrumentBin();
+    $("flow-level-bin").step = String(1 / 10 ** manifest.digits);
+    $("flow-level-note").textContent = `${manifest.symbol} (its default: ${instrumentBin()})`;
     $("flow-va").value = percent(s.valueArea);
     $("flow-lvn").value = percent(s.lvn);
     $("flow-smoothing").value = String(s.smoothing);
@@ -1486,7 +1517,8 @@ async function boot() {
       layer.setProfileSettings(s);
     } else {
       flowSettings = cleanFlowSettings({
-        ...flowSettings, defaults: s, bins: { ...flowSettings.bins, [manifest.symbol]: s.bin },
+        ...flowSettings, defaults: s, drawBins: { ...flowSettings.drawBins, [manifest.symbol]: s.bin },
+        bins: { ...flowSettings.bins, [manifest.symbol]: Number($("flow-level-bin").value) || instrumentBin() },
         priorDay: $("flow-prior").checked, naked: $("flow-naked").checked, nakedDays: Number($("flow-naked-days").value),
       });
       remember(KEY_FLOW, JSON.stringify(flowSettings));

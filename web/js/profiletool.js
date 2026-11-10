@@ -48,14 +48,17 @@ export function cleanProfileSettings(raw, fallback = PROFILE_SETTINGS) {
 
 /** The Order flow settings: defaults for new profiles, a bin per pair, and the automatic levels. */
 export function cleanFlowSettings(raw) {
-  const out = { defaults: { ...PROFILE_SETTINGS }, bins: {}, priorDay: false, naked: false, nakedDays: 5 };
+  // bins: per pair, for the prior day's levels, naked POCs and market state (the brief's 1 pip / $0.50);
+  // drawBins: per pair, for profiles you draw (finer by default, FINE_BINS).
+  const out = { defaults: { ...PROFILE_SETTINGS }, bins: {}, drawBins: {}, priorDay: false, naked: false, nakedDays: 5 };
   if (!raw || typeof raw !== "object") return out;
   out.defaults = cleanProfileSettings(raw.defaults);
   out.defaults.bin = null; // the bin is per pair, below
-  if (raw.bins && typeof raw.bins === "object") {
-    for (const [symbol, value] of Object.entries(raw.bins)) {
+  for (const key of ["bins", "drawBins"]) {
+    if (!raw[key] || typeof raw[key] !== "object") continue;
+    for (const [symbol, value] of Object.entries(raw[key])) {
       const v = Number(value);
-      if (/^[A-Z]{6}$/.test(symbol) && value !== null && value !== "" && inRange(v, 1e-9, 100000)) out.bins[symbol] = v;
+      if (/^[A-Z]{6}$/.test(symbol) && value !== null && value !== "" && inRange(v, 1e-9, 100000)) out[key][symbol] = v;
     }
   }
   if (typeof raw.priorDay === "boolean") out.priorDay = raw.priorDay;
@@ -65,10 +68,20 @@ export function cleanFlowSettings(raw) {
   return out;
 }
 
-/** A new profile drawing's settings: the defaults, with this pair's bin (or the instrument's own default). */
+/** The bin a drawn profile starts with, finer than the levels' (EURUSD 0.2 pip, gold $0.10): you asked for finer profiles. */
+export const FINE_BINS = Object.freeze({ EURUSD: 0.00002, XAUUSD: 0.10 });
+
+/** A new profile drawing's settings: the defaults, with your bin for drawn profiles on this pair, else the fine one,
+ *  else a fifth of the instrument's own bin. */
 export function newProfileSettings(flowSettings, symbol, instrumentBin) {
-  return cleanProfileSettings({ ...flowSettings.defaults, bin: flowSettings.bins[symbol] ?? instrumentBin });
+  const bin = (flowSettings.drawBins || {})[symbol] ?? FINE_BINS[symbol] ?? instrumentBin / 5;
+  return cleanProfileSettings({ ...flowSettings.defaults, bin });
 }
+
+/** The Detail slider: bins from 0.05 to 20 pips, on a log scale (as fine steps at the fine end as at the coarse). */
+export const DETAIL_PIPS = Object.freeze([0.05, 20]);
+export const pipsToSlider = (pips) => Math.log10(Math.min(DETAIL_PIPS[1], Math.max(DETAIL_PIPS[0], pips)));
+export const sliderToPips = (x) => Math.round(10 ** Number(x) * 100) / 100;
 
 const rgba = (colour, alpha) => `rgba(${parseInt(colour.slice(1, 3), 16)}, ${parseInt(colour.slice(3, 5), 16)}, ${parseInt(colour.slice(5, 7), 16)}, ${alpha})`;
 const LVN_FILL = "rgba(239, 83, 80, 0.13)";
@@ -106,7 +119,9 @@ export function profileLayout(d, proj, computed) {
     const length = Math.max(1, (span * v) / most);
     const inside = k >= pr.va_bins[0] && k <= pr.va_bins[1];
     out.boxes.push({
-      x: s.side === "left" ? x0 : x1 - length, y: yTop + 0.5, w: length, h: Math.max(1, yBottom - yTop - 1),
+      // A 1-pixel gap between bars, except on fine bins, where the gap would eat the bar.
+      x: s.side === "left" ? x0 : x1 - length, y: yBottom - yTop >= 4 ? yTop + 0.5 : yTop, w: length,
+      h: yBottom - yTop >= 4 ? yBottom - yTop - 1 : Math.max(1, yBottom - yTop),
       role: "bin", colour: k === pr.poc ? rgba(s.pocColour, 0.75) : rgba(s.colour, inside ? 0.5 : 0.22),
     });
   });

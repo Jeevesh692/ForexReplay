@@ -118,6 +118,8 @@
         <button class="plain small" id="draw-edit-text" title="Change the text (or double-click the note)" hidden>Edit text</button>
         <button class="plain small" id="draw-fib-levels" title="Choose this Fibonacci's levels" hidden>Levels</button>
         <button class="plain small" id="draw-profile" title="This profile's bin size, value area, LVN level, colours and more" hidden>Profile settings</button>
+        <label class="draw-detail" id="draw-detail" title="Detail: how tall each of the profile's bars is. Left: finer." hidden>Detail
+          <input type="range" id="draw-detail-range" min="-1.31" max="1.31" step="0.01"><span id="draw-detail-text"></span></label>
         <span class="draw-levels" id="draw-levels" hidden>
           <label title="Stop loss price: type it, then Enter">SL <input id="draw-stop" inputmode="decimal" autocomplete="off"></label>
           <label title="Take profit price: type it, then Enter">TP <input id="draw-target" inputmode="decimal" autocomplete="off"></label>
@@ -563,6 +565,7 @@
     <section id="flow-auto">
       <h3 class="ind-group">Drawn for you</h3>
       <label class="check"><input type="checkbox" id="flow-prior"> The prior trading day's POC, VAH and VAL across the current day</label>
+      <label class="check">Bin for these levels and the market state <input type="number" id="flow-level-bin" min="0" step="any" style="width:90px"> <span class="muted" id="flow-level-note"></span></label>
       <label class="check"><input type="checkbox" id="flow-naked"> Naked POCs of the last <input type="number" id="flow-naked-days" min="1" max="30" step="1" style="width:56px"> days, until price touches them</label>
       <p class="muted small">A trading day runs from 17:00 New York. These use the settings above and the 1-minute bars.</p>
       <h3 class="ind-group">Market state</h3>

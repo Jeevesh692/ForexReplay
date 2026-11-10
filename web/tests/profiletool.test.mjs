@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { cleanDrawing, createDrawing, layout, logicalToX, TOOLS } from "../js/drawings.js";
 import { buildProfile, dayLevels, profileFromBars } from "../js/profile.js";
-import { cleanFlowSettings, cleanProfileSettings, newProfileSettings, PROFILE_SETTINGS, profileLayout, profileWindow } from "../js/profiletool.js";
+import { cleanFlowSettings, cleanProfileSettings, DETAIL_PIPS, newProfileSettings, pipsToSlider, PROFILE_SETTINGS, profileLayout, profileWindow, sliderToPips } from "../js/profiletool.js";
 
 const golden = JSON.parse(readFileSync(new URL("./fixtures/profile_golden.json", import.meta.url), "utf-8"));
 
@@ -46,8 +46,13 @@ test("profile settings: the brief's defaults, nonsense refused, a bin per pair",
   assert.deepEqual([bad.source, bad.bin, bad.valueArea, bad.smoothing, bad.side, bad.colour], ["M1", null, 0.7, 3, "left", "#2962ff"]);
   const flow = cleanFlowSettings({ bins: { XAUUSD: 0.25, bad: 1 }, naked: true, nakedDays: 50 });
   assert.deepEqual([flow.bins, flow.priorDay, flow.naked, flow.nakedDays], [{ XAUUSD: 0.25 }, false, true, 5]);
-  assert.equal(newProfileSettings(flow, "XAUUSD", 0.5).bin, 0.25, "the pair's own bin");
-  assert.equal(newProfileSettings(flow, "EURUSD", 0.0001).bin, 0.0001, "or the instrument's default");
+  // Drawn profiles start finer than the levels: 0.2 pip on EURUSD, $0.10 on gold, a fifth of the bin elsewhere.
+  assert.equal(newProfileSettings(flow, "EURUSD", 0.0001).bin, 0.00002);
+  assert.equal(newProfileSettings(flow, "XAUUSD", 0.5).bin, 0.1, "the levels' bin (0.25 here) is not the drawn profiles'");
+  assert.equal(newProfileSettings(flow, "GBPUSD", 0.0001).bin, 0.00002);
+  const mine = cleanFlowSettings({ drawBins: { EURUSD: 0.00005 }, bins: { EURUSD: 0.0001 } });
+  assert.deepEqual([mine.drawBins, mine.bins], [{ EURUSD: 0.00005 }, { EURUSD: 0.0001 }]);
+  assert.equal(newProfileSettings(mine, "EURUSD", 0.0001).bin, 0.00005, "your own choice for drawn profiles wins");
 });
 
 test("profile drawings are created, saved and reloaded with their settings", () => {
@@ -113,4 +118,16 @@ test("a time part-way into a candle past the last one is drawn between the candl
   assert.equal(logicalToX(scale, 2999), 29995);
   assert.equal(logicalToX(scale, 2999.25), 29997.5);
   assert.equal(logicalToX({ logicalToCoordinate: () => null }, 3.5), null);
+});
+
+
+test("the Detail slider: 0.05 to 20 pips on a log scale, there and back; fine bars drawn without a gap", () => {
+  for (const pips of [0.05, 0.2, 1, 2.5, 20]) assert.equal(sliderToPips(pipsToSlider(pips)), pips);
+  assert.equal(sliderToPips(pipsToSlider(100)), DETAIL_PIPS[1], "clamped to the range");
+  assert.ok(pipsToSlider(0.2) - pipsToSlider(0.1) > 0.29 && pipsToSlider(20) - pipsToSlider(10) > 0.29, "doubling is the same step anywhere");
+  const proj = { x: (t) => t / 10, y: (p) => 1000 - p, width: 800, height: 600, formatPrice: String, formatTime: String, pips: (p) => p };
+  const thin = buildProfile([0, 1, 2], [0, 1, 2], [5, 9, 5], 2); // bins 1 unit = half a pixel here: thinner than 4 px
+  const d = { type: "vprofile", points: [{ time: 1000, price: 1 }, { time: 3000, price: 2 }], profile: { ...PROFILE_SETTINGS } };
+  const bins = profileLayout(d, proj, { start: 1000, end: 4000, profile: thin }).boxes.filter((b) => b.role === "bin");
+  assert.ok(bins.every((b, i) => i === 0 || Math.abs(bins[i - 1].y - (b.y + b.h)) < 1e-9), "each bar touches the next: no gap");
 });

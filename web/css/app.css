@@ -779,3 +779,9 @@ table.calendar .count { color: var(--muted); font-size: 11.5px; }
 .bubble-form input[type="number"] { width: 58px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 3px; font: inherit; }
 .bubble-main { display: flex; align-items: center; gap: 6px; color: var(--text); }
 .bubble-main input[type="range"] { flex: 1; min-width: 60px; }
+
+/* ---------- the Detail slider of a selected profile ---------- */
+.draw-detail { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.draw-detail[hidden] { display: none; }
+.draw-detail input[type="range"] { width: 110px; }
+#draw-detail-text { min-width: 70px; color: var(--text); font-variant-numeric: tabular-nums; }

@@ -1826,3 +1826,31 @@ python -m forex_replay mbt run --name loose --set trigger.min_rvol=1.2
 - **At 1.6x:** 1 bubble and 265 absorption, as the slider moved.
 - **Typed values:** 2.35x was kept exactly, and a 0.8-pip bubble move was saved as 0.00008.
 - **Cleaned up:** the settings were reset afterwards.
+
+## 10 Nov 2026: order flow, finer volume profiles, on the `orderflow` branch
+
+**Asked for (Jeevesh):** "also make the volume profiles more finer".
+
+**Built (Claude):**
+- **Finer by default:** profiles you draw now start at 0.2 pip on EURUSD and $0.10 on gold (`FINE_BINS`), instead of 1 pip and $0.50. Profiles already drawn keep their own bin.
+- **A Detail slider** in the bar under a selected profile, from 0.05 pip (half a point, the finest the data has) to 20 pips, on a log scale.
+  - **While you drag,** the profile redraws.
+  - **When you let go,** it is one change: one Ctrl + Z undoes the whole drag.
+- **Two separate bins** (Claude's call):
+  - **The prior day's levels, naked POCs and the market state** keep their own bin (1 pip / $0.50), so their numbers, the backtester and the order-flow log do not change.
+  - **The Order flow dialog** now has a field for each: "Bin size" for new profiles, and "Bin for these levels and the market state".
+- **Fine bars** (under 4 pixels tall) are drawn without the 1-pixel gap, which would otherwise eat them.
+
+**Tests:** 1 new JavaScript test, and 1 extended (228 in total).
+- **The defaults:** fine for new profiles; your own choice wins; the levels' bin is kept separately.
+- **The slider's scale:** there and back, and clamped.
+- **Fine bars:** touch with no gap.
+
+Python unchanged (188).
+
+**Checked in the browser** (EURUSD M5, 14 Oct 2026, on port 8766):
+- **A new fixed range profile** came out at 0.20 pip.
+- **Dragged to 0.05 pip,** the histogram was smooth, and the drawing saved 0.000005.
+- **One Ctrl + Z** brought back 0.00002.
+- **The dialog** showed 0.00002 for new profiles and 0.0001 for the levels.
+- **Cleaned up:** the drawing and settings were removed afterwards.
