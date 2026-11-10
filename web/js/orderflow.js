@@ -16,6 +16,7 @@ export const FLOW_LAYER = Object.freeze({
 // `show` is the master switch (Alt + O): off, every automatic order-flow item is hidden (the prior day's levels,
 // naked POCs, market state, RVOL, CVD, bubbles); each feature also has its own switch, off until chosen.
 export const STORAGE_KEY = "forexreplay.flowlayer";
+export const MIN_RVOL_FLOOR = 0.5; // bubbles can be asked for from half the usual activity upwards
 
 const upperBound = (a, n, x) => { let lo = 0, hi = n; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] <= x) lo = m + 1; else hi = m; } return lo; };
 const lowerBound = (a, n, x) => { let lo = 0, hi = n; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < x) lo = m + 1; else hi = m; } return lo; };
@@ -30,7 +31,7 @@ export function cleanFlowLayer(raw) {
   const lookback = Number(raw.lookback);
   if (Number.isInteger(lookback) && lookback >= 2 && lookback <= 500) out.lookback = lookback;
   const r = Number(raw.minRvol), m = Number(raw.medium), l = Number(raw.large);
-  if (Number.isFinite(r) && r >= 1 && r <= 50) out.minRvol = Math.round(r * 100) / 100;
+  if (Number.isFinite(r) && r >= MIN_RVOL_FLOOR && r <= 50) out.minRvol = Math.round(r * 100) / 100; // any multiple, to 2 decimals
   if (Number.isFinite(m) && m >= out.minRvol && m <= 100) out.medium = Math.round(m * 100) / 100;
   if (Number.isFinite(l) && l >= out.medium && l <= 200) out.large = Math.round(l * 100) / 100;
   if (out.medium < out.minRvol) out.medium = out.minRvol;
@@ -186,9 +187,10 @@ export class FlowSeries {
 
 /** Bubbles and absorption painted over the candles, at each bucket's time inside its candle and its close price. */
 export class BubbleLayer {
-  constructor(view, provide) {
+  constructor(view, provide, onPaint = null) {
     this.view = view;
     this.provide = provide; // (fromUtc, toUtc) -> { items, digits } | null
+    this.onPaint = onPaint; // ({ bubbles, absorption }) on screen, after each paint (the Bubbles panel's count)
     const draw = (target) => target.useMediaCoordinateSpace(({ context }) => this.paint(context));
     this.views = [{ zOrder: () => "normal", renderer: () => ({ draw }) }];
     view.series.attachPrimitive(this);
@@ -211,6 +213,10 @@ export class BubbleLayer {
     const a = Math.max(0, Math.floor(range.from)), b = Math.min(c.length - 1, Math.ceil(range.to));
     if (b < a) return;
     const info = this.provide(c.time[a], c.time[b] + tf);
+    if (this.onPaint) {
+      const items = info ? info.items : [];
+      this.onPaint({ bubbles: items.filter((it) => it.kind === "bubble").length, absorption: items.filter((it) => it.kind === "absorption").length });
+    }
     if (!info) return;
     const unit = 10 ** info.digits;
     ctx.save();

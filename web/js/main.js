@@ -818,6 +818,51 @@ async function boot() {
     return `Bubbles ${words.join(" · ")}`;
   }
   function redrawFlowLayer() { for (const b of bubbleLayers) b.redraw(); }
+
+  // The Bubbles panel (side panel): the RVOL multiple a bubble forms from, and the sizes and moves, changed live.
+  const pipPrice = () => manifest.pip_points / 10 ** manifest.digits;
+  let bubbleCountText = "";
+  function showBubbleCount({ bubbles: nb, absorption: na }) {
+    const text = `${nb} bubble${nb === 1 ? "" : "s"} · ${na} absorption on screen`;
+    if (text !== bubbleCountText) { bubbleCountText = text; $("bubble-count").textContent = text; }
+  }
+  function renderBubblePanel() {
+    const panel = $("bubble-panel");
+    panel.hidden = !flowLayer.show || (!flowLayer.bubbles && !flowLayer.absorption);
+    if (panel.hidden) return;
+    const pip = pipPrice();
+    $("bub-rvol").value = flowLayer.minRvol;
+    $("bub-rvol-range").value = Math.min(15, flowLayer.minRvol);
+    $("bub-medium").value = flowLayer.medium;
+    $("bub-large").value = flowLayer.large;
+    $("bub-move").value = Math.round((bubbleMove() / pip) * 100) / 100;
+    $("bub-absorb").value = Math.round((absorptionMove() / pip) * 100) / 100;
+  }
+  /** One change from the panel: kept, and the bubbles redrawn now. `lines`: also redraw the RVOL panel's colours. */
+  function changeBubbles(change, lines = false) {
+    flowLayer = cleanFlowLayer({ ...flowLayer, ...change });
+    remember(KEY_FLOW_LAYER, JSON.stringify(flowLayer));
+    bubbleMemo.key = null;
+    redrawFlowLayer();
+    renderTrigger();
+    if (lines) refreshFlowLayer();
+  }
+  $("bub-rvol-range").addEventListener("input", () => { // while dragging: the bubbles follow at once
+    $("bub-rvol").value = $("bub-rvol-range").value;
+    changeBubbles({ minRvol: Number($("bub-rvol-range").value) });
+  });
+  $("bub-rvol-range").addEventListener("change", () => { changeBubbles({}, true); renderBubblePanel(); });
+  $("bub-rvol").addEventListener("change", () => { changeBubbles({ minRvol: Number($("bub-rvol").value) }, true); renderBubblePanel(); });
+  $("bub-medium").addEventListener("change", () => { changeBubbles({ medium: Number($("bub-medium").value) }); renderBubblePanel(); });
+  $("bub-large").addEventListener("change", () => { changeBubbles({ large: Number($("bub-large").value) }); renderBubblePanel(); });
+  $("bub-move").addEventListener("change", () => {
+    changeBubbles({ bubbleMove: { ...flowLayer.bubbleMove, [manifest.symbol]: Number($("bub-move").value) * pipPrice() } });
+    renderBubblePanel();
+  });
+  $("bub-absorb").addEventListener("change", () => {
+    changeBubbles({ absorptionMove: { ...flowLayer.absorptionMove, [manifest.symbol]: Number($("bub-absorb").value) * pipPrice() } });
+    renderBubblePanel();
+  });
   /** After a settings change or new data: the panels, markers and bubbles again. */
   function refreshFlowLayer() {
     for (const p of panes()) if (p.chart) p.chart.setFlowLines((full, tfId, from) => flowLinesFor(full, tfId, from));
@@ -828,6 +873,7 @@ async function boot() {
     $("flow-open").classList.toggle("active", flowSettings.priorDay || flowSettings.naked || stateSettings.on
       || flowLayer.rvol || flowLayer.cvd || flowLayer.deltaBars || flowLayer.bubbles || flowLayer.absorption || flowLayer.divergence);
     $("flow-open").classList.toggle("hidden-layer", !flowLayer.show);
+    renderBubblePanel();
   }
   function setAnchorPicking(on) {
     if (on) layer.setTool(null);
@@ -975,7 +1021,8 @@ async function boot() {
 
   const addLayer = (paneChart) => {
     const cb = layer.callbacks();
-    bubbleLayers.push(new BubbleLayer(paneChart, (from, to) => bubbleItems(from, to)));
+    const first = bubbleLayers.length === 0; // the main chart's count goes in the Bubbles panel
+    bubbleLayers.push(new BubbleLayer(paneChart, (from, to) => bubbleItems(from, to), first ? showBubbleCount : null));
     levelLayers.push(new ProfileLevels(paneChart, shownLevels));
     const l = new DrawingLayer(paneChart, {
       store: drawings, pipPoints: manifest.pip_points, note: positionNote, editor: $("text-editor"),

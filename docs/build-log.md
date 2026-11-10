@@ -1805,3 +1805,24 @@ python -m pytest tests/test_mechanical.py
 python -m forex_replay mbt run --name baseline
 python -m forex_replay mbt run --name loose --set trigger.min_rvol=1.2
 ```
+
+## 10 Nov 2026: order flow, a live Bubbles control, on the `orderflow` branch
+
+**Asked for (Jeevesh):** "Give me the control ... I can test by how much multiple of volumes I will want bubbles to form not a fix one like 1x,2x,3x".
+
+**Built (Claude):**
+- **A Bubbles panel** in the side panel, shown when bubbles or absorption are on:
+  - a **slider and a number box** for the RVOL multiple a bubble forms from, any value from 0.5x to two decimals; the chart follows while you drag
+  - the **medium and large size** thresholds
+  - the **price moves in pips** (a bubble's minimum and absorption's maximum)
+  - a **count** of the bubbles and absorption on screen
+- **The bottom of the range** went from 1x to 0.5x (`cleanFlowLayer`, the Order flow dialog). Changes are saved as before.
+- **The backtester** already took any value: `--set bubbles.min_rvol=2.35`.
+
+**Tests:** 1 new JavaScript test (227 in total): 2.35x kept, 0.5x accepted, 0.4x refused, a 2.4x bucket a bubble from 2.35x but not from 3x. Python unchanged (188).
+
+**Checked in the browser** (EURUSD M5, 14 Oct 2026; on port 8766, since 8765 was in use):
+- **At 3x:** 0 bubbles and 60 absorption on screen.
+- **At 1.6x:** 1 bubble and 265 absorption, as the slider moved.
+- **Typed values:** 2.35x was kept exactly, and a 0.8-pip bubble move was saved as 0.00008.
+- **Cleaned up:** the settings were reset afterwards.

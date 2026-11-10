@@ -102,3 +102,15 @@ test("settings: the brief's defaults; nonsense refused; sizes kept in order", ()
   assert.deepEqual([s.show, s.reset, s.anchor, s.minRvol, s.medium, s.large, s.lookback, s.bubbleMove], [false, "anchor", 1762207200, 2.5, 5, 9, 20, { XAUUSD: 0.4 }]);
   assert.equal(cleanFlowLayer({ reset: "week" }).reset, "session");
 });
+
+test("the bubble multiple can be any value from 0.5x, to two decimals; sizes stay in order", () => {
+  assert.equal(cleanFlowLayer({ minRvol: 2.35 }).minRvol, 2.35);
+  assert.equal(cleanFlowLayer({ minRvol: 0.5 }).minRvol, 0.5);
+  assert.equal(cleanFlowLayer({ minRvol: 0.4 }).minRvol, FLOW_LAYER.minRvol, "under 0.5x: refused, the default kept");
+  assert.equal(cleanFlowLayer({ minRvol: 1.234 }).minRvol, 1.23);
+  const s = cleanFlowLayer({ minRvol: 6.5, medium: 5, large: 8 });
+  assert.deepEqual([s.minRvol, s.medium, s.large], [6.5, 6.5, 8], "medium never below where bubbles start");
+  // A bucket at 2.4x: a bubble from 2.35x, nothing from the default 3x.
+  assert.equal(classifyBucket(100, 140, 24, 20, 30, 6, 2.35, 5, 8).kind, "bubble");
+  assert.equal(classifyBucket(100, 140, 24, 20, 30, 6), null);
+});
