@@ -6,7 +6,8 @@
     python -m forex_replay app      (v2 browser app)
     python -m forex_replay data     (rebuild the app's market data from MT5 exports)
     python -m forex_replay site     (build the app as a static website, for free hosting)
-    python -m forex_replay nbb nbb  (rebuild a strategy's NBB log from every saved session)
+    python -m forex_replay hello    (check the setup works)
+    python -m forex_replay nbb nbb (rebuild a strategy's NBB log from every saved session)
     python -m forex_replay sweep liquidity_sweep  (the same for the sweep log)
 """
 
@@ -116,6 +117,13 @@ def cmd_log(args) -> None:
           f"from {totals['sessions']} saved sessions")
 
 
+def cmd_hello(args) -> None:
+    """A tiny check that the setup works: prints a greeting and today's UTC date."""
+    from datetime import datetime, timezone
+
+    print(f"ForexReplay is working. Today (UTC) is {datetime.now(timezone.utc):%Y-%m-%d}.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m forex_replay",
                                      description="Forex bar-replay simulator and backtester")
@@ -163,6 +171,9 @@ def build_parser() -> argparse.ArgumentParser:
     site = sub.add_parser("site", help="v2: build the app as a static website (backtests saved in the browser)")
     site.add_argument("--out", default="_site", help="folder to write the website into")
     site.set_defaults(func=cmd_site)
+
+    hello = sub.add_parser("hello", help="print a short message to check the setup works")
+    hello.set_defaults(func=cmd_hello)
 
     for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv")):
         log = sub.add_parser(name, help=f"rebuild a strategy's {name} log ({files}) from its saved sessions")
