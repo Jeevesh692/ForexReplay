@@ -1378,3 +1378,479 @@ The step-by-step replay test runs with the range on.
 - **Console:** no errors except the usual `site.json` 404.
 
 **How to check:** tick Indicators → Opening range (the breakout box is ticked). Replay XAUUSD M5 on 5 Aug 2025 and press J for the New York KZ end. Step forward five candles to 19:55 IST.
+
+---
+
+## 9 Nov 2026: order flow, Phases 1 (code) and 2, on the `orderflow` branch
+
+**Asked for (Jeevesh):** an Auction Market Theory and synthetic order-flow toolkit, in ten phases, stopping after each one.
+- **Phase 1:** tick data, built into M1 bars and 15-second buckets with same-slot baselines.
+- **Phase 2:** a volume profile engine (POC, value area, HVNs, LVN zones), shared by Python and the browser and held to golden cases.
+
+**Decided first (Jeevesh, when asked):**
+- **The ticks:** FundedNext's own ticks through MT5. Dukascopy still answers HTTP 429 and needs an AWS account of his own.
+- **Where:** a new `orderflow` branch.
+- **pyarrow:** installed, for the Parquet copies.
+
+**Built (Claude):**
+- **Phase 1:**
+  - `forex_replay/ticks.py` downloads and caches the ticks.
+  - `forex_replay/flow.py` does the mid, the tick rule, M1 and 15-second bars, 20-day same-slot baselines with no look-ahead, the trading day from 17:00 New York, the quality report, and the browser's and backtester's files.
+  - `web/js/flowdata.js` reads the files.
+  - Two commands: `python -m forex_replay ticks download` and `flow build`.
+  - See [decision 0033](decisions/0033-order-flow-data.md).
+- **Phase 2:** `forex_replay/profile.py` and `web/js/profile.js`, the same definition twice, with `forex_replay/profile_golden.py`. See [decision 0034](decisions/0034-volume-profile.md).
+
+**Tests:** 21 new Python tests (136 in total) and 5 new JavaScript tests (193 in total).
+- **Phase 1:**
+  - the tick rule
+  - the clock in summer and winter, and the 17:00 New York day boundary
+  - the baseline never reading today or later
+  - a slot with no bar counting as 0
+  - weekends, gaps and spread spikes
+  - an end-to-end build whose files read back exactly
+  - the cached downloads
+  - the browser reading Python's golden sample
+- **Phase 2:**
+  - hand examples for the bins, the value area, ties, smoothing, HVNs and LVN zones
+  - the cursor
+  - 45 golden profiles that JavaScript matches exactly
+- **Broken on purpose:** three changes to the profile rules each made tests fail. The value-area tie was at first caught only on the Python side; a tie case was added to the golden file and the JavaScript tests.
+
+**Found along the way:**
+- **MT5 was not logged in** ("Authorization failed"), so no ticks are downloaded yet. Phase 1 finishes with the download, the real file sizes, how far FundedNext's tick history goes, and the quality report.
+- **My arithmetic:** two expected values in my own Phase 1 test were wrong (220,001 for 220,010); the code was right.
+
+**Not checked in the browser:** nothing is drawn yet. The profile appears on the chart in Phase 3.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_flow.py tests/test_profile.py
+node --test web/tests/profile.test.mjs web/tests/flowdata.test.mjs
+```
+
+## 9 Nov 2026: order flow, Phase 1 (data) and Phase 3 (profile tools), on the `orderflow` branch
+
+**Asked for (Jeevesh):**
+- "start phase 3 and mt5 is logged in with new account".
+- **Phase 3 of the brief:** a fixed range and an anchored volume profile to draw on the chart, the prior day's POC, VAH and VAL, and naked POCs, every number a setting, and no look-ahead.
+
+**Phase 1, finished:**
+- **The download:** the ticks came down from the new FundedNext demo account (FundedNext-Server 3). EURUSD runs from 1 Aug 2025 and gold only from 25 Aug 2026. Sizes, gaps and spikes are in [decision 0033](decisions/0033-order-flow-data.md).
+- **Spike rule changed (Claude):** a spread spike is now measured against a day's median of at least 1 pip, not 1 point. With 1 point, ordinary EURUSD minutes on days with a near-zero median counted as spikes. All 4,715 EURUSD spikes that remain are at the 16:00 to 18:59 New York rollover.
+
+**Built (Claude), Phase 3:**
+- `web/js/profiletool.js`: the two tools' settings, their drawing (histogram, POC, VAH and VAL, LVN zones), the profile's time window, and `ProfileLevels`, which paints the prior day's levels and naked POCs.
+- `day_levels` (Python) and `dayLevels` (JavaScript), one definition, with 10 golden cases added to `profile_golden.json`.
+- **The drawing tools**, wired in:
+  - `drawings.js`, `drawinglayer.js` and `layergroup.js`, so profiles save, reload, select, move and delete like any drawing
+  - Alt + P and Alt + A in `shortcuts.js`
+- **The Order flow dialog** in `main.js` and `index.html`: defaults, the bin per pair, the automatic levels, and **Profile settings** for one profile.
+- See [decision 0035](decisions/0035-profile-tools.md).
+
+**Tests:** 1 new Python test (137 in total) and 7 new JavaScript tests (200 in total).
+- the day levels against Python's golden answers, and by hand (a naked POC touched only once the touching bar has closed)
+- bars after the cursor make no difference
+- the settings' defaults and refusals
+- profiles saved and reloaded
+- the time window
+- a profile stopping at the cursor and growing with it
+- the drawing's layout
+
+**Checked in the browser:**
+- **EURUSD M15, no replay:** a fixed range profile drew its histogram, the POC in yellow, VAH, VAL and an LVN zone.
+- **EURUSD M15, in a replay from 13 Oct 2026:**
+  - **The anchored profile** ended at the last revealed candle. After stepping on to 18:00 IST its VAH had moved from 1.11900 to 1.11910, and it still ended at the cursor.
+  - **The prior-day lines** started at 02:30 IST (17:00 New York). An nPOC line stopped where price touched it.
+  - **Saved and resumed:** the session file held the profile with its settings, and resuming it drew the profile again.
+- **XAUUSD M15:** a fixed range profile with 0.50 bins and two LVN zones, and the prior-day levels.
+  - **Profile settings:** moving one profile's histogram to the right worked.
+- **Cleaned up:** the test session's folder (`strategies/manual_backtests`, created by the check) was removed with the server stopped, and the Order flow settings were reset.
+
+**Found along the way:**
+- **No cache, no levels:** `dayLevels` called without a cache computed nothing (`cache && cache.get(key)` is `null`, not `undefined`). The app always passes one, so it never showed, but the new test caught it. Fixed.
+- **Gold showed no prior-day levels outside a replay:** its order-flow files run to 9 Nov 2026, past its candles (23 Oct). Outside a replay the cursor is now the chart's last candle.
+
+**Not done:** the README and `docs/plan.md` are left as they are until the order-flow branch is merged.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_profile.py tests/test_flow.py
+node --test web/tests/profiletool.test.mjs web/tests/profile.test.mjs
+```
+
+## 9 Nov 2026: order flow, Phase 4 (market state labels), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "start phase 4". The brief:
+- **Accepted** above or below the previous day's value area: 2 consecutive 30-minute closes outside it.
+- **Rejected:** traded outside, then a 30-minute close back inside within 60 minutes, before a second outside close.
+- **Shown** as labels on the chart and in a status box; times and thresholds are settings.
+
+**Built (Claude):**
+- **The definition, twice:** `forex_replay/marketstate.py` and `web/js/marketstate.js`, with `forex_replay/state_golden.py` writing 252 golden cases.
+- **In the app:**
+  - a status box at the bottom right of the chart
+  - "Acc ↑", "Rej ↓" squares on the candles, on any timeframe
+  - a Market state section in the Order flow dialog (on/off, labels, 15/30/60-minute candles, closes for acceptance, the rejection window)
+- **`logicalToX`** in `drawings.js`, the fix below.
+- See [decision 0036](decisions/0036-market-state.md).
+
+**Tests:** 10 new Python tests (146 in total) and 5 new JavaScript tests (205 in total).
+- **Hand examples:** acceptance; a wick rejection; one outside close allowed, two not; the window's edge; the state through a day; only today's bars.
+- **Golden:** JavaScript matches all 252 cases.
+- **No look-ahead:** bars after the cursor, or past an array's length, change nothing.
+- **The fix:** the position between candles.
+
+**Checked:**
+- **On real data:** Python and JavaScript gave the same states and labels at 10 cursors on EURUSD over a year.
+- **In the browser, EURUSD M15 in a replay from 14 Oct 2026, 03:30 IST:**
+  - **03:30:** "Inside value", with VAH 1.12020 and VAL 1.11810.
+  - **06:15:** "Above value" after one close above.
+  - **06:45:** "Accepted above", with "Acc ↑" on the 06:00 candle (the 06:30 close at 1.12034), the same label as Python's.
+- **XAUUSD M15 on 22 Oct 2026:**
+  - **Labels:** Rej ↑ at about 04:30 IST, three Rej ↓ while price chopped around VAL, then Acc ↓ at 09:30.
+  - **The box:** "Accepted below".
+- **Cleaned up:** the settings changed for the check were reset. The replay saved no session (no trade or drawing).
+
+**Found along the way:**
+- **The prior-day lines ended at the chart's left edge outside a replay.** The cursor falls part-way into a candle past the last one, and for such a position the chart library answers null, which was drawn at x = 0. Phase 3's checks happened to land on whole candles. A shared `logicalToX` now works out the position between the two whole candles, for the levels and for all drawings (an anchored profile had the same weakness).
+- **My test was wrong once:** I expected "Inside value" where the rule gives a second rejection, because price went out and back within 60 minutes again. The code was right; the test now says so.
+- **The status box covered the legend** on a narrow window, at the top right and then one row down. It moved to the bottom right, over the volume bars.
+
+**Open for Jeevesh:** price chopping around VAL or VAH gives a rejection label at every return inside. Should only the first on each side be labelled until an acceptance or a new day?
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_marketstate.py
+node --test web/tests/marketstate.test.mjs
+```
+
+## 9 Nov 2026: order flow, Phase 5 (synthetic order flow), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "start phase 5". The brief:
+- **RVOL** in a panel and the tooltip.
+- **Bubbles** from 15-second buckets (RVOL ≥ 3 and a move of 1.5 pips / $0.50), sized by RVOL.
+- **Absorption:** RVOL ≥ 3 without a move.
+- **A CVD panel** with resets, a fallback without ticks, delta bars and an optional divergence flag.
+- **Every threshold a setting,** and a master toggle.
+
+**Built (Claude):**
+- **The definitions, twice:** `forex_replay/orderflow.py` and `web/js/orderflow.js`, with `forex_replay/orderflow_golden.py`.
+- **The app:**
+  - `FlowSeries`, which keeps RVOL, delta and CVD up to date step by step
+  - `BubbleLayer`, which paints the bubbles
+  - `FlowMonths` in `flowdata.js`, which loads the 15-second buckets a month at a time
+  - `chart.js`: RVOL and CVD panels (histogram bars and a line, the delta bars on their own scale)
+  - `main.js`: the settings, the legend line for bubbles, divergence markers, picking a CVD anchor on the chart, and Alt + O
+- **The dialog:** a "Synthetic order flow" section in the Order flow dialog.
+- See [decision 0037](decisions/0037-synthetic-order-flow.md).
+
+**Tests:** 10 new Python tests (156 in total) and 8 new JavaScript tests (213 in total).
+- **Hand examples:** RVOL, bubble and absorption rules, sizes, delta and CVD, resets, a missing baseline, the fallback, the cursor, divergence both ways, and the summer and winter day start.
+- **Golden:** JavaScript matches all 148 cases.
+- **The step-by-step series:** it equals a full recompute.
+- **No look-ahead:** minutes and buckets after the cursor change nothing.
+- **The month loader:** it fetches only the months asked for, once each.
+
+**Checked:**
+- **On real data:** Python and JavaScript give the same October totals for both pairs (decision 0037).
+- **In the browser, EURUSD M15:**
+  - **The panels:** RVOL bars and the CVD line with delta bars; the legend reads "RVOL 0.74x · CVD −57 · Δ −21".
+  - **Loading:** the 15-second file loaded only for October.
+  - **What drew:** absorption circles, mostly at the rollover, and a few bubbles.
+- **In a replay at 04:00 IST on 14 Oct:**
+  - the newest bubble's bucket closed at 03:55
+  - the legend showed "high activity, no progress" over a candle with absorption
+  - Alt + O hid all of it and showed it again
+  - picking an anchor at 13 Oct 06:30 restarted the CVD there
+  - divergence markers appeared
+- **XAUUSD on 25 Aug 2026:** the fallback CVD runs until 03:30 IST, where the ticks begin. RVOL is blank, with no 20 days of baseline yet.
+- **Cleaned up:** the settings changed for the check were reset. No session was saved.
+
+**Found along the way:**
+- **The month loader never fetched in the browser** ("Illegal invocation": the browser's `fetch` called as a method of another object). Node's test did not show it. It now wraps `fetch`.
+- **The anchored CVD before the anchor** ran from the data's first minute and flattened the line. Those candles are now blank.
+- **The chart's panel code re-created a panel's series** only when its id matched the panel's name. The delta bars ("delta" in the CVD panel) would have stayed in the wrong panel when another panel was switched off. It now goes by the panel each series sits in.
+- **My test was wrong once:** RVOL of a candle mixing fallback minutes and tick minutes comes from the tick minutes. The code was right.
+
+**Open for Jeevesh:**
+- **The rollover:** many EURUSD absorption circles are at it. Should a window around it be left out?
+- **15-second profiles** still load every month (decision 0037).
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_orderflow.py
+node --test web/tests/orderflow.test.mjs web/tests/flowdata.test.mjs
+```
+
+## 9 Nov 2026: order flow, Phase 6 (trigger panel), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "start phase 6".
+- **The panel:** for the current 5-minute candle, a pass/fail light for:
+  - body ≥ 50% of the range
+  - range ≥ 1.2 × ATR(14)
+  - a close in the top or bottom 25%
+  - RVOL ≥ 1.5
+  - a bubble rule that can be switched on
+- **The overall light:** green only when all the rules switched on pass for the chosen direction.
+
+**Built (Claude):**
+- **The rules, twice:** `forex_replay/trigger.py` and `web/js/trigger.js`, with `forex_replay/trigger_golden.py`.
+- **The panel:** "Trigger 5m" in the side panel (`index.html`, `app.css`), wired in `main.js`, with:
+  - the candle it judges
+  - Long / Short
+  - a light and a value per rule
+  - a box per rule
+  - settings
+  - full explanations on hover
+- **Phase 5's bubbles now carry their delta,** for the bubble rule's "opposite absorption". The Phase 5 golden file was regenerated; only that field changed.
+- See [decision 0038](decisions/0038-trigger-panel.md).
+
+**Tests:** 7 new Python tests (163 in total) and 6 new JavaScript tests (219 in total).
+- **Golden:** the candle, its ATR and the four rules (384 cases), the bubble rule (120), the overall light (40).
+- **The chart's own 5-minute candles** are the same as the panel's.
+- **No look-ahead.**
+- **Hand examples,** including candles exactly on every line.
+
+**Checked:**
+- **On real data:** Python from the raw M1 file gives the panel's numbers for the last EURUSD candle: body 0.90, close 0.075, ATR 2.741 pips, range 1.459×.
+- **In the browser, EURUSD:**
+  - **Outside a replay:** "14:00 IST · forming, 4 of 5 min"; body 90% ✓, range 4.0 pips = 1.46× ✓, close at 8% ✗ (long), RVOL 0.74x ✗.
+  - **In a replay at 05:45 IST:** it judged the 05:40 candle, "closed".
+  - **With a fixed range profile** drawn over the night and the bubble rule on: "not in an LVN" above the zone; stepping back to 04:45 IST put the 04:40 candle in the zone, "0 with, 0 against".
+  - **Short:** fails the close rule where long passed it.
+- **Cleaned up:** the settings changed for the check were reset. The test session folder (`strategies/manual_backtests`, created by the check at 14:05) was removed after the server was stopped.
+
+**Found along the way:**
+- **Not caught at first:** making "at least" into "more than" for the range rule was not caught by any test, because no case sat exactly on the line. Tests of candles exactly on every line were added; the change is now caught.
+- **The panel was too cramped at a narrow window:** values were cut off. The rule names are now short, and the full wording is in each row's tooltip.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_trigger.py
+node --test web/tests/trigger.test.mjs
+```
+
+## 9 Nov 2026: order flow, Phase 7 (position tool with costs), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "start phase 7". The brief:
+- **Inputs:** account size, risk %, entry, stop and target.
+- **Outputs:** stop in pips, lot size, R:R and cost in R.
+- **Cost per round trip:** spread from the data, $4 a lot commission (with a per-side toggle), and slippage (0.2 pip).
+- **Warnings:** stop under or over the pair's limits; target under 2R (Model A) or 1.5R (Model B).
+- **R always after costs.**
+
+**Built (Claude):**
+- **The sums, twice:** `forex_replay/costs.py` and `web/js/costs.js`, with `forex_replay/costs_golden.py`.
+- **The Long/Short drawings** show the costs and R after costs on their labels, with a warning line when needed (`drawings.js`, `main.js`).
+- **"Charged per side"** is a new account setting, applied by the account itself (`account.js`, `tradingpanel.js`).
+- **Position tool settings** under Account settings: slippage, model, target minimums, stop limits for the pair.
+- See [decision 0039](decisions/0039-position-costs.md).
+
+**Tests:** 5 new Python tests (168 in total) and 6 new JavaScript tests (224 in total).
+- **Golden:** 240 cases.
+- **Hand examples:** size, costs, R after costs, per side, shorts, wrong sides, each warning, USDJPY sizing.
+- **The account** charges twice when "per side" is on.
+- **The labels:** the costs appear, and the warning line never overlaps the stop's label.
+
+**Checked in the browser:**
+- **EURUSD, 10-pip stop:** 1.00 lots, $100 of risk, costs 0.06R ($6.00), 1.94R after costs at the 2.00R target, Model A's warning.
+- **With a 4.4-pip stop and per side on:** 2.27 lots, costs 0.23R ($22.70), 4.32R after costs, "stop under 6 pips".
+- **Gold, $1.00 stop:** 1.00 lots, $100, costs 0.48R ($48.00), both warnings.
+- **Cleaned up:** "per side" was turned back off, the tool's settings reset, and the two test drawings removed. No replay was saved.
+
+**Found along the way:**
+- **The warnings ran the entry label off the chart,** and then overlapped the stop's label on a short box. They now sit on their own line beyond the stop's label.
+- **A blank maximum stop** was stored as a number the settings refused, which would have quietly brought back the 20-pip limit. Fixed.
+
+**Open for Jeevesh:**
+- Should the journal's R also be after costs?
+- Should risk default to the brief's 0.5% or stay at 1%?
+- Should the ticket show the cost line?
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_costs.py
+node --test web/tests/costs.test.mjs web/tests/account.test.mjs
+```
+
+## 9 Nov 2026: order flow, Phase 8 (trade logger and Excel export), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "continue". The brief:
+- **On every trade:** store it, and export to .xlsx, appending to an existing log workbook format if there is one, otherwise making one.
+- **The fields:**
+  - the trade: date, pair, session, model
+  - the state and its deciding 30-minute close
+  - the LVN zone and its retracement, and whether it is near an old VAH or VAL
+  - the trigger stats
+  - entry, stop, target, stop pips, lots
+  - cost in R, result after costs, MFE and MAE
+  - whether POC was reached, the exit reason, tags and the screenshot path
+- **Logging a trade takes under 10 seconds,** with everything the app knows filled in.
+
+**Built (Claude):**
+- **The log itself:** `forex_replay/oflog.py`, a new strategy log "orderflow" writing `orderflow_log.csv` and `OrderFlow_Backtest_Log.xlsx` on every save. Only the workbook's Log sheet is rewritten. It works out every field from the saved session with the Phase 2–7 definitions, at the moment the order was placed.
+- **Reading the data:** `flow.read_flow` reads the browser's order-flow files.
+- **Wired in:**
+  - **The logger lists:** `strategy_folders.py`, `strategies.js`.
+  - **The save writes it:** `backtests.run_logger`.
+  - **The rebuild command:** `python -m forex_replay orderflow <strategy>`.
+- **The questions:** a new order-flow strategy gets two checklist questions, Model (A/B) and Exit reason when the app cannot tell. The brief's preset tags join the journal box's suggestions.
+- **Saves carry the order-flow settings in use** (`backtest.snapshot`, `main.js`), so the log measures with your settings.
+- See [decision 0040](decisions/0040-orderflow-log.md).
+
+**Tests:** 9 new Python tests (177 in total) and 1 new JavaScript test (225 in total).
+- **A made-up market where every answer is known:**
+  - state and its close
+  - costs and the result after costs
+  - the trigger candle (the closed one, with its last minute)
+  - POC reached y / n / pending
+  - every exit reason, and your answer replacing it
+  - the LVN zone and its leg from a profile drawing
+- **The files:** the CSV, and the workbook keeping your own sheets.
+- **The default checklist.**
+- **A save carries the settings.**
+
+**Checked in the browser, end to end:**
+1. Made a test strategy with the log; it got the two questions.
+2. Took a long limit on EURUSD on 13 Oct 2026; it closed at its target (+2.00R).
+3. Answered model A, tagged "news day", and left the replay.
+4. The CSV and the workbook (46 columns) held it all:
+   - **State:** rejected below, decided at 07:30 IST.
+   - **The trigger numbers:** for the 10:50 IST candle, exactly the panel's (body 44%, range 1.46×, close at 4%, RVOL 0.87).
+   - **Costs:** 0.060R, and 1.94R after costs.
+   - **POC:** reached.
+   - **Screenshots:** both.
+5. **Speed:** the same trade from Python on real data took 1.8 seconds and gave the same numbers.
+6. **Cleaned up:** the test strategy folder and the remembered strategy choice were removed after the server stopped.
+
+**Found along the way:**
+- **Not caught at first:** measuring the decision at the start of the order's minute instead of its close was not caught by the first tests, because the made-up candle came out the same either way. A check that tells them apart (the candle's close at 58% of its range, not 50%) was added; it is caught now.
+- **My own test was wrong once:** about where the profile's leg starts. Day 2's first minute opens at day 1's last close, so the leg begins lower. The code was right.
+- **A made-up time after the data ends** gives blank trigger columns, as it should. I checked this rather than assume it.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_oflog.py
+python -m forex_replay orderflow <strategy>
+```
+
+## 9 Nov 2026: order flow, cleanup before Phase 9, on the `orderflow` branch
+
+**Asked for (Jeevesh):** "does building phase 7 and 8 made a copy for all the features we already had", then "yes do the cleanup first, then phase 9".
+
+**What was checked:** Phases 7 and 8 reuse the app's own position drawing, account sizing and commission, and the logs' save hook, columns, journal box and checklist. Four repeats were found.
+
+**Done (Claude):**
+- **Dollars per point:** `point_value` moved from `oflog.py` into `costs.py`, and is now held to the app's `account.js` `pointValueFor` by 30 golden cases, USDJPY included. Before, nothing tested it.
+- **One ATR in Python:** `loglib.wilder_atr` now calls `indicator_golden.atr`, the definition the chart's ATR is held to. Before switching, the two were compared on 200 random cases and all 89,640 EURUSD 5-minute candles: no difference at all. The NBB and sweep logs' tests still pass.
+- **One session definition for v2 in Python:** `sessions.STANDARD` (Asia, London, New York, each in its own city's clock), held to `web/js/sessions.js`'s standard set by a test that reads that file. The log uses it, and so will the backtester. The old v1 `SESSIONS` (broker clock) stay for v1.
+- **Left as it was:** `checklist_log.csv`, which repeats the Model and Exit answers for an order-flow strategy; harmless.
+
+**Tests:** 179 Python and 226 JavaScript, all passing.
+- **My test was wrong once:** it forgot that Tokyo opens at 00:00 UTC.
+
+## 9 Nov 2026: order flow, Phase 9 (mechanical backtester), on the `orderflow` branch
+
+**Asked for (Jeevesh):** "yes do the cleanup first, then phase 9".
+- **Models A and B** with every parameter in a YAML file.
+- **Trades** in the Phase 8 log format.
+- **A summary:** trades, win rate, expectancy after costs, profit factor, max drawdown at 0.5% risk, longest losing streak, results by pair, session, model and tag, and the rejection → POC rate.
+- **Management and limits** as the brief lists them.
+- **A mode that checks your manual trades against the rules.**
+
+**Built (Claude):**
+- **The package `forex_replay/mechanical/`:**
+  - `config.py`: defaults, the YAML, `--set`
+  - `engine.py`: Models A and B, management and limits, on `broker.py` and the Phase 2–7 definitions
+  - `report.py`: files and the summary, through `oflog.trade_row` and `stats.py`
+  - `compare.py`: your trades against the rules
+- **`configs/mechanical.yaml`** (every number) and **`configs/news.csv`** (empty: yours to fill).
+- **The command:** `python -m forex_replay mbt run|compare`. Output goes to `mechanical_output/` (gitignored).
+- **`profile.server_day`** now remembers each hour's answer: the same results, twice as fast.
+- See [decision 0041](decisions/0041-mechanical-backtester.md).
+
+**Tests:** 9 new Python tests (188 in total); JavaScript unchanged (226).
+- **A made-up market where Model A must trade:**
+  - the trigger, the stop under the zone
+  - breakeven at +1R to entry + costs, stopped at 0.00R after costs
+  - the same decision with later data cut away
+- **Limits, news, settings,** and the comparison (same, different, yours only).
+- **Broken on purpose:** breakeven without costs, and a stop ignoring the zone; each caught.
+
+**Run on real data (baseline settings):**
+- **EURUSD,** 28 Aug 2025 to 14 Oct 2026:
+  - 4 trades, all losses or breakeven: −3.26R after costs, 1.60% drawdown
+  - 756 setups or triggers turned down, with reasons; the four trigger rules together are rarely met (decision 0041 has the counts)
+- **XAUUSD:** no trades in its month of usable history.
+- **Rejections:** 567 of 942 (60%) reached the prior POC.
+- **Comparison on "marco"** (read only): 37 of your trades and 1 trade only the rules took, each with a reason.
+
+**Found along the way:**
+- **The log's LVN differed from the engine's:** the saved profile ran on past the setup. It now ends where the engine read it.
+- **Finding the trading day was slow,** and is now remembered per hour.
+- **Three mistakes in my made-up market;** the engine was right each time.
+
+**How to check:**
+
+```bash
+python -m pytest tests/test_mechanical.py
+python -m forex_replay mbt run --name baseline
+python -m forex_replay mbt run --name loose --set trigger.min_rvol=1.2
+```
+
+## 10 Nov 2026: order flow, a live Bubbles control, on the `orderflow` branch
+
+**Asked for (Jeevesh):** "Give me the control ... I can test by how much multiple of volumes I will want bubbles to form not a fix one like 1x,2x,3x".
+
+**Built (Claude):**
+- **A Bubbles panel** in the side panel, shown when bubbles or absorption are on:
+  - a **slider and a number box** for the RVOL multiple a bubble forms from, any value from 0.5x to two decimals; the chart follows while you drag
+  - the **medium and large size** thresholds
+  - the **price moves in pips** (a bubble's minimum and absorption's maximum)
+  - a **count** of the bubbles and absorption on screen
+- **The bottom of the range** went from 1x to 0.5x (`cleanFlowLayer`, the Order flow dialog). Changes are saved as before.
+- **The backtester** already took any value: `--set bubbles.min_rvol=2.35`.
+
+**Tests:** 1 new JavaScript test (227 in total): 2.35x kept, 0.5x accepted, 0.4x refused, a 2.4x bucket a bubble from 2.35x but not from 3x. Python unchanged (188).
+
+**Checked in the browser** (EURUSD M5, 14 Oct 2026; on port 8766, since 8765 was in use):
+- **At 3x:** 0 bubbles and 60 absorption on screen.
+- **At 1.6x:** 1 bubble and 265 absorption, as the slider moved.
+- **Typed values:** 2.35x was kept exactly, and a 0.8-pip bubble move was saved as 0.00008.
+- **Cleaned up:** the settings were reset afterwards.
+
+## 10 Nov 2026: order flow, finer volume profiles, on the `orderflow` branch
+
+**Asked for (Jeevesh):** "also make the volume profiles more finer".
+
+**Built (Claude):**
+- **Finer by default:** profiles you draw now start at 0.2 pip on EURUSD and $0.10 on gold (`FINE_BINS`), instead of 1 pip and $0.50. Profiles already drawn keep their own bin.
+- **A Detail slider** in the bar under a selected profile, from 0.05 pip (half a point, the finest the data has) to 20 pips, on a log scale.
+  - **While you drag,** the profile redraws.
+  - **When you let go,** it is one change: one Ctrl + Z undoes the whole drag.
+- **Two separate bins** (Claude's call):
+  - **The prior day's levels, naked POCs and the market state** keep their own bin (1 pip / $0.50), so their numbers, the backtester and the order-flow log do not change.
+  - **The Order flow dialog** now has a field for each: "Bin size" for new profiles, and "Bin for these levels and the market state".
+- **Fine bars** (under 4 pixels tall) are drawn without the 1-pixel gap, which would otherwise eat them.
+
+**Tests:** 1 new JavaScript test, and 1 extended (228 in total).
+- **The defaults:** fine for new profiles; your own choice wins; the levels' bin is kept separately.
+- **The slider's scale:** there and back, and clamped.
+- **Fine bars:** touch with no gap.
+
+Python unchanged (188).
+
+**Checked in the browser** (EURUSD M5, 14 Oct 2026, on port 8766):
+- **A new fixed range profile** came out at 0.20 pip.
+- **Dragged to 0.05 pip,** the histogram was smooth, and the drawing saved 0.000005.
+- **One Ctrl + Z** brought back 0.00002.
+- **The dialog** showed 0.00002 for new profiles and 0.0001 for the levels.
+- **Cleaned up:** the drawing and settings were removed afterwards.

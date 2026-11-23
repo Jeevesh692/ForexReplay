@@ -8,6 +8,7 @@
 // works out what to draw (`layout`) and what is under the mouse (`hit`), so both can
 // be tested without a browser. drawinglayer.js does the actual painting and mouse work.
 
+import { cleanProfileSettings, profileLayout } from "./profiletool.js";
 import { indexAtOrBefore } from "./timeframes.js";
 
 export const STORAGE_PREFIX = "forexreplay.drawings.";
@@ -49,6 +50,9 @@ export const TOOLS = Object.freeze({
   long: { clicks: 1, label: "Long position", styled: false },
   short: { clicks: 1, label: "Short position", styled: false },
   text: { clicks: 1, label: "Text", styled: true },
+  // Volume profiles (order flow, Phase 3; profiletool.js): a fixed time range, or anchored and growing to now.
+  vprofile: { clicks: 2, label: "Fixed range profile", styled: false },
+  aprofile: { clicks: 1, label: "Anchored profile", styled: false },
 });
 
 /** Colours a drawing may have (the first is the default), and its line styles. */
@@ -56,7 +60,8 @@ export const PALETTE = ["#2962ff", "#26a69a", "#ef5350", "#f5a623", "#ab47bc", "
 export const LINE_STYLES = ["solid", "dashed", "dotted"];
 export const MAX_TEXT = 200;
 
-const ONE_POINT = new Set(["hline", "hray", "vline", "text"]);
+const ONE_POINT = new Set(["hline", "hray", "vline", "text", "aprofile"]);
+const isProfile = (type) => type === "vprofile" || type === "aprofile";
 const isPosition = (type) => type === "long" || type === "short";
 const whole = (value) => Number.isInteger(value);
 
@@ -109,6 +114,19 @@ export function timeToLogical(candles, tfSeconds, time) {
   return indexAtOrBefore(candles, time);
 }
 
+/**
+ * The pixel x of a logical position that may fall between candles (a time part-way into a candle past the
+ * last one, such as the replay's cursor). The chart library answers only whole positions there (null for a
+ * fraction, which was drawn at the left edge), so this goes between the two whole ones.
+ */
+export function logicalToX(scale, logical) {
+  const a = Math.floor(logical);
+  const xa = scale.logicalToCoordinate(a);
+  if (logical === a || xa === null) return xa;
+  const xb = scale.logicalToCoordinate(a + 1);
+  return xb === null ? xa : xa + (xb - xa) * (logical - a);
+}
+
 export function logicalToTime(candles, tfSeconds, logical) {
   const n = candles.length;
   const i = Math.round(logical);
@@ -126,6 +144,7 @@ export function logicalToTime(candles, tfSeconds, logical) {
 export function createDrawing(type, point, defaults) {
   const p = { time: point.time, price: point.price };
   if (type === "text") return { type, points: [p], text: "" };
+  if (isProfile(type)) return { type, points: type === "aprofile" ? [p] : [p, { ...p }], profile: { ...defaults.profile } };
   if (ONE_POINT.has(type)) return { type, points: [p] };
   if (isPosition(type)) {
     const direction = type === "long" ? 1 : -1;
@@ -227,6 +246,7 @@ export function positionStats(d) {
  * Colours are not decided here: painting uses the drawing's own colour for the roles "line", "fill" and "text".
  */
 export function layout(d, proj) {
+  if (isProfile(d.type)) return profileLayout(d, proj, proj.profile ? proj.profile(d) : null);
   const out = { lines: [], boxes: [], labels: [], handles: [] };
   const X = (time) => proj.x(time), Y = (price) => proj.y(price);
   const box = (xa, ya, xb, yb, role) => out.boxes.push({
@@ -309,17 +329,26 @@ export function layout(d, proj) {
     const right = Math.max(x0 + 1, Math.min(x1, proj.width - 10));
     const middle = (x0 + right) / 2;
     const above = (y, other) => (y < other ? y - 5 : y + 14); // put the text outside the box
+    // The note (main.js) adds to each line: a string for the entry line, or { entry, target, stop } (costs, Phase 7).
+    const raw = proj.note ? proj.note(d) : "";
+    const note = typeof raw === "string" ? { entry: raw } : raw || {};
+    const more = (text) => (text ? ` · ${text}` : "");
     out.labels.push({ x: middle, y: above(yTarget, yEntry), align: "center", role: "profit",
-      text: `Target ${proj.formatPrice(d.target)} · ${proj.pips(stats.reward).toFixed(1)} pips · ${stats.ratio.toFixed(2)}R` });
+      text: `Target ${proj.formatPrice(d.target)} · ${proj.pips(stats.reward).toFixed(1)} pips · ${stats.ratio.toFixed(2)}R${more(note.target)}` });
     out.labels.push({ x: middle, y: above(yStop, yEntry), align: "center", role: "loss",
-      text: `Stop ${proj.formatPrice(d.stop)} · ${proj.pips(stats.risk).toFixed(1)} pips` });
-    const note = proj.note ? proj.note(d) : "";
+      text: `Stop ${proj.formatPrice(d.stop)} · ${proj.pips(stats.risk).toFixed(1)} pips${more(note.stop)}` });
     out.labels.push({ x: middle, y: yEntry - 5, align: "center", role: "entry",
-      text: `${d.type === "long" ? "Long" : "Short"} ${proj.formatPrice(entry.price)}${note ? ` · ${note}` : ""}` });
+      text: `${d.type === "long" ? "Long" : "Short"} ${proj.formatPrice(entry.price)}${more(note.entry)}` });
+    let placed = 3;
+    if (note.warn) { // warnings (stop limits, target too small) on a line of their own, one line beyond the stop's label
+      const stopY = above(yStop, yEntry);
+      out.labels.push({ x: middle, y: stopY + (yStop < yEntry ? -13 : 13), align: "center", role: "loss", text: note.warn });
+      placed = 4;
+    }
     // The stop and target handles sit in the middle of their edges, away from the entry handle.
     // Labels are centred on the visible part, but never run past the right edge into the price scale.
     if (proj.textWidth) {
-      for (const label of out.labels.slice(-3)) {
+      for (const label of out.labels.slice(-placed)) {
         const half = proj.textWidth(label.text) / 2;
         label.x = Math.min(Math.max(x0 + half, label.x), proj.width - 4 - half); // the right edge wins over the box's left edge
       }
@@ -388,6 +417,7 @@ export function cleanDrawing(raw) {
     if (levels) d.levels = levels;
     if (raw.ote === false) d.ote = false;
   }
+  if (isProfile(raw.type)) d.profile = cleanProfileSettings(raw.profile);
   if (isPosition(raw.type)) {
     const direction = raw.type === "long" ? 1 : -1;
     const entry = points[0].price;

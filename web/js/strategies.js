@@ -7,6 +7,7 @@ export const LOGGERS = [
   { id: "none", label: "No automatic log", file: "" },
   { id: "nbb", label: "NBB (Market Maker + OTE)", file: "nbb_log.csv" },
   { id: "sweep", label: "Liquidity sweep (NY session)", file: "sweep_log.csv" },
+  { id: "orderflow", label: "Order flow (AMT, Models A/B)", file: "orderflow_log.csv + .xlsx" },
 ];
 import { validateJump } from "./jump.js";
 

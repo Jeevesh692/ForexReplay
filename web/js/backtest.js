@@ -114,7 +114,7 @@ export function resultOf(trading) {
  * Everything needed to save the run that is on screen.
  * `meta` = { id, name, journal, created, startTime }; `clock` must still be in the replay.
  */
-export function snapshot(meta, { trading, drawings, notes = null, m5, clock, manifest, timeframe }) {
+export function snapshot(meta, { trading, drawings, notes = null, m5, clock, manifest, timeframe, orderflow = null }) {
   return {
     version: FORMAT_VERSION,
     ...meta,
@@ -132,6 +132,9 @@ export function snapshot(meta, { trading, drawings, notes = null, m5, clock, man
     // Each trade carries its note, tags and screenshot names too, for the journal CSV.
     trades: trading.broker.trades.map((t) => ({ ...tradeRecord(t, m5, trading.account), ...(notes ? notes.get(t.id) : {}) })),
     result: resultOf(trading),
+    // The order-flow settings in use (trigger, costs, market state, bubbles), so the order-flow log measures
+    // what you saw (forex_replay/oflog.py). Absent before Phase 8.
+    ...(orderflow ? { orderflow } : {}),
   };
 }
 

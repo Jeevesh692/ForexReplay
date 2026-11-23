@@ -10,7 +10,8 @@ export const MAX_TAG = 24;
 export const MAX_SCREENSHOTS = 12;
 export const MAX_ANSWERS = 30, MAX_ANSWER = 40;
 const ANSWER_KEY = /^[a-z0-9_]{1,40}$/; // a checklist question's id (strategies.js)
-export const SUGGESTED_TAGS = ["A+ setup", "followed plan", "broke rules", "FOMO", "early exit", "late entry", "news"];
+export const SUGGESTED_TAGS = ["A+ setup", "followed plan", "broke rules", "FOMO", "early exit", "late entry", "news",
+  "A+ double failure", "early-BE variant", "news day"]; // the last three: the order-flow brief's presets (Phase 8)
 
 const IMAGE_NAME = /^[A-Za-z0-9_-]{1,80}\.png$/; // the same rule as the server's
 

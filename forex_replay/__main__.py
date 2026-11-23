@@ -104,16 +104,71 @@ def cmd_site(args) -> None:
 
 def cmd_log(args) -> None:
     """Rebuild a strategy's automatic log (nbb or sweep) from every saved session."""
-    from . import loglib, nbb, sweep
+    from . import loglib, nbb, oflog, sweep
     from .backtests import check_name
 
-    module = {"nbb": nbb, "sweep": sweep}[args.command]
+    module = {"nbb": nbb, "sweep": sweep, "orderflow": oflog}[args.command]
     folder = JOURNALS_DIR / check_name(args.strategy, "A strategy name")
     if not folder.is_dir():
         raise SystemExit(f"No strategy folder {folder}")
+    if module is oflog:  # each session on its own pair's candles
+        totals = oflog.rebuild(folder)
+        print(f"{folder / oflog.LOG_FILE} and {oflog.WORKBOOK}: {totals['trades']} trades from {totals['sessions']} saved sessions")
+        return
     totals = module.rebuild(folder, loglib.load_base())
     print(f"{folder / module.LOG_FILE}: {totals['trades']} trades; {folder / module.DAYS_FILE}: {totals['days']} days; "
           f"from {totals['sessions']} saved sessions")
+
+
+def cmd_mbt(args) -> None:
+    """Order flow, Phase 9: the mechanical backtester (Models A and B), or your manual trades against it."""
+    from .mechanical import config as mconfig
+
+    config = mconfig.load(args.config, args.set)
+    if args.name:
+        config["name"] = args.name
+    if args.date_from:
+        config["from"] = args.date_from
+    if args.date_to:
+        config["to"] = args.date_to
+    if args.action == "run":
+        from .mechanical.report import run
+
+        summary = run(config, args.pairs)
+        if summary["trades"]:
+            print(f"{summary['trades']} trades, win rate {summary['win_rate']:.1%}, expectancy {summary['expectancy_r']:+.3f}R "
+                  f"after costs, profit factor {summary['profit_factor']:.2f}, max drawdown {summary['max_drawdown_percent']:.2f}%")
+        else:
+            print("No trades.")
+        print(f"Files in {summary['folder']}")
+    else:
+        from .mechanical.compare import compare
+
+        result = compare(args.strategy, config)
+        print(result["text"])
+
+
+def cmd_ticks(args) -> None:
+    """Order flow, Phase 1: download FundedNext's bid/ask ticks through MT5 (cached per server day)."""
+    from datetime import date
+
+    from .ticks import download
+
+    end = date.fromisoformat(args.date_to) if args.date_to else None
+    download(args.symbols, date.fromisoformat(args.date_from), end)
+
+
+def cmd_flow(args) -> None:
+    """Order flow, Phase 1: build M1 bars, 15-second buckets, baselines and the quality report from the cached ticks."""
+    from .flow import FLOW_DIR, biggest_file, build
+
+    for symbol in args.symbols:
+        m = build(symbol)
+        d = m["datasets"]
+        print(f"{symbol}: M1 {d['M1']['count']:,} bars, S15 {d['S15']['count']:,} buckets, "
+              f"{len(d['M1']['months'])} months; biggest file {biggest_file(m) / 1e6:.1f} MB; "
+              f"quality: {m['quality']['gaps']} gaps, {m['quality']['zero_tick_minutes']:,} zero-tick minutes, "
+              f"{m['quality']['spread_spikes']} spread spikes (see {FLOW_DIR / (symbol + '_quality.md')})")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -164,7 +219,31 @@ def build_parser() -> argparse.ArgumentParser:
     site.add_argument("--out", default="_site", help="folder to write the website into")
     site.set_defaults(func=cmd_site)
 
-    for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv")):
+    ticks = sub.add_parser("ticks", help="order flow: download bid/ask ticks from the MT5 terminal (must be logged in)")
+    ticks.add_argument("action", choices=["download"])
+    ticks.add_argument("symbols", nargs="+", help="e.g. EURUSD XAUUSD")
+    ticks.add_argument("--from", dest="date_from", default="2025-08-01", help="first broker-server day")
+    ticks.add_argument("--to", dest="date_to", help="last broker-server day (default today)")
+    ticks.set_defaults(func=cmd_ticks)
+
+    flow = sub.add_parser("flow", help="order flow: build M1 bars, 15-second buckets and baselines from cached ticks")
+    flow.add_argument("action", choices=["build"])
+    flow.add_argument("symbols", nargs="+", help="e.g. EURUSD XAUUSD")
+    flow.set_defaults(func=cmd_flow)
+
+    mbt = sub.add_parser("mbt", help="order flow: the mechanical backtester (Models A and B), or your trades against it")
+    mbt.add_argument("action", choices=["run", "compare"])
+    mbt.add_argument("strategy", nargs="?", help="compare: the strategy folder whose saved sessions to check")
+    mbt.add_argument("--config", default="configs/mechanical.yaml")
+    mbt.add_argument("--set", action="append", default=[], help="override one setting, e.g. --set model_a.leg_atr=2.5")
+    mbt.add_argument("--name", help="the run's name (its output folder)")
+    mbt.add_argument("--pairs", nargs="+")
+    mbt.add_argument("--from", dest="date_from")
+    mbt.add_argument("--to", dest="date_to")
+    mbt.set_defaults(func=cmd_mbt)
+
+    for name, files in (("nbb", "nbb_log.csv, nbb_days.csv"), ("sweep", "sweep_log.csv, sweep_days.csv"),
+                        ("orderflow", "orderflow_log.csv, OrderFlow_Backtest_Log.xlsx")):
         log = sub.add_parser(name, help=f"rebuild a strategy's {name} log ({files}) from its saved sessions")
         log.add_argument("strategy", help="the strategy's folder name under strategies/, e.g. liquidity_sweep")
         log.set_defaults(func=cmd_log)

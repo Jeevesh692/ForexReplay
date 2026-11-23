@@ -31,6 +31,7 @@
     <button class="plain toggle" id="sessions-toggle" title="Show or hide session shading (M5 to H1)">Sessions</button>
     <button class="plain" id="sessions-settings" title="Session settings: names, timezones, hours, colours" aria-label="Session settings">&#9881;</button>
     <button class="plain toggle" id="indicators-open" title="Indicators: SMA, EMA, VWAP and RSI">Indicators</button>
+    <button class="plain toggle" id="flow-open" title="Order flow: volume profile settings, the prior day's levels and naked POCs">Order flow</button>
     <button class="plain toggle" id="layout-toggle" title="Two charts side by side, on the same replay clock">&#9707; 2 charts</button>
     <div class="spacer"></div>
     <div class="clock" id="clock"></div>
@@ -80,6 +81,10 @@
       <svg viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="5"/><rect x="5" y="11" width="14" height="9"/><path d="M12 13v4.5M10 15.5l2 2 2-2"/></svg></button>
     <button data-tool="text" title="Text note: click where it goes, type, press Enter. Double-click a note to change it (Alt + N)">
       <svg viewBox="0 0 24 24"><path d="M6 6h12M12 6v13M9.5 19h5"/></svg></button>
+    <button data-tool="vprofile" title="Fixed range volume profile: click the start candle, then the end candle (Alt + P)">
+      <svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M4 6h6M4 9h10M4 12h14M4 15h8M4 18h4"/></svg></button>
+    <button data-tool="aprofile" title="Anchored volume profile: click the start; it grows with the replay (Alt + A)">
+      <svg viewBox="0 0 24 24"><path d="M4 4v16M4 7h5M4 10h9M4 13h12M4 16h7M18 12h3M19.5 10.5l1.5 1.5-1.5 1.5"/></svg></button>
     <span class="tools-gap"></span>
     <button id="magnet" title="Magnet: a point near a candle's open, high, low or close jumps onto it (Alt + M). Hold Ctrl to flip it for one move">
       <svg viewBox="0 0 24 24"><path d="M6 4v8a6 6 0 0 0 12 0V4M6 8h3M15 8h3M9 4v8a3 3 0 0 0 6 0V4"/></svg></button>
@@ -100,6 +105,7 @@
       <div class="legend" id="legend"></div>
       <div class="hint" id="hint" hidden></div>
       <div class="setup-card" id="setup-card" hidden></div>
+      <div class="state-box" id="state-box" hidden></div>
       <input class="text-editor" id="text-editor" type="text" autocomplete="off" hidden aria-label="Text note">
       <div class="draw-bar" id="draw-bar" hidden>
         <span id="draw-bar-text"></span>
@@ -111,6 +117,9 @@
         </span>
         <button class="plain small" id="draw-edit-text" title="Change the text (or double-click the note)" hidden>Edit text</button>
         <button class="plain small" id="draw-fib-levels" title="Choose this Fibonacci's levels" hidden>Levels</button>
+        <button class="plain small" id="draw-profile" title="This profile's bin size, value area, LVN level, colours and more" hidden>Profile settings</button>
+        <label class="draw-detail" id="draw-detail" title="Detail: how tall each of the profile's bars is. Left: finer." hidden>Detail
+          <input type="range" id="draw-detail-range" min="-1.31" max="1.31" step="0.01"><span id="draw-detail-text"></span></label>
         <span class="draw-levels" id="draw-levels" hidden>
           <label title="Stop loss price: type it, then Enter">SL <input id="draw-stop" inputmode="decimal" autocomplete="off"></label>
           <label title="Take profit price: type it, then Enter">TP <input id="draw-target" inputmode="decimal" autocomplete="off"></label>
@@ -234,6 +243,37 @@
         <p class="muted small" id="challenge-detail"></p>
       </div>
     </section>
+    <details class="trigger-panel bubble-panel" id="bubble-panel" open hidden>
+      <summary><b>Bubbles</b> <span class="muted" id="bubble-count"></span></summary>
+      <div class="bubble-form">
+        <label class="bubble-main">Form from RVOL
+          <input type="range" id="bub-rvol-range" min="0.5" max="15" step="0.05">
+          <input type="number" id="bub-rvol" min="0.5" max="50" step="0.05">x</label>
+        <label>Medium from <input type="number" id="bub-medium" min="0.5" max="100" step="0.1">x</label>
+        <label>Large from <input type="number" id="bub-large" min="0.5" max="200" step="0.1">x</label>
+        <label>Bubble: price moved at least <input type="number" id="bub-move" min="0" step="0.1"> pips</label>
+        <label>Absorption: moved at most <input type="number" id="bub-absorb" min="0" step="0.05"> pips</label>
+        <p class="muted small">RVOL = a 15-second bucket's ticks against the same 15 seconds over the last 20 days. Drag to see the chart change; the setting is kept.</p>
+      </div>
+    </details>
+    <details class="trigger-panel" id="trigger-panel" open>
+      <summary><b>Trigger 5m</b> <span class="trigger-light" id="trigger-light"></span> <span class="muted" id="trigger-summary"></span></summary>
+      <div class="trigger-head">
+        <div class="segmented trigger-sides"><button type="button" data-side="long" class="buy">Long</button><button type="button" data-side="short" class="sell">Short</button></div>
+        <span class="muted small" id="trigger-candle"></span>
+      </div>
+      <table class="trigger-table"><tbody id="trigger-rows"></tbody></table>
+      <details class="trigger-settings">
+        <summary class="muted small">Settings</summary>
+        <div class="trigger-form">
+          <label>Body ≥ <input type="number" id="trig-body" min="5" max="100" step="5">%</label>
+          <label>Range ≥ <input type="number" id="trig-range" min="0.1" max="10" step="0.1">× ATR(<input type="number" id="trig-atr" min="2" max="200" step="1">)</label>
+          <label>Close in the <input type="number" id="trig-close" min="5" max="50" step="5">% at the end</label>
+          <label>RVOL ≥ <input type="number" id="trig-rvol" min="0" max="50" step="0.1">x</label>
+          <label>Bubble ≥ <input type="number" id="trig-bubble" min="1" max="50" step="0.5">x</label>
+        </div>
+      </details>
+    </details>
     <details class="adr-plan" id="adr-plan" open>
       <summary><b>ADR plan</b> <span class="muted" id="adr-summary"></span></summary>
       <p class="muted small" id="adr-asof"></p>
@@ -321,10 +361,20 @@
         <span title="Round turn (in and out), charged when a trade opens">Commission ($ per lot)</span>
         <input id="set-commission" type="number" min="0" step="0.5">
       </label>
+      <label class="check small"><input type="checkbox" id="set-commission-side"> Charged per side (in and out: twice a lot)</label>
       <label class="field inline">
         <span title="The broker's recorded spread for each candle is used when it is wider than this">Minimum spread (pips)</span>
         <input id="order-spread" type="number" min="0" step="0.1">
       </label>
+      <h4 class="cost-head">Position tool (Long / Short drawings)</h4>
+      <label class="field inline"><span title="Added to each round trip in the costs; replay fills stay exact">Slippage (pips)</span>
+        <input id="cost-slippage" type="number" min="0" step="0.1"></label>
+      <label class="field inline"><span>Target at least</span>
+        <select id="cost-model"><option value="A">Model A</option><option value="B">Model B</option><option value="none">no minimum</option></select></label>
+      <label class="field inline"><span>Model A / B (R after costs)</span>
+        <span class="pair-inputs"><input id="cost-target-a" type="number" min="0" step="0.1"><input id="cost-target-b" type="number" min="0" step="0.1"></span></label>
+      <label class="field inline"><span id="cost-stop-label">Stop, pips (min / max)</span>
+        <span class="pair-inputs"><input id="cost-min-stop" type="number" min="0" step="1" placeholder="none"><input id="cost-max-stop" type="number" min="0" step="1" placeholder="none"></span></label>
       <p class="muted small">1 lot = 100,000 units, so a pip is $10 per lot. Sizes are in steps of 0.01 lots.
         Saved in this browser.</p>
     </details>
@@ -495,6 +545,56 @@
       <button type="button" class="plain bordered" id="fib-cancel">Cancel</button>
       <button type="button" class="primary" id="fib-apply">Apply</button>
     </div>
+  </dialog>
+
+  <dialog id="flow-dialog" class="dialog flow-dialog">
+    <h2 id="flow-title">Order flow</h2>
+    <p class="muted" id="flow-lead">Volume profiles are built from the order-flow bars (ticks, counted per M1 bar or 15-second bucket), never from the
+      candles on screen, and only from bars that had closed by the replay's cursor.</p>
+    <table class="grid indicator-table flow-table"><tbody>
+      <tr><td>Built from</td><td><select id="flow-source"><option value="M1">1-minute bars</option><option value="S15">15-second buckets</option></select></td></tr>
+      <tr><td>Bin size</td><td><input type="number" id="flow-bin" min="0" step="any"> <span class="muted" id="flow-bin-note"></span></td></tr>
+      <tr><td>Value area</td><td><input type="number" id="flow-va" min="10" max="99" step="1"> %</td></tr>
+      <tr><td>LVN below</td><td><input type="number" id="flow-lvn" min="1" max="95" step="1"> % of the POC (smoothed)</td></tr>
+      <tr><td>Smoothing</td><td><select id="flow-smoothing"><option value="1">none</option><option value="3">3 bins</option><option value="5">5 bins</option><option value="7">7 bins</option></select></td></tr>
+      <tr><td>Histogram</td><td><input type="number" id="flow-width" min="5" max="100" step="5"> % of the range wide, on the
+        <select id="flow-side"><option value="left">left</option><option value="right">right</option></select></td></tr>
+      <tr><td>Lines</td><td><label class="check inline-check"><input type="checkbox" id="flow-extend"> extend POC, VAH and VAL to the right</label></td></tr>
+      <tr><td>Colours</td><td>bars <input type="color" id="flow-colour"> POC <input type="color" id="flow-poc-colour"></td></tr>
+    </tbody></table>
+    <section id="flow-auto">
+      <h3 class="ind-group">Drawn for you</h3>
+      <label class="check"><input type="checkbox" id="flow-prior"> The prior trading day's POC, VAH and VAL across the current day</label>
+      <label class="check">Bin for these levels and the market state <input type="number" id="flow-level-bin" min="0" step="any" style="width:90px"> <span class="muted" id="flow-level-note"></span></label>
+      <label class="check"><input type="checkbox" id="flow-naked"> Naked POCs of the last <input type="number" id="flow-naked-days" min="1" max="30" step="1" style="width:56px"> days, until price touches them</label>
+      <p class="muted small">A trading day runs from 17:00 New York. These use the settings above and the 1-minute bars.</p>
+      <h3 class="ind-group">Market state</h3>
+      <label class="check"><input type="checkbox" id="state-on"> Accepted or rejected against the previous day's value area, in a box on the chart</label>
+      <label class="check"><input type="checkbox" id="state-labels"> and as labels on the candles (Acc ↑, Rej ↓ ...)</label>
+      <table class="grid indicator-table flow-table"><tbody>
+        <tr><td>On closes of</td><td><select id="state-tf"><option value="900">15-minute</option><option value="1800">30-minute</option><option value="3600">1-hour</option></select> candles</td></tr>
+        <tr><td>Accepted</td><td><input type="number" id="state-accept" min="1" max="6" step="1"> closes in a row outside value</td></tr>
+        <tr><td>Rejected</td><td>a close back inside within <input type="number" id="state-window" min="1" max="360" step="1"> minutes of first trading outside</td></tr>
+      </tbody></table>
+      <h3 class="ind-group">Synthetic order flow</h3>
+      <label class="check"><input type="checkbox" id="layer-show"> Show the order-flow layer (Alt + O hides or shows all of it: levels, market state, and the items below)</label>
+      <label class="check"><input type="checkbox" id="layer-rvol"> RVOL panel: each candle's ticks against the same time of day over the last 20 days</label>
+      <label class="check"><input type="checkbox" id="layer-cvd"> CVD panel: up ticks minus down ticks, added up <label class="check inline-check"><input type="checkbox" id="layer-deltaBars"> with each candle's delta as bars</label></label>
+      <label class="check"><input type="checkbox" id="layer-bubbles"> Bubbles: 15-second bursts that moved price (green up, red down)</label>
+      <label class="check"><input type="checkbox" id="layer-absorption"> Absorption: bursts that did not move price (hollow grey)</label>
+      <label class="check"><input type="checkbox" id="layer-divergence"> CVD divergence: a new high or low of the period that CVD did not confirm</label>
+      <table class="grid indicator-table flow-table"><tbody>
+        <tr><td>Bubbles from</td><td>RVOL <input type="number" id="layer-min-rvol" min="0.5" max="50" step="0.05">x · medium from <input type="number" id="layer-medium" min="1" max="100" step="0.5">x · large from <input type="number" id="layer-large" min="1" max="200" step="0.5">x</td></tr>
+        <tr><td>Moves</td><td>bubble at least <input type="number" id="layer-bubble-move" min="0" step="any">, absorption at most <input type="number" id="layer-absorption-move" min="0" step="any"> <span class="muted" id="layer-move-note"></span></td></tr>
+        <tr><td>CVD starts</td><td><select id="layer-reset"><option value="session">at each session open</option><option value="day">at each trading day (17:00 New York)</option><option value="anchor">at a candle I pick</option></select>
+          <button type="button" class="plain bordered" id="layer-anchor-pick">Pick on chart</button> <span class="muted" id="layer-anchor-note"></span></td></tr>
+        <tr><td>Divergence</td><td>CVD compared over the last <input type="number" id="layer-lookback" min="2" max="500" step="1"> candles</td></tr>
+        <tr><td>Before ticks</td><td><label class="check inline-check"><input type="checkbox" id="layer-fallback"> estimate delta from the 1-minute candles where there are no ticks yet</label></td></tr>
+      </tbody></table>
+    </section>
+    <div class="dialog-actions"><span class="muted small" id="flow-message"></span><span class="spacer"></span>
+      <button type="button" class="plain bordered" id="flow-close">Close</button>
+      <button type="button" class="primary" id="flow-save">Save</button></div>
   </dialog>
 
   <dialog id="shortcuts-dialog" class="dialog">

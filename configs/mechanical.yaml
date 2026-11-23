@@ -1,0 +1,78 @@
+# The mechanical backtester's settings (order flow, Phase 9): every rule's number, so variations need no code.
+#
+#   python -m forex_replay mbt run --config configs/mechanical.yaml
+#   python -m forex_replay mbt run --config configs/mechanical.yaml --set model_a.leg_atr=2.5 --name leg25
+#
+# Copy this file to try a variation; anything left out takes the value in forex_replay/mechanical/config.py.
+# Times of day are India time (IST), as the app shows them. Prices are prices (EURUSD 0.0001 = 1 pip).
+
+name: baseline
+pairs: [EURUSD, XAUUSD]
+from: null            # "2025-09-01" or null for the first day with order-flow data and 20 days of baseline
+to: null              # "2026-10-31" or null for the last day of data
+output: mechanical_output   # a folder; each run writes <output>/<name>/ (gitignored)
+
+account:
+  balance: 10000
+  risk_percent: 0.5
+  reduced_risk_percent: 0.25     # after 2 losses in a row, until the next win
+  losses_before_reduced: 2
+  commission_per_lot: 4.0
+  commission_per_side: false
+  slippage_pips: 0.2
+  min_spread_pips: 0.0
+
+pair_settings:                   # stop buffer and allowed stop, from the brief
+  EURUSD: {stop_buffer: 0.0001, min_stop: 0.0006, max_stop: 0.0020}
+  XAUUSD: {stop_buffer: 0.30, min_stop: 2.00, max_stop: 8.00}
+
+profile: {value_area: 0.70, smoothing: 3, lvn: 0.35}
+bins: {EURUSD: 0.0001, XAUUSD: 0.50}
+market_state: {timeframe_minutes: 30, accept_closes: 2, reject_window_minutes: 60}
+
+trigger:                         # the trigger panel's rules (Phase 6)
+  body: 0.5
+  range_atr: 1.2
+  atr_period: 14
+  close_zone: 0.25
+  min_rvol: 1.5
+  use_bubble_rule: false
+  bubble_rvol: 3.0
+bubbles: {min_rvol: 3.0, medium: 5.0, large: 8.0, bubble_move: {EURUSD: 0.00015, XAUUSD: 0.50}, absorption_move: {EURUSD: 0.00003, XAUUSD: 0.10}}
+
+model_a:                         # trend: accepted outside value, pullback into the leg's LVN
+  enabled: true
+  window: ["18:30", "21:30"]     # New York morning, IST
+  swing_bars: 2                  # a 15m swing low has this many higher lows on each side
+  swing_lookback_15m: 40
+  leg_atr: 3.0                   # skip a leg shorter than this many ATR(14) on 15m
+  retrace_min: 0.30
+  retrace_max: 0.70
+  min_target_r: 2.0              # after costs
+  naked_poc_days: 5
+  naked_poc_max_r: 4.0           # no naked POC within this: 3R and trail
+  fallback_target_r: 3.0
+  trail_after_r: 3.0
+
+model_b:                         # mean reversion: a failed break of value, back to the prior POC
+  enabled: true
+  window: ["18:30", "21:30"]
+  balanced_poc_middle: 0.50      # the prior day's POC within the middle 50% of its range
+  min_target_r: 1.5              # after costs
+  double_failure_only: false     # the "A+" variant: two failed pushes above (below) value before the reclaim
+  hold_quarter: false            # variant: keep 25% for the opposite value edge after a 30m close beyond POC
+
+management:
+  breakeven_r: 1.0               # stop to entry + round-trip cost
+  breakeven_variant: none        # none | second_displacement | cvd
+  time_stop_minutes: 45
+  time_stop_r: 0.5
+
+limits:
+  max_trades_per_session: 2
+  max_trades_per_day: 3
+  stop_day_after_losses: 2
+  stop_day_after_r: 2.0
+  stop_week_at_percent: -3.0
+  news_file: configs/news.csv    # date_utc,time_utc,currency,impact,title (impact High is skipped)
+  news_minutes: 15

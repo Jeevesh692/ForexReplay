@@ -218,3 +218,13 @@ test("helpers: candle lookup by time, ids, names the server accepts, and trade c
   assert.deepEqual(compareTrades([{ id: 1, resultR: 1 }], [{ id: 1, resultR: 1 + 1e-9 }]), []);
   assert.equal(compareTrades([{ id: 1 }], []).length, 1);
 });
+
+test("a save carries the order-flow settings in use, for the order-flow log (and older saves have none)", () => {
+  const { m5 } = randomMarket(200, 5);
+  const { clock, trading } = startRun(m5, 50);
+  const meta = { id: "bt-of", name: "of", journal: "j", created: "now", startTime: trading.startTime };
+  const args = { trading, drawings: new DrawingStore(), m5, clock, manifest: MANIFEST, timeframe: "M15" };
+  const orderflow = { trigger: { atrPeriod: 14, on: { bubble: true } }, costs: { slippagePips: 0.3 } };
+  assert.deepEqual(JSON.parse(JSON.stringify(snapshot(meta, { ...args, orderflow }))).orderflow, orderflow);
+  assert.equal("orderflow" in snapshot(meta, args), false);
+});

@@ -35,3 +35,50 @@ def session_bounds(label: str) -> tuple[int, int]:
         if name == label:
             return start, end
     raise KeyError(label)
+
+
+# ----------------------------------------------------------------- v2: the app's standard sessions
+# The browser app (web/js/sessions.js, PRESETS.standard) defines each session in its own city's clock, so it
+# follows daylight saving by itself; the order-flow log and backtester use these (UTC seconds in, labels out).
+# tests/test_sessions_v2.py holds them to sessions.js. The v1 SESSIONS above are for the v1 data clock only.
+STANDARD: tuple[tuple[str, str, int, int], ...] = (
+    ("Asia", "Asia/Tokyo", 9 * 60, 18 * 60),
+    ("London", "Europe/London", 8 * 60, 17 * 60),
+    ("New York", "America/New_York", 8 * 60, 17 * 60),
+)
+
+
+def sessions_open(utc: int) -> list[str]:
+    """The standard sessions open at a UTC second, in order (several at once in the overlaps)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    out = []
+    for label, zone, start, end in STANDARD:
+        local = datetime.fromtimestamp(int(utc), ZoneInfo(zone))
+        if start <= local.hour * 60 + local.minute < end:
+            out.append(label)
+    return out
+
+
+def session_label(utc: int) -> str:
+    """"London/New York" in the overlap, "Off session" when none is open."""
+    return "/".join(sessions_open(utc)) or "Off session"
+
+
+def session_opens(start: int, end: int) -> list[tuple[int, str]]:
+    """Every standard session open (UTC second, label) from start to end, in time order."""
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    out = []
+    day = datetime.fromtimestamp(int(start), timezone.utc).date() - timedelta(days=1)
+    last = datetime.fromtimestamp(int(end), timezone.utc).date() + timedelta(days=1)
+    while day <= last:
+        for label, zone, minutes, _ in STANDARD:
+            local = datetime(day.year, day.month, day.day, minutes // 60, minutes % 60, tzinfo=ZoneInfo(zone))
+            t = int(local.timestamp())
+            if start <= t <= end:
+                out.append((t, label))
+        day += timedelta(days=1)
+    return sorted(out)

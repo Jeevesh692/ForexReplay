@@ -52,7 +52,7 @@ export class TradingPanel {
     // Settings: each input writes one account setting, which is saved in the browser.
     const setting = (id, key) => this.el(id).addEventListener("change", (event) => {
       try {
-        saveSettings(trading.updateSettings({ [key]: event.target.value }));
+        saveSettings(trading.updateSettings({ [key]: event.target.type === "checkbox" ? event.target.checked : event.target.value }));
       } catch (err) {
         if (!(err instanceof InvalidOrder)) throw err;
         this.say(err.message, "bad");
@@ -91,6 +91,7 @@ export class TradingPanel {
     });
     balanceInput.addEventListener("blur", closeBalance);
     setting("set-commission", "commissionPerLot");
+    setting("set-commission-side", "commissionPerSide");
     setting("order-spread", "minSpreadPips");
     this.el("order-size").addEventListener("change", (event) => {
       const key = trading.account.settings.sizeMode === "risk" ? "riskPercent" : "fixedLots";
@@ -137,6 +138,7 @@ export class TradingPanel {
     const s = this.trading.account.settings;
     this.el("set-balance").value = s.startingBalance;
     this.el("set-commission").value = s.commissionPerLot;
+    this.el("set-commission-side").checked = s.commissionPerSide;
     this.el("order-spread").value = s.minSpreadPips;
     const size = this.el("order-size");
     const risk = s.sizeMode === "risk";
